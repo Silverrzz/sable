@@ -43,8 +43,8 @@ pub(super) fn try_null_move_pruning(
     };
     let reduction = null_move_reduction(params.depth);
     let null_depth = params.depth.saturating_sub(1 + reduction);
-    let null_beta = params.beta.saturating_neg();
-    let null_alpha = null_beta.saturating_sub(1);
+    let null_alpha = params.beta.saturating_neg();
+    let null_beta = null_alpha.saturating_add(1);
     context.push_null_eval_state(params.board, &null_board);
     let null_result = negamax(
         &null_board,
