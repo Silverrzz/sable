@@ -268,8 +268,9 @@ impl CandidateMove {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::search) enum MovePickerStage {
     Priority,
-    Tactical,
+    GoodTactical,
     Quiet,
+    BadTactical,
     Done,
 }
 
@@ -328,7 +329,7 @@ impl MovePicker {
         loop {
             match self.stage {
                 MovePickerStage::Priority => {
-                    self.stage = MovePickerStage::Tactical;
+                    self.stage = MovePickerStage::GoodTactical;
                     if let Some(mv) = self.priority_move {
                         for index in 0..self.len {
                             let candidate = self.get(index);
@@ -338,8 +339,8 @@ impl MovePicker {
                         }
                     }
                 }
-                MovePickerStage::Tactical => {
-                    if let Some((index, score)) = self.best_tactical(board, ordering) {
+                MovePickerStage::GoodTactical => {
+                    if let Some((index, score)) = self.best_tactical(board, ordering, false) {
                         return Some(self.take_scored(index, score));
                     }
                     self.stage = MovePickerStage::Quiet;
@@ -347,6 +348,14 @@ impl MovePicker {
                 MovePickerStage::Quiet => {
                     if self.filter == MoveFilter::All
                         && let Some((index, score)) = self.best_quiet(ordering)
+                    {
+                        return Some(self.take_scored(index, score));
+                    }
+                    self.stage = MovePickerStage::BadTactical;
+                }
+                MovePickerStage::BadTactical => {
+                    if self.filter == MoveFilter::All
+                        && let Some((index, score)) = self.best_tactical(board, ordering, true)
                     {
                         return Some(self.take_scored(index, score));
                     }
@@ -399,6 +408,7 @@ impl MovePicker {
         &mut self,
         board: &Board,
         ordering: &MoveOrdering,
+        bad_tactical: bool,
     ) -> Option<(usize, i32)> {
         let mut best = None;
         for index in 0..self.len {
@@ -406,12 +416,11 @@ impl MovePicker {
             if candidate.tried || !candidate.is_tactical() {
                 continue;
             }
-            let score = self.tactical_score(board, index, ordering);
-            if self.filter == MoveFilter::Tactical
-                && self.get(index).see.unwrap_or(0) < 0
-            {
+            let see = self.tactical_see(board, index);
+            if (see < 0) != bad_tactical {
                 continue;
             }
+            let score = self.tactical_score(board, index, ordering);
             best = pick_better_move(
                 best,
                 index,
