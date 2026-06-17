@@ -121,6 +121,7 @@ pub(in crate::search) fn negamax(
             is_pv_node,
             in_check,
             needs_full_mate_search,
+            static_eval: static_eval.corrected,
             allow_null_move,
             ply,
         },

@@ -18,6 +18,7 @@ pub(super) struct NullMoveParams<'a> {
     pub(super) is_pv_node: bool,
     pub(super) in_check: bool,
     pub(super) needs_full_mate_search: bool,
+    pub(super) static_eval: Option<i32>,
     pub(super) allow_null_move: bool,
     pub(super) ply: u16,
 }
@@ -34,6 +35,7 @@ pub(super) fn try_null_move_pruning(
             params.in_check,
             params.allow_null_move,
         )
+        || !static_eval_supports_null_move(params.static_eval, params.beta)
     {
         return PruneResult::Continue;
     }
@@ -68,4 +70,9 @@ pub(super) fn try_null_move_pruning(
     } else {
         PruneResult::Continue
     }
+}
+
+#[inline]
+fn static_eval_supports_null_move(static_eval: Option<i32>, beta: i32) -> bool {
+    static_eval.is_some_and(|eval| eval >= beta)
 }
