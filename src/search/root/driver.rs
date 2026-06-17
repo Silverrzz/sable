@@ -5,13 +5,13 @@ use std::{
 
 use crate::{
     Board, Move,
-    evaluation::{DRAW_SCORE, Evaluator},
+    evaluation::Evaluator,
 };
 
 use super::super::{
     state::{
         context::{PersistentSearchState, SearchContext, SearchContextConfig},
-        position_key::{PositionKey, is_claimable_repetition_draw},
+        position_key::PositionKey,
         transposition::TranspositionTable,
     },
     tree::scoring::terminal_score,
@@ -195,9 +195,7 @@ where
     context.set_lazy_smp_state(lazy_stop_flag, shared_nodes);
 
     let mut root = RootSearchState::new(board, candidate_moves, &budget, &mut context);
-    if root.is_repetition_terminal {
-        root.best_move = None;
-    } else if !candidate_moves.is_empty() && multi_pv > 1 {
+    if !candidate_moves.is_empty() && multi_pv > 1 {
         run_multi_pv_iterations(
             board,
             candidate_moves,
@@ -233,7 +231,6 @@ struct RootSearchState {
     best_pv: Vec<PvMove>,
     completed_depth: u32,
     time_manager: IterativeTimeManager,
-    is_repetition_terminal: bool,
 }
 
 impl RootSearchState {
@@ -243,12 +240,7 @@ impl RootSearchState {
         budget: &SearchBudget,
         context: &mut SearchContext<'_>,
     ) -> Self {
-        let claimable_draw_root = is_claimable_repetition_draw(board, context.game_history());
-        let terminal = if claimable_draw_root {
-            Some(DRAW_SCORE)
-        } else {
-            terminal_score(board, false, 0)
-        };
+        let terminal = terminal_score(board, false, 0);
         let best_score = terminal.unwrap_or_else(|| context.evaluate(board));
         Self {
             best_move: candidate_moves.first().copied(),
@@ -256,7 +248,6 @@ impl RootSearchState {
             best_pv: Vec::new(),
             completed_depth: 0,
             time_manager: IterativeTimeManager::new(budget),
-            is_repetition_terminal: terminal.is_some() && claimable_draw_root,
         }
     }
 }
