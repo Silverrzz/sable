@@ -213,10 +213,6 @@ impl<'a> SearchContext<'a> {
         self.eval.chess960
     }
 
-    pub(in crate::search) fn game_history(&self) -> &[PositionKey] {
-        &self.repetition.game_history
-    }
-
     pub(in crate::search) fn ordering(&self) -> &MoveOrdering {
         &self.heuristics.ordering
     }
