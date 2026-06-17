@@ -173,8 +173,7 @@ impl Engine {
     }
 
     pub fn set_fen_with_moves(&mut self, fen: &str, moves: &[String]) -> Result<(), EngineError> {
-        self.board = Board::from_fen(fen, self.options.uci_chess960)
-            .map_err(|_| EngineError::InvalidFen(fen.to_owned()))?;
+        self.board = parse_fen(fen, self.options.uci_chess960)?;
         self.reset_game_history();
         self.apply_moves(moves)
     }
@@ -339,5 +338,51 @@ fn should_reset_transposition_table(
         "hash" => hash_mb != previous_hash_mb,
         "eval" | "evaluation" | "evalfile" => true,
         _ => false,
+    }
+}
+
+fn parse_fen(fen: &str, chess960: bool) -> Result<Board, EngineError> {
+    match Board::from_fen(fen, chess960) {
+        Ok(board) => Ok(board),
+        Err(_) => {
+            let normalized = normalize_fen(fen);
+            if normalized == fen {
+                return Err(EngineError::InvalidFen(fen.to_owned()));
+            }
+            Board::from_fen(&normalized, chess960)
+                .map_err(|_| EngineError::InvalidFen(fen.to_owned()))
+        }
+    }
+}
+
+fn normalize_fen(fen: &str) -> String {
+    let Some((placement, rest)) = fen.split_once(' ') else {
+        return normalize_fen_placement(fen);
+    };
+    format!("{} {}", normalize_fen_placement(placement), rest)
+}
+
+fn normalize_fen_placement(placement: &str) -> String {
+    let mut normalized = String::with_capacity(placement.len());
+    let mut empty_squares = 0u32;
+
+    for char in placement.chars() {
+        match char {
+            '1'..='8' => empty_squares += char.to_digit(10).unwrap_or(0),
+            _ => {
+                flush_empty_squares(&mut normalized, &mut empty_squares);
+                normalized.push(char);
+            }
+        }
+    }
+
+    flush_empty_squares(&mut normalized, &mut empty_squares);
+    normalized
+}
+
+fn flush_empty_squares(normalized: &mut String, empty_squares: &mut u32) {
+    if *empty_squares > 0 {
+        normalized.push_str(&empty_squares.to_string());
+        *empty_squares = 0;
     }
 }
