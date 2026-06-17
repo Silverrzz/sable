@@ -62,7 +62,7 @@ An in-development personal project written in Rust designed to play Chess better
 
 ## Strength
 This section will be updated when more testing is done, from my own low-effort
-evaluations and tests I estimate Sable to be around the level of 2800 elo in STC.
+evaluations and tests I estimate Sable to be around the level of 2900 elo in STC.
 
 ## Project Details
 Sable is releasing with 1.0 in a blank repository. This is because the git repo used from 0.1.0 through to 0.61.3
@@ -77,7 +77,8 @@ A coding agent never directly touched my codebase, though while developing the c
 You can create your own Sable build with cargo build --release.
 
 ## Thanks :D
-- Many members in the Stockfish discord server for their help with my questions
+- Many members in the Stockfish discord server for their help with my questions (no particular order)
+    - Chef
     - Dr Extension
     - Matt
     - Ciekce
