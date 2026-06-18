@@ -205,8 +205,29 @@ pub(in crate::search) fn should_try_null_move(
 }
 
 #[inline]
-pub(in crate::search) fn null_move_reduction(depth: u32) -> u32 {
-    NULL_MOVE_BASE_REDUCTION + u32::from(depth >= 6)
+pub(in crate::search) fn null_move_reduction(
+    depth: u32,
+    static_eval: i32,
+    beta: i32,
+    search_profile: SearchProfile,
+) -> u32 {
+    let eval_margin = static_eval.saturating_sub(beta).max(0);
+    let eval_reduction = (eval_margin / NULL_MOVE_EVAL_MARGIN_PER_REDUCTION) as u32;
+    let mut reduction = NULL_MOVE_BASE_REDUCTION
+        .saturating_add(depth / NULL_MOVE_DEPTH_REDUCTION_DIVISOR)
+        .saturating_add(eval_reduction.min(NULL_MOVE_MAX_EVAL_REDUCTION));
+    if search_profile.sparse_pawnless_endgame() {
+        reduction = reduction.saturating_sub(NULL_MOVE_SPARSE_ENDGAME_REDUCTION_PROTECTION);
+    }
+    reduction.min(depth.saturating_sub(1))
+}
+
+#[inline]
+pub(in crate::search) fn should_verify_null_move(
+    depth: u32,
+    search_profile: SearchProfile,
+) -> bool {
+    depth >= NULL_MOVE_VERIFICATION_MIN_DEPTH || search_profile.sparse_pawnless_endgame()
 }
 
 #[inline]
