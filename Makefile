@@ -1,17 +1,21 @@
-EXE ?= sable
+ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+
+EXE ?= $(ROOT)/sable
 CARGO ?= cargo
 CC ?= cc
 EVALFILE ?=
+MANIFEST := $(ROOT)/Cargo.toml
+TARGET_DIR ?= $(ROOT)/target
 
 ifeq ($(OS),Windows_NT)
 BIN_SUFFIX := .exe
-COPY := copy /Y
-NULL := NUL
+COPY = powershell.exe -NoProfile -Command "Copy-Item -LiteralPath '$(1)' -Destination '$(2)' -Force"
 else
 BIN_SUFFIX :=
-COPY := cp -f
-NULL := /dev/null
+COPY = cp -f "$(1)" "$(2)"
 endif
+
+BUILT_EXE := $(TARGET_DIR)/release/sable-engine$(BIN_SUFFIX)
 
 CARGO_ENV :=
 ifneq ($(strip $(EVALFILE)),)
@@ -23,8 +27,8 @@ endif
 all: build
 
 build:
-	$(CARGO_ENV) $(CARGO) build --release
-	$(COPY) target/release/sable-engine$(BIN_SUFFIX) $(EXE) > $(NULL)
+	$(CARGO_ENV) $(CARGO) build --release --manifest-path "$(MANIFEST)" --target-dir "$(TARGET_DIR)"
+	$(call COPY,$(BUILT_EXE),$(EXE))
 
 clean:
-	$(CARGO) clean
+	$(CARGO) clean --manifest-path "$(MANIFEST)" --target-dir "$(TARGET_DIR)"
