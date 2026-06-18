@@ -7,18 +7,22 @@ use super::constants::*;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct SearchProfile {
-    reduce_late_quiet_checks: bool,
+    sparse_pawnless_endgame: bool,
 }
 
 impl SearchProfile {
     pub(super) fn for_board(board: &Board) -> Self {
         Self {
-            reduce_late_quiet_checks: is_sparse_pawnless_endgame(board),
+            sparse_pawnless_endgame: is_sparse_pawnless_endgame(board),
         }
     }
 
     pub(super) fn reduce_late_quiet_checks(self) -> bool {
-        self.reduce_late_quiet_checks
+        self.sparse_pawnless_endgame
+    }
+
+    pub(super) fn sparse_pawnless_endgame(self) -> bool {
+        self.sparse_pawnless_endgame
     }
 }
 
