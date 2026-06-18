@@ -1,0 +1,45 @@
+{
+    "private": false,
+    "nps": 1000000,
+    "base": "main",
+    "source": "https://github.com/Silverrzz/sable",
+
+    "build": {
+        "path": "",
+        "compilers": ["rustc>=1.85.0"],
+        "cpuflags": ["AVX2"],
+        "systems": ["Linux", "Windows"]
+    },
+
+    "test_presets": {
+
+        "default" : {
+            "base_branch"     : "master",
+            "book_name"       : "UHO_Lichess_4852_v1.epd",
+            "test_bounds"     : "[0.00, 3.00]",
+            "test_confidence" : "[0.1, 0.05]",
+            "win_adj"         : "movecount=8 score=800",
+            "draw_adj"        : "movenumber=32 movecount=10 score=0"
+        },
+
+        "STC": {
+            "options": "Threads=1 Hash=16",
+            "timecontrol": "8.0+0.08",
+            "workload_size": 32
+        },
+        "LTC": {
+            "options": "Threads=1 Hash=64",
+            "timecontrol": "40.0+0.4",
+            "workload_size": 16
+        }
+    },
+
+    "tune_presets" : {
+
+        "default" : {
+            "book_name" : "UHO_Lichess_4852_v1.epd",
+            "win_adj"   : "movecount=5 score=600",
+            "draw_adj"  : "movenumber=32 movecount=6 score=15"
+        }
+    }
+}
