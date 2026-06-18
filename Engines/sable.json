@@ -23,13 +23,13 @@
         },
 
         "STC": {
-            "options": "Threads=1 Hash=16",
-            "timecontrol": "8.0+0.08",
+            "both_options": "Threads=1 Hash=16",
+            "both_time_control": "8.0+0.08",
             "workload_size": 32
         },
         "LTC": {
-            "options": "Threads=1 Hash=64",
-            "timecontrol": "40.0+0.4",
+            "both_options": "Threads=1 Hash=64",
+            "both_time_control": "40.0+0.4",
             "workload_size": 16
         }
     },
