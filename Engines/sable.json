@@ -1,7 +1,6 @@
 {
     "private": false,
     "nps": 1000000,
-    "base": "main",
     "source": "https://github.com/Silverrzz/sable",
 
     "build": {
@@ -14,23 +13,23 @@
     "test_presets": {
 
         "default" : {
-            "base_branch"     : "master",
+            "base_branch"     : "main",
             "book_name"       : "UHO_Lichess_4852_v1.epd",
-            "test_bounds"     : "[0.00, 3.00]",
+            "test_bounds"     : "[0.00, 5.00]",
             "test_confidence" : "[0.1, 0.05]",
             "win_adj"         : "movecount=8 score=800",
             "draw_adj"        : "movenumber=32 movecount=10 score=0"
         },
 
         "STC": {
-            "options": "Threads=1 Hash=16",
-            "timecontrol": "8.0+0.08",
+            "both_options": "Threads=1 Hash=16",
+            "both_time_control": "8.0+0.08",
             "workload_size": 32
         },
         "LTC": {
-            "options": "Threads=1 Hash=64",
-            "timecontrol": "40.0+0.4",
-            "workload_size": 16
+            "both_options": "Threads=1 Hash=64",
+            "both_time_control": "40.0+0.4",
+            "workload_size": 8
         }
     },
 
