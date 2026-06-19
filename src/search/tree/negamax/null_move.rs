@@ -64,6 +64,7 @@ pub(super) fn try_null_move_pruning(
         context,
         params.ply + 1,
         false,
+        None,
     );
     context.pop_null_eval_state(params.board);
     let Some(null_result) = null_result else {
@@ -87,6 +88,7 @@ pub(super) fn try_null_move_pruning(
             context,
             params.ply,
             false,
+            None,
         );
         let Some(verification) = verification else {
             return PruneResult::Interrupted;

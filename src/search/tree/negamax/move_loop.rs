@@ -1,8 +1,10 @@
 use crate::{Board, Color, Move};
 
 use super::{
+    negamax,
     static_eval::StaticEvalState,
     super::{
+        constants::*,
         context::SearchContext,
         correction_history::should_update_correction_history,
         move_generation::{MoveFilter, collect_moves, priority_move_for_node},
@@ -12,10 +14,10 @@ use super::{
             ChildSearchParams, is_see_prune_candidate, search_child_with_lmr,
             should_futility_prune_quiet, should_prune_late_quiet, should_see_prune_capture,
         },
-        root::{PvMove, SearchOutcome, is_better_score, parent_outcome},
+        root::{PvMove, SearchOutcome, is_better_score, parent_outcome, terminal_outcome},
         search_profile::SearchProfile,
         see::{move_gives_check, static_exchange_eval},
-        transposition::{Bound, TranspositionEntry},
+        transposition::{Bound, TranspositionEntry, is_mate_score, score_from_tt},
     },
 };
 
@@ -23,6 +25,7 @@ pub(super) struct MoveLoopParams<'a> {
     pub(super) board: &'a Board,
     pub(super) previous_pv: &'a [PvMove],
     pub(super) previous_move: Option<Move>,
+    pub(super) repetition: bool,
     pub(super) depth: u32,
     pub(super) root_depth: u32,
     pub(super) alpha: i32,
@@ -33,6 +36,7 @@ pub(super) struct MoveLoopParams<'a> {
     pub(super) static_eval: StaticEvalState,
     pub(super) ply: u16,
     pub(super) tt_entry: Option<TranspositionEntry>,
+    pub(super) excluded_move: Option<Move>,
 }
 
 pub(super) struct MoveLoopResult {
@@ -47,6 +51,7 @@ pub(super) fn search_move_loop(
         board,
         previous_pv,
         previous_move,
+        repetition,
         depth,
         root_depth,
         mut alpha,
@@ -57,6 +62,7 @@ pub(super) fn search_move_loop(
         static_eval,
         ply,
         tt_entry,
+        excluded_move,
     } = params;
 
     let side = board.side_to_move();
@@ -86,6 +92,9 @@ pub(super) fn search_move_loop(
     while let Some(ordered) = moves.next(board, context.ordering()) {
         if context.should_stop().is_some() {
             return None;
+        }
+        if Some(ordered.mv) == excluded_move {
+            continue;
         }
         let capture_prune = see_capture_prune(
             SeeCapturePruneParams {
@@ -118,6 +127,23 @@ pub(super) fn search_move_loop(
         ) {
             continue;
         }
+        let extension = singular_extension(
+            SingularExtensionParams {
+                board,
+                repetition,
+                previous_move,
+                ordered,
+                depth,
+                root_depth,
+                in_check,
+                needs_full_mate_search,
+                ply,
+                tt_entry,
+                tt_move,
+                excluded_move,
+            },
+            context,
+        )?;
         let next_key = position_key(&next);
         let next_repetition = context.push_position(&next, next_key);
         context.push_eval_state(board, &next, ordered.mv);
@@ -130,7 +156,7 @@ pub(super) fn search_move_loop(
             ChildSearchParams {
                 board: &next,
                 repetition: next_repetition,
-                depth: child_depth,
+                depth: child_depth.saturating_add(extension),
                 parent_depth: depth,
                 root_depth,
                 alpha,
@@ -173,7 +199,85 @@ pub(super) fn search_move_loop(
         }
     }
 
+    if excluded_move.is_some() && best.score == i32::MIN {
+        best = terminal_outcome(alpha, false);
+    }
+
     Some(MoveLoopResult { best })
+}
+
+struct SingularExtensionParams<'a> {
+    board: &'a Board,
+    repetition: bool,
+    previous_move: Option<Move>,
+    ordered: ScoredMove,
+    depth: u32,
+    root_depth: u32,
+    in_check: bool,
+    needs_full_mate_search: bool,
+    ply: u16,
+    tt_entry: Option<TranspositionEntry>,
+    tt_move: Option<Move>,
+    excluded_move: Option<Move>,
+}
+
+fn singular_extension(
+    params: SingularExtensionParams<'_>,
+    context: &mut SearchContext<'_>,
+) -> Option<u32> {
+    if params.excluded_move.is_some()
+        || params.in_check
+        || params.needs_full_mate_search
+        || params.depth < SINGULAR_EXTENSION_MIN_DEPTH
+        || Some(params.ordered.mv) != params.tt_move
+    {
+        return Some(0);
+    }
+    let Some(entry) = params.tt_entry else {
+        return Some(0);
+    };
+    if !matches!(entry.bound, Bound::Lower | Bound::Exact)
+        || u32::from(entry.depth).saturating_add(SINGULAR_EXTENSION_TT_DEPTH_MARGIN) < params.depth
+    {
+        return Some(0);
+    }
+    let tt_score = score_from_tt(entry.score, params.ply);
+    if is_mate_score(tt_score) {
+        return Some(0);
+    }
+
+    let singular_beta = tt_score.saturating_sub(singular_extension_margin(params.depth));
+    let excluded = negamax(
+        params.board,
+        params.repetition,
+        singular_extension_search_depth(params.depth),
+        params.root_depth,
+        singular_beta.saturating_sub(1),
+        singular_beta,
+        &[],
+        params.previous_move,
+        context,
+        params.ply,
+        false,
+        Some(params.ordered.mv),
+    )?;
+
+    if excluded.score < singular_beta {
+        Some(1)
+    } else {
+        Some(0)
+    }
+}
+
+#[inline]
+fn singular_extension_margin(depth: u32) -> i32 {
+    SINGULAR_EXTENSION_BASE_MARGIN
+        + SINGULAR_EXTENSION_MARGIN_PER_DEPTH.saturating_mul(depth.min(32) as i32)
+}
+
+#[inline]
+fn singular_extension_search_depth(depth: u32) -> u32 {
+    depth.saturating_sub(1) / 2
 }
 
 struct SeeCapturePruneParams<'a> {
@@ -324,7 +428,8 @@ pub(super) fn finish_node(
         Bound::Exact
     };
     let best_move = result.best.pv.first().map(|pv| pv.mv);
-    if !result.best.repetition_draw
+    if params.use_tt
+        && !result.best.repetition_draw
         && let Some(raw_eval) = params.raw_static_eval
         && should_update_correction_history(
             params.board,

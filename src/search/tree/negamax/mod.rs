@@ -41,6 +41,7 @@ pub(in crate::search) fn negamax(
     context: &mut SearchContext<'_>,
     ply: u16,
     allow_null_move: bool,
+    excluded_move: Option<Move>,
 ) -> Option<SearchOutcome> {
     context.clear_static_eval_at_ply(ply);
     if context.should_stop().is_some() {
@@ -66,7 +67,7 @@ pub(in crate::search) fn negamax(
     let alpha_start = alpha;
     let is_pv_node = beta > alpha.saturating_add(1);
     let key = position_key(board);
-    let use_tt = !repetition;
+    let use_tt = !repetition && excluded_move.is_none();
     let tt_entry = if use_tt {
         context.transposition_table().probe(key)
     } else {
@@ -80,15 +81,20 @@ pub(in crate::search) fn negamax(
     let needs_full_mate_search = requires_full_mate_search(alpha, beta);
     let expected_cut_node = !is_pv_node && beta == alpha.saturating_add(1);
     let hash_move = tt_entry.and_then(|entry| entry.best_move);
-    let depth = depth.saturating_sub(internal_iterative_reduction(
-        depth,
-        repetition,
-        is_pv_node,
-        expected_cut_node,
-        in_check,
-        needs_full_mate_search,
-        hash_move.is_some(),
-    ));
+    let iir = if excluded_move.is_none() {
+        internal_iterative_reduction(
+            depth,
+            repetition,
+            is_pv_node,
+            expected_cut_node,
+            in_check,
+            needs_full_mate_search,
+            hash_move.is_some(),
+        )
+    } else {
+        0
+    };
+    let depth = depth.saturating_sub(iir);
     if let Some(score) = apply_mate_distance_pruning(&mut alpha, &mut beta, ply) {
         return Some(terminal_outcome(score, false));
     }
@@ -150,6 +156,7 @@ pub(in crate::search) fn negamax(
             board,
             previous_pv,
             previous_move,
+            repetition,
             depth,
             root_depth,
             alpha,
@@ -160,6 +167,7 @@ pub(in crate::search) fn negamax(
             static_eval,
             ply,
             tt_entry,
+            excluded_move,
         },
         context,
     )?;
