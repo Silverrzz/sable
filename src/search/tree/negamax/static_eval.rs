@@ -4,6 +4,7 @@ use super::{
     PruneResult,
     super::{
         context::SearchContext,
+        correction_history::CorrectionContext,
         pruning::{
             can_use_static_eval, can_use_static_eval_pruning, should_reverse_futility_prune,
             should_try_razoring,
@@ -29,7 +30,7 @@ pub(super) struct StaticEvalParams<'a> {
     pub(super) is_pv_node: bool,
     pub(super) alpha: i32,
     pub(super) beta: i32,
-    pub(super) previous_move: Option<Move>,
+    pub(super) correction_context: CorrectionContext,
     pub(super) tt_entry: Option<TranspositionEntry>,
     pub(super) ply: u16,
 }
@@ -45,7 +46,7 @@ pub(super) fn prepare_static_eval(
         is_pv_node,
         alpha,
         beta,
-        previous_move,
+        correction_context,
         tt_entry,
         ply,
     } = params;
@@ -60,7 +61,9 @@ pub(super) fn prepare_static_eval(
     } else {
         None
     };
-    let corrected = raw.map(|raw_eval| context.corrected_static_eval(board, raw_eval, previous_move));
+    let corrected = raw.map(|raw_eval| {
+        context.corrected_static_eval(board, raw_eval, correction_context)
+    });
     let improving = corrected
         .map(|eval| context.is_static_eval_improving(ply, eval))
         .unwrap_or(false);
@@ -82,6 +85,7 @@ pub(super) struct StaticPruningParams<'a> {
     pub(super) alpha: i32,
     pub(super) beta: i32,
     pub(super) previous_move: Option<Move>,
+    pub(super) correction_context: CorrectionContext,
     pub(super) ply: u16,
 }
 
@@ -108,6 +112,7 @@ pub(super) fn try_static_eval_pruning(
             params.alpha,
             params.beta,
             params.previous_move,
+            params.correction_context,
             &[],
             context,
             params.ply,

@@ -2,7 +2,10 @@ use crate::{Board, Move};
 
 use super::super::{
     moves::move_generation::ordered_root_moves,
-    state::context::SearchContext,
+    state::{
+        context::SearchContext,
+        correction_history::CorrectionContext,
+    },
 };
 use super::{
     outcome::{PvMove, SearchOutcome, is_better_root_outcome},
@@ -26,7 +29,7 @@ pub(in crate::search) fn search_root_multi_pv_iteration(
     chess960: bool,
     context: &mut SearchContext<'_>,
 ) -> Option<Vec<RootMoveResult>> {
-    context.refresh_static_eval_at_ply(board, None, 0);
+    context.refresh_static_eval_at_ply(board, CorrectionContext::default(), 0);
     let root_repetitions = context.actual_game_repetition_count(board);
     let previous_best = previous_results.first().map(|result| result.mv);
     let moves = ordered_root_moves(board, candidate_moves, previous_best, context.ordering());
