@@ -18,6 +18,32 @@ pub(in crate::search) fn should_use_pvs(is_pv_node: bool, searched_moves: u32, a
     is_pv_node && searched_moves > 0 && beta > alpha.saturating_add(1)
 }
 
+#[inline]
+pub(in crate::search) fn internal_iterative_reduction(
+    depth: u32,
+    repetition: bool,
+    is_pv_node: bool,
+    expected_cut_node: bool,
+    in_check: bool,
+    needs_full_mate_search: bool,
+    has_hash_move: bool,
+) -> u32 {
+    if repetition
+        || in_check
+        || needs_full_mate_search
+        || has_hash_move
+        || depth < INTERNAL_ITERATIVE_REDUCTION_MIN_DEPTH
+    {
+        return 0;
+    }
+
+    if is_pv_node || expected_cut_node {
+        INTERNAL_ITERATIVE_REDUCTION.min(depth.saturating_sub(1))
+    } else {
+        0
+    }
+}
+
 pub(in crate::search) struct ChildSearchParams<'a> {
     pub(in crate::search) board: &'a Board,
     pub(in crate::search) repetition: bool,
