@@ -136,6 +136,7 @@ pub(in crate::search) fn search_child_with_lmr(
         context,
         ply,
         true,
+        None,
     )?;
     let reduced_score = -reduced.score;
     if reduced_score <= alpha {

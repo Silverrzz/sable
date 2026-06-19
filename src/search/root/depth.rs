@@ -268,6 +268,7 @@ pub(in crate::search) fn search_child_with_pvs(
             context,
             ply,
             true,
+            None,
         )?;
         let scout_score = -scout_child.score;
         if scout_score <= alpha || scout_score >= beta {
@@ -287,5 +288,6 @@ pub(in crate::search) fn search_child_with_pvs(
         context,
         ply,
         true,
+        None,
     )
 }
