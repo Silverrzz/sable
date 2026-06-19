@@ -8,7 +8,9 @@ use crate::{Board, Move};
 use super::{
     context::SearchContext,
     position_key::position_key,
-    pruning::{apply_mate_distance_pruning, requires_full_mate_search},
+    pruning::{
+        apply_mate_distance_pruning, internal_iterative_reduction, requires_full_mate_search,
+    },
     quiescence::quiescence,
     root::{SearchOutcome, terminal_outcome},
     scoring::terminal_score,
@@ -76,6 +78,17 @@ pub(in crate::search) fn negamax(
 
     let in_check = !board.checkers().is_empty();
     let needs_full_mate_search = requires_full_mate_search(alpha, beta);
+    let expected_cut_node = !is_pv_node && beta == alpha.saturating_add(1);
+    let hash_move = tt_entry.and_then(|entry| entry.best_move);
+    let depth = depth.saturating_sub(internal_iterative_reduction(
+        depth,
+        repetition,
+        is_pv_node,
+        expected_cut_node,
+        in_check,
+        needs_full_mate_search,
+        hash_move.is_some(),
+    ));
     if let Some(score) = apply_mate_distance_pruning(&mut alpha, &mut beta, ply) {
         return Some(terminal_outcome(score, false));
     }
