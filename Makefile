@@ -9,7 +9,8 @@ TARGET_DIR ?= $(ROOT)/target
 
 ifeq ($(OS),Windows_NT)
 BIN_SUFFIX := .exe
-ifneq ($(strip $(MSYSTEM)),)
+MSYS_PATHS := $(filter /%,$(TARGET_DIR) $(EXE))
+ifneq ($(strip $(MSYSTEM) $(MSYS_PATHS)),)
 COPY = cp -f "$(1)" "$(2)"
 else
 COPY = powershell.exe -NoProfile -Command "Copy-Item -LiteralPath '$(1)' -Destination '$(2)' -Force"
