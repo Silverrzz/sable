@@ -95,7 +95,7 @@ fn run_perft(depth: u32, fen: Option<String>) -> Result<()> {
 }
 
 fn run_bench() -> Result<()> {
-    const BENCH_DEPTH: u32 = 12;
+    const BENCH_DEPTH: u32 = 15;
 
     let positions = [
         "startpos",
@@ -103,6 +103,7 @@ fn run_bench() -> Result<()> {
         "4rrk1/p1pb1ppp/1p1p1n2/8/2PP4/2N1P1P1/PP3PBP/R2R2K1 w - - 0 1",
         "2r2rk1/pp3ppp/2n1bn2/q2p4/3P4/2P1PN2/PP1NBPPP/R2Q1RK1 w - - 0 10",
         "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+        "2k4r/8/5p2/p2p1P2/P2P4/P7/8/4K1R1 w - - 0 1"
     ];
 
     let request = SearchRequest {
