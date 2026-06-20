@@ -6,7 +6,7 @@ use super::{
     super::{
         constants::*,
         context::SearchContext,
-        correction_history::should_update_correction_history,
+        correction_history::{CorrectionContext, should_update_correction_history},
         move_generation::{MoveFilter, collect_moves, priority_move_for_node},
         move_ordering::{MovePicker, ScoredMove},
         position_key::position_key,
@@ -25,6 +25,7 @@ pub(super) struct MoveLoopParams<'a> {
     pub(super) board: &'a Board,
     pub(super) previous_pv: &'a [PvMove],
     pub(super) previous_move: Option<Move>,
+    pub(super) correction_context: CorrectionContext,
     pub(super) repetition: bool,
     pub(super) depth: u32,
     pub(super) root_depth: u32,
@@ -51,6 +52,7 @@ pub(super) fn search_move_loop(
         board,
         previous_pv,
         previous_move,
+        correction_context,
         repetition,
         depth,
         root_depth,
@@ -132,6 +134,7 @@ pub(super) fn search_move_loop(
                 board,
                 repetition,
                 previous_move,
+                correction_context,
                 ordered,
                 depth,
                 root_depth,
@@ -147,6 +150,8 @@ pub(super) fn search_move_loop(
         let next_key = position_key(&next);
         let next_repetition = context.push_position(&next, next_key);
         context.push_eval_state(board, &next, ordered.mv);
+        let child_correction_context =
+            correction_context.after_move(ordered.mv, ordered.moving_piece);
         let child_pv = if Some(ordered.mv) == pv_move {
             &previous_pv[1..]
         } else {
@@ -163,6 +168,7 @@ pub(super) fn search_move_loop(
                 beta,
                 child_pv,
                 previous_move: ordered.mv,
+                correction_context: child_correction_context,
                 searched_moves,
                 is_pv_node,
                 is_quiet: ordered.is_quiet,
@@ -210,6 +216,7 @@ struct SingularExtensionParams<'a> {
     board: &'a Board,
     repetition: bool,
     previous_move: Option<Move>,
+    correction_context: CorrectionContext,
     ordered: ScoredMove,
     depth: u32,
     root_depth: u32,
@@ -256,6 +263,7 @@ fn singular_extension(
         singular_beta,
         &[],
         params.previous_move,
+        params.correction_context,
         context,
         params.ply,
         false,
@@ -405,13 +413,14 @@ fn record_cutoff_and_failures(
 
 pub(super) struct FinishNodeParams<'a> {
     pub(super) board: &'a Board,
-    pub(super) previous_move: Option<Move>,
     pub(super) depth: u32,
     pub(super) alpha_start: i32,
     pub(super) beta: i32,
     pub(super) key: u64,
     pub(super) use_tt: bool,
     pub(super) raw_static_eval: Option<i32>,
+    pub(super) corrected_static_eval: Option<i32>,
+    pub(super) correction_context: CorrectionContext,
     pub(super) ply: u16,
 }
 
@@ -431,17 +440,18 @@ pub(super) fn finish_node(
     if params.use_tt
         && !result.best.repetition_draw
         && let Some(raw_eval) = params.raw_static_eval
+        && let Some(corrected_eval) = params.corrected_static_eval
         && should_update_correction_history(
             params.board,
             best_move,
             bound,
-            raw_eval,
+            corrected_eval,
             result.best.score,
         )
     {
         context.update_correction_history(
             params.board,
-            params.previous_move,
+            params.correction_context,
             raw_eval,
             result.best.score,
             params.depth,

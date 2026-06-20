@@ -7,6 +7,7 @@ use crate::{
 use super::{
     constants::*,
     context::SearchContext,
+    correction_history::CorrectionContext,
     move_generation::{MoveFilter, collect_moves, priority_move_for_node},
     position_key::{PositionKey, position_key},
     pruning::{apply_mate_distance_pruning, should_q_delta_prune_capture},
@@ -22,6 +23,7 @@ pub(in crate::search) fn quiescence(
     mut alpha: i32,
     mut beta: i32,
     previous_move: Option<Move>,
+    correction_context: CorrectionContext,
     previous_pv: &[PvMove],
     context: &mut SearchContext<'_>,
     ply: u16,
@@ -51,10 +53,10 @@ pub(in crate::search) fn quiescence(
     }
     let alpha_start = alpha;
     if qsearch_at_safety_bound(ply) {
-        let score = qsearch_safety_bound_score(board, in_check, context, ply);
-        let static_eval = (!in_check).then_some(score);
-        if let Some(static_eval) = static_eval {
-            context.record_static_eval_at_ply(ply, static_eval);
+        let (score, raw_static_eval) =
+            qsearch_safety_bound_score(board, in_check, correction_context, context, ply);
+        if raw_static_eval.is_some() {
+            context.record_static_eval_at_ply(ply, score);
         }
         qsearch_store(
             context,
@@ -64,17 +66,20 @@ pub(in crate::search) fn quiescence(
             alpha_start,
             beta,
             None,
-            static_eval,
+            raw_static_eval,
             ply,
         );
         return Some(terminal_outcome(score, false));
     }
 
     let raw_static_eval = tt_entry.and_then(|entry| entry.static_eval());
+    let mut raw_stand_pat = None;
     let stand_pat = if in_check {
         None
     } else {
-        let stand_pat = raw_static_eval.unwrap_or_else(|| context.evaluate(board));
+        let raw_eval = raw_static_eval.unwrap_or_else(|| context.evaluate(board));
+        raw_stand_pat = Some(raw_eval);
+        let stand_pat = context.corrected_static_eval(board, raw_eval, correction_context);
         context.record_static_eval_at_ply(ply, stand_pat);
         if stand_pat >= beta {
             qsearch_store(
@@ -85,7 +90,7 @@ pub(in crate::search) fn quiescence(
                 alpha_start,
                 beta,
                 None,
-                Some(stand_pat),
+                Some(raw_eval),
                 ply,
             );
             return Some(terminal_outcome(stand_pat, false));
@@ -144,6 +149,8 @@ pub(in crate::search) fn quiescence(
         let next_key = position_key(&next);
         let next_repetition = context.push_position(&next, next_key);
         context.push_eval_state(board, &next, ordered.mv);
+        let child_correction_context =
+            correction_context.after_move(ordered.mv, ordered.moving_piece);
         let child_pv = if Some(ordered.mv) == pv_move {
             &previous_pv[1..]
         } else {
@@ -155,6 +162,7 @@ pub(in crate::search) fn quiescence(
             -beta,
             -alpha,
             Some(ordered.mv),
+            child_correction_context,
             child_pv,
             context,
             ply + 1,
@@ -191,7 +199,7 @@ pub(in crate::search) fn quiescence(
                 alpha_start,
                 beta,
                 best.pv.first().map(|pv| pv.mv),
-                raw_static_eval.or(stand_pat),
+                raw_static_eval.or(raw_stand_pat),
                 ply,
             );
         }
@@ -205,7 +213,7 @@ pub(in crate::search) fn quiescence(
             alpha_start,
             beta,
             None,
-            raw_static_eval.or(Some(stand_pat)),
+            raw_static_eval.or(raw_stand_pat),
             ply,
         );
         Some(terminal_outcome(stand_pat, false))
@@ -295,12 +303,17 @@ pub(in crate::search) fn qsearch_at_safety_bound(ply: u16) -> bool {
 pub(in crate::search) fn qsearch_safety_bound_score(
     board: &Board,
     in_check: bool,
+    correction_context: CorrectionContext,
     context: &mut SearchContext<'_>,
     ply: u16,
-) -> i32 {
+) -> (i32, Option<i32>) {
     if in_check {
-        LOSS_SCORE.saturating_add(ply as i32)
+        (LOSS_SCORE.saturating_add(ply as i32), None)
     } else {
-        context.evaluate(board)
+        let raw_eval = context.evaluate(board);
+        (
+            context.corrected_static_eval(board, raw_eval, correction_context),
+            Some(raw_eval),
+        )
     }
 }

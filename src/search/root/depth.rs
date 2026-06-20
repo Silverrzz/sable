@@ -7,6 +7,7 @@ use super::super::{
         move_ordering::ScoredMove,
     },
     state::{
+        correction_history::CorrectionContext,
         context::SearchContext,
         position_key::position_key,
     },
@@ -83,7 +84,7 @@ pub(in crate::search) fn search_root_depth_dispatch(
     context: &mut SearchContext<'_>,
     chess960: bool,
 ) -> Option<(Move, SearchOutcome)> {
-    context.refresh_static_eval_at_ply(board, None, 0);
+    context.refresh_static_eval_at_ply(board, CorrectionContext::default(), 0);
     let root_repetitions = context.actual_game_repetition_count(board);
     search_root_depth(
         board,
@@ -224,6 +225,7 @@ fn search_root_child(
         beta,
         child_pv,
         ordered.mv,
+        CorrectionContext::default().after_move(ordered.mv, ordered.moving_piece),
         context,
         1,
         use_pvs,
@@ -246,6 +248,7 @@ pub(in crate::search) fn search_child_with_pvs(
     beta: i32,
     child_pv: &[PvMove],
     previous_move: Move,
+    correction_context: CorrectionContext,
     context: &mut SearchContext<'_>,
     ply: u16,
     use_pvs: bool,
@@ -265,6 +268,7 @@ pub(in crate::search) fn search_child_with_pvs(
             scout_beta,
             &[],
             Some(previous_move),
+            correction_context,
             context,
             ply,
             true,
@@ -285,6 +289,7 @@ pub(in crate::search) fn search_child_with_pvs(
         alpha.saturating_neg(),
         child_pv,
         Some(previous_move),
+        correction_context,
         context,
         ply,
         true,

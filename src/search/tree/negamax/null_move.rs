@@ -4,6 +4,7 @@ use super::{
     PruneResult, negamax,
     super::{
         context::SearchContext,
+        correction_history::CorrectionContext,
         pruning::{null_move_reduction, should_try_null_move, should_verify_null_move},
         root::terminal_outcome,
         search_profile::SearchProfile,
@@ -21,6 +22,7 @@ pub(super) struct NullMoveParams<'a> {
     pub(super) needs_full_mate_search: bool,
     pub(super) static_eval: Option<i32>,
     pub(super) allow_null_move: bool,
+    pub(super) correction_context: CorrectionContext,
     pub(super) ply: u16,
 }
 
@@ -61,6 +63,7 @@ pub(super) fn try_null_move_pruning(
         null_beta,
         &[],
         None,
+        params.correction_context.without_move_context(),
         context,
         params.ply + 1,
         false,
@@ -85,6 +88,7 @@ pub(super) fn try_null_move_pruning(
             params.beta,
             &[],
             None,
+            params.correction_context,
             context,
             params.ply,
             false,
