@@ -29,15 +29,16 @@ pub(super) fn build_first_layer_feature_weights(
 
 pub(super) fn validate_i16_accumulator_range(
     path: &Path,
+    architecture: NnueArchitecture,
     first_layer: &QuantizedLayer,
     feature_weights: &[i16],
     hidden: usize,
     has_side_to_move_feature: bool,
 ) -> Result<(), EngineError> {
     let required_features = if has_side_to_move_feature {
-        SIDE_TO_MOVE_FEATURE + 1
+        architecture.side_to_move_feature_index() + 1
     } else {
-        KING_BUCKET_FEATURES
+        architecture.input_features
     };
     if first_layer.bias.len() != hidden || feature_weights.len() < required_features * hidden {
         return Err(invalid_eval_file(
@@ -55,13 +56,13 @@ pub(super) fn validate_i16_accumulator_range(
         };
         let side_to_move_abs = if has_side_to_move_feature {
             i64::from(i32::from(
-                feature_weights[SIDE_TO_MOVE_FEATURE * hidden + neuron],
+                feature_weights[architecture.side_to_move_feature_index() * hidden + neuron],
             ).abs())
         } else {
             0
         };
 
-        for king_bucket in 0..KING_BUCKETS {
+        for king_bucket in 0..architecture.bucket_count() {
             let mut top = [0_i32; 32];
             let bucket_start = king_bucket * PIECE_SQUARE_FEATURES;
             for piece_feature in 0..PIECE_SQUARE_FEATURES {
@@ -113,6 +114,7 @@ pub(super) fn apply_feature_delta(
 pub(super) fn collect_move_feature_updates(
     before: &Board,
     mv: Move,
+    architecture: NnueArchitecture,
     include_side_to_move: bool,
     perspective: Color,
 ) -> Option<FeatureUpdateList> {
@@ -127,6 +129,7 @@ pub(super) fn collect_move_feature_updates(
     let mut updates = FeatureUpdateList::new();
     updates.push(feature_update(
         king_square,
+        architecture,
         perspective,
         side,
         moving_piece,
@@ -137,6 +140,7 @@ pub(super) fn collect_move_feature_updates(
     if let Some((captured_piece, captured_square)) = captured_piece_for_move(before, mv, moving_piece) {
         updates.push(feature_update(
             king_square,
+            architecture,
             perspective,
             !side,
             captured_piece,
@@ -147,6 +151,7 @@ pub(super) fn collect_move_feature_updates(
 
     updates.push(feature_update(
         king_square,
+        architecture,
         perspective,
         side,
         mv.promotion.unwrap_or(moving_piece),
@@ -156,7 +161,7 @@ pub(super) fn collect_move_feature_updates(
     if include_side_to_move {
         let sign = if side == Color::White { 1 } else { -1 };
         updates.push(FeatureUpdate {
-            feature: SIDE_TO_MOVE_FEATURE,
+            feature: architecture.side_to_move_feature_index(),
             sign,
         })?;
     }
@@ -166,6 +171,7 @@ pub(super) fn collect_move_feature_updates(
 #[inline(always)]
 pub(super) fn feature_update(
     king_square: usize,
+    architecture: NnueArchitecture,
     perspective: Color,
     piece_color: Color,
     piece: Piece,
@@ -174,6 +180,7 @@ pub(super) fn feature_update(
 ) -> FeatureUpdate {
     FeatureUpdate {
         feature: feature_index_for_perspective(
+            architecture,
             perspective,
             king_square,
             piece_color,
@@ -222,6 +229,7 @@ pub(super) fn oriented_king_square(board: &Board, perspective: Color) -> Option<
 
 #[inline(always)]
 pub(super) fn feature_index_for_perspective(
+    architecture: NnueArchitecture,
     perspective: Color,
     king_square: usize,
     piece_color: Color,
@@ -233,9 +241,31 @@ pub(super) fn feature_index_for_perspective(
     } else {
         square_index ^ 56
     };
+    let mirrored_square = if matches!(
+        architecture.feature_layout,
+        NnueFeatureLayout::MirroredKingBuckets16
+    ) && king_square % 8 > 3
+    {
+        oriented_square ^ 7
+    } else {
+        oriented_square
+    };
     let color_offset = if piece_color == perspective { 0 } else { 384 };
-    let piece_square_feature = color_offset + piece_plane_offset(piece) + oriented_square;
-    king_square * PIECE_SQUARE_FEATURES + piece_square_feature
+    let piece_square_feature = color_offset + piece_plane_offset(piece) + mirrored_square;
+    king_bucket_index(architecture, king_square) * PIECE_SQUARE_FEATURES + piece_square_feature
+}
+
+#[inline(always)]
+fn king_bucket_index(architecture: NnueArchitecture, king_square: usize) -> usize {
+    match architecture.feature_layout {
+        NnueFeatureLayout::KingBuckets64 => king_square,
+        NnueFeatureLayout::MirroredKingBuckets16 => {
+            let rank = king_square / 8;
+            let file = king_square % 8;
+            let mirrored_file = if file > 3 { 7 - file } else { file };
+            VEX_BUCKET_LAYOUT[rank * 4 + mirrored_file]
+        }
+    }
 }
 
 pub(super) fn piece_plane_offset(piece: Piece) -> usize {

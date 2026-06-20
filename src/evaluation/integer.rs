@@ -69,6 +69,42 @@ pub(super) fn integer_forward(
 }
 
 #[inline]
+pub(super) fn integer_forward_dual(
+    stm_accumulator: &[i16],
+    ntm_accumulator: &[i16],
+    inference: &NnueInference,
+    scratch: &mut NnueEvalScratch,
+) -> i32 {
+    debug_assert_eq!(stm_accumulator.len(), ntm_accumulator.len());
+    if inference.hidden.is_none()
+        && let IntegerOutputQuantization::BulletScrelu { .. } = inference.output.quantization
+    {
+        return bullet_screlu_output_forward_dual(
+            stm_accumulator,
+            ntm_accumulator,
+            &inference.output,
+        );
+    }
+
+    let input_size = stm_accumulator.len() + ntm_accumulator.len();
+    debug_assert!(scratch.activations.len() >= input_size);
+    for (target, acc) in scratch
+        .activations
+        .iter_mut()
+        .zip(stm_accumulator.iter().chain(ntm_accumulator.iter()))
+        .take(input_size)
+    {
+        *target = accumulator_activation(
+            i32::from(*acc),
+            inference.acc_mul,
+            inference.acc_shift,
+            inference.use_screlu,
+        );
+    }
+    integer_output_forward(&scratch.activations[..input_size], &inference.output)
+}
+
+#[inline]
 pub(super) fn fused_accumulator_hidden_forward(
     accumulator: &[i16],
     acc_mul: i32,
@@ -141,6 +177,45 @@ pub(super) fn bullet_screlu_output_forward(accumulator: &[i16], layer: &IntegerO
     output += i64::from(layer.bias);
     output *= i64::from(layer.output_scale);
     output /= qa * qb;
+    output.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+}
+
+#[inline]
+pub(super) fn bullet_screlu_output_forward_dual(
+    stm_accumulator: &[i16],
+    ntm_accumulator: &[i16],
+    layer: &IntegerOutputLayer,
+) -> i32 {
+    let IntegerOutputQuantization::BulletScrelu { qa, qb } = layer.quantization else {
+        unreachable!("bullet SCReLU output requires bullet quantization metadata");
+    };
+    let hidden = stm_accumulator.len();
+    debug_assert_eq!(hidden, ntm_accumulator.len());
+    debug_assert_eq!(hidden * 2, layer.weights.len());
+    debug_assert!(qa > 0 && qb > 0);
+
+    let qa_i64 = i64::from(qa);
+    let qb_i64 = i64::from(qb);
+    let mut output = if let Some(weights) = layer.screlu_weights_i16.as_deref() {
+        let stm = crate::simd::screlu_dot_i16(stm_accumulator, &weights[..hidden], qa as i16);
+        let ntm = crate::simd::screlu_dot_i16(ntm_accumulator, &weights[hidden..], qa as i16);
+        stm + ntm
+    } else {
+        let mut output = 0_i64;
+        for (&acc, &weight) in stm_accumulator.iter().zip(layer.weights[..hidden].iter()) {
+            let clamped = i64::from(acc).clamp(0, qa_i64);
+            output += clamped * clamped * i64::from(weight);
+        }
+        for (&acc, &weight) in ntm_accumulator.iter().zip(layer.weights[hidden..].iter()) {
+            let clamped = i64::from(acc).clamp(0, qa_i64);
+            output += clamped * clamped * i64::from(weight);
+        }
+        output
+    };
+    output /= qa_i64;
+    output += i64::from(layer.bias);
+    output *= i64::from(layer.output_scale);
+    output /= qa_i64 * qb_i64;
     output.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
 }
 

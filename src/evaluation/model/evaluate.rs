@@ -2,11 +2,16 @@ use crate::{Board, Color, Piece};
 
 use super::super::{
     features::{apply_feature_delta, feature_index_for_perspective, oriented_king_square},
-    integer::integer_forward,
+    integer::{integer_forward, integer_forward_dual},
     types::*,
 };
 
 impl NnueModel {
+    #[allow(dead_code)]
+    pub fn architecture_id(&self) -> NnueArchitectureId {
+        self.architecture.id
+    }
+
     pub fn evaluate(&self, board: &Board) -> i32 {
         let accumulators = self
             .initial_accumulators(board)
@@ -29,15 +34,16 @@ impl NnueModel {
             .first()
             .map(|layer| layer.bias.len())
             .unwrap_or(1);
+        let output_input_width = self.architecture.output_input_size(input_width);
         let hidden_width = self
             .inference
             .hidden
             .as_ref()
             .map(|layer| layer.output_size.max(layer.input_size))
-            .unwrap_or(input_width);
+            .unwrap_or(output_input_width);
         NnueEvalScratch {
             hidden: vec![0; hidden_width],
-            activations: vec![0; input_width],
+            activations: vec![0; output_input_width],
             sums: vec![0; hidden_width],
         }
     }
@@ -48,6 +54,9 @@ impl NnueModel {
         accumulators: &NnueAccumulators,
         scratch: &mut NnueEvalScratch,
     ) -> i32 {
+        if self.architecture.perspective_mode == NnuePerspectiveMode::DualConcat {
+            return self.evaluate_dual_with_accumulators_and_scratch(board, accumulators, scratch);
+        }
         let Some(values) = self.accumulator_values(board, accumulators) else {
             return self.evaluate(board);
         };
@@ -70,6 +79,43 @@ impl NnueModel {
         }
         debug_assert_eq!(self.output_scale, self.inference.output.output_scale);
         integer_forward(values, &self.inference, scratch)
+    }
+
+    fn evaluate_dual_with_accumulators_and_scratch(
+        &self,
+        board: &Board,
+        accumulators: &NnueAccumulators,
+        scratch: &mut NnueEvalScratch,
+    ) -> i32 {
+        let Some(first_layer) = self.layers.first() else {
+            return self.evaluate(board);
+        };
+        let hidden = first_layer.bias.len();
+        let Some(black_values) = accumulators.black_values.as_deref() else {
+            return self.evaluate(board);
+        };
+        if accumulators.values.len() != hidden || black_values.len() != hidden {
+            return self.evaluate(board);
+        }
+        let (stm_values, ntm_values) = match board.side_to_move() {
+            Color::White => (accumulators.values.as_slice(), black_values),
+            Color::Black => (black_values, accumulators.values.as_slice()),
+        };
+        let required_activations = hidden * 2;
+        let required_hidden = self
+            .inference
+            .hidden
+            .as_ref()
+            .map(|layer| layer.output_size.max(layer.input_size))
+            .unwrap_or(required_activations);
+        if scratch.hidden.len() < required_hidden
+            || scratch.activations.len() < required_activations
+            || scratch.sums.len() < required_hidden
+        {
+            return self.evaluate_with_accumulators_slow(board, accumulators);
+        }
+        debug_assert_eq!(self.output_scale, self.inference.output.output_scale);
+        integer_forward_dual(stm_values, ntm_values, &self.inference, scratch)
     }
 
     fn accumulator_values<'a>(
@@ -128,6 +174,7 @@ impl NnueModel {
                     let sq_idx = sq as usize;
                     let mut modified = accumulators.clone();
                     let feat = feature_index_for_perspective(
+                        self.architecture,
                         Color::White,
                         white_king_square,
                         color,
@@ -146,6 +193,7 @@ impl NnueModel {
                         && let Some(bv) = modified.black_values.as_mut()
                     {
                         let feat = feature_index_for_perspective(
+                            self.architecture,
                             Color::Black,
                             black_king_square,
                             color,

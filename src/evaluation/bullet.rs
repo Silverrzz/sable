@@ -21,12 +21,13 @@ pub(super) struct BulletQuantHeader {
 
 pub(super) fn build_model_from_bullet_quantized(path: &Path, bytes: &[u8]) -> Result<NnueModel, EngineError> {
     let header = parse_bullet_quant_header(path, bytes)?;
-    validate_input_features(path, header.input_features, header.flags)?;
+    let architecture = validate_input_features(path, header.input_features, header.flags)?;
 
     build_model_from_bullet_quantized_layout(
         path,
         &bytes[BULLET_QUANT_HEADER_LEN..],
         BulletQuantLayout {
+            architecture,
             input_features: header.input_features,
             hidden_size: header.hidden_size,
             output_scale: header.output_scale,
@@ -46,6 +47,7 @@ pub(super) fn build_model_from_native_bullet_quantized(path: &Path, bytes: &[u8]
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct BulletQuantLayout {
+    pub(super) architecture: NnueArchitecture,
     pub(super) input_features: usize,
     pub(super) hidden_size: usize,
     pub(super) output_scale: i32,
@@ -61,7 +63,13 @@ pub(super) fn build_model_from_bullet_quantized_layout(
     payload: &[u8],
     layout: BulletQuantLayout,
 ) -> Result<NnueModel, EngineError> {
-    validate_input_features(path, layout.input_features, layout.flags)?;
+    let architecture = validate_input_features(path, layout.input_features, layout.flags)?;
+    if architecture != layout.architecture {
+        return Err(invalid_eval_file(
+            path,
+            "bullet quantized architecture metadata does not match the declared input features",
+        ));
+    }
 
     let hidden = layout.hidden_size;
     if hidden == 0 {
@@ -73,7 +81,7 @@ pub(super) fn build_model_from_bullet_quantized_layout(
         .checked_mul(input_features)
         .ok_or_else(|| invalid_eval_file(path, "bullet quantized first layer size overflow"))?;
     let first_bias_count = hidden;
-    let output_weights_count = hidden;
+    let output_weights_count = layout.architecture.output_input_size(hidden);
     let output_bias_count = 1_usize;
     let total_values = first_weights_count
         .checked_add(first_bias_count)
@@ -157,7 +165,7 @@ pub(super) fn build_model_from_bullet_quantized_layout(
         weight_scale: first_weight_scale,
     };
     let output_layer = QuantizedLayer {
-        input_size: hidden,
+        input_size: output_weights_count,
         weights: output_weights,
         bias: output_bias,
         scale: output_layer_scale,
@@ -182,6 +190,7 @@ pub(super) fn build_model_from_bullet_quantized_layout(
     )?;
     validate_i16_accumulator_range(
         path,
+        layout.architecture,
         &layers[0],
         &first_layer_feature_weights,
         hidden,
@@ -189,6 +198,7 @@ pub(super) fn build_model_from_bullet_quantized_layout(
     )?;
 
     Ok(NnueModel {
+        architecture: layout.architecture,
         layers,
         inference,
         output_scale: layout.output_scale,
@@ -199,23 +209,30 @@ pub(super) fn build_model_from_bullet_quantized_layout(
 }
 
 pub(super) fn infer_native_bullet_quant_layout(path: &Path, bytes: &[u8]) -> Result<BulletQuantLayout, EngineError> {
-    for (input_features, flags) in [
-        (KING_BUCKET_FEATURES, 0),
-        (
-            SIDE_TO_MOVE_FEATURE + 1,
-            BULLET_FLAG_HAS_SIDE_TO_MOVE,
-        ),
+    for (architecture, input_features, flags) in [
+        (NnueArchitecture::nightweave(), KING_BUCKET_FEATURES, 0),
+        (NnueArchitecture::vex(), VEX_INPUT_FEATURES, 0),
+        (NnueArchitecture::nightweave(), SIDE_TO_MOVE_FEATURE + 1, BULLET_FLAG_HAS_SIDE_TO_MOVE),
     ] {
-        let Some(hidden_size) = infer_native_hidden_size(bytes.len(), input_features) else {
+        let Some(hidden_size) = infer_native_hidden_size_with_output_factor(
+            bytes.len(),
+            input_features,
+            architecture.output_input_size(1),
+        ) else {
             continue;
         };
-        let required_values = native_bullet_value_count(hidden_size, input_features)
+        let required_values = native_bullet_value_count(
+            hidden_size,
+            input_features,
+            architecture.output_input_size(hidden_size),
+        )
             .ok_or_else(|| invalid_eval_file(path, "native bullet quantized size overflow"))?;
         let required_bytes = required_values
             .checked_mul(2)
             .ok_or_else(|| invalid_eval_file(path, "native bullet quantized byte size overflow"))?;
         if has_valid_bullet_padding(&bytes[required_bytes..]) {
             return Ok(BulletQuantLayout {
+                architecture,
                 input_features,
                 hidden_size,
                 output_scale: NATIVE_BULLET_OUTPUT_SCALE,
@@ -234,9 +251,13 @@ pub(super) fn infer_native_bullet_quant_layout(path: &Path, bytes: &[u8]) -> Res
     ))
 }
 
-pub(super) fn infer_native_hidden_size(file_len: usize, input_features: usize) -> Option<usize> {
+pub(super) fn infer_native_hidden_size_with_output_factor(
+    file_len: usize,
+    input_features: usize,
+    output_factor: usize,
+) -> Option<usize> {
     let values_with_padding = file_len / 2;
-    let values_per_hidden = input_features.checked_add(2)?;
+    let values_per_hidden = input_features.checked_add(1)?.checked_add(output_factor)?;
     let min_values = file_len.saturating_sub(63).div_ceil(2);
     for values in min_values..=values_with_padding {
         if values <= 1 {
@@ -253,11 +274,15 @@ pub(super) fn infer_native_hidden_size(file_len: usize, input_features: usize) -
     None
 }
 
-pub(super) fn native_bullet_value_count(hidden_size: usize, input_features: usize) -> Option<usize> {
+pub(super) fn native_bullet_value_count(
+    hidden_size: usize,
+    input_features: usize,
+    output_weights: usize,
+) -> Option<usize> {
     hidden_size
         .checked_mul(input_features)?
         .checked_add(hidden_size)?
-        .checked_add(hidden_size)?
+        .checked_add(output_weights)?
         .checked_add(1)
 }
 
@@ -299,7 +324,11 @@ pub(super) fn parse_bullet_quant_header(path: &Path, bytes: &[u8]) -> Result<Bul
     })
 }
 
-pub(super) fn validate_input_features(path: &Path, input_features: usize, flags: u32) -> Result<(), EngineError> {
+pub(super) fn validate_input_features(
+    path: &Path,
+    input_features: usize,
+    flags: u32,
+) -> Result<NnueArchitecture, EngineError> {
     const SUPPORTED_FLAGS: u32 = BULLET_FLAG_HAS_SIDE_TO_MOVE;
     if flags & !SUPPORTED_FLAGS != 0 {
         return Err(invalid_eval_file(
@@ -307,16 +336,17 @@ pub(super) fn validate_input_features(path: &Path, input_features: usize, flags:
             "bullet quantized flags include unsupported score-base or layout bits",
         ));
     }
-    let expected = if flags & BULLET_FLAG_HAS_SIDE_TO_MOVE != 0 {
-        SIDE_TO_MOVE_FEATURE + 1
-    } else {
-        KING_BUCKET_FEATURES
-    };
-    if input_features != expected {
-        return Err(invalid_eval_file(
-            path,
-            "bullet quantized input feature count does not match the declared flags",
-        ));
+    if flags & BULLET_FLAG_HAS_SIDE_TO_MOVE != 0 {
+        if input_features == SIDE_TO_MOVE_FEATURE + 1 {
+            return Ok(NnueArchitecture::nightweave());
+        }
+    } else if input_features == KING_BUCKET_FEATURES {
+        return Ok(NnueArchitecture::nightweave());
+    } else if input_features == VEX_INPUT_FEATURES {
+        return Ok(NnueArchitecture::vex());
     }
-    Ok(())
+    Err(invalid_eval_file(
+        path,
+        "bullet quantized input feature count does not match a supported architecture",
+    ))
 }
