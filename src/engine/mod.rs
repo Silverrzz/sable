@@ -94,11 +94,6 @@ impl Engine {
         self.search_state.reset();
     }
 
-    pub fn set_board(&mut self, board: Board) {
-        self.board = board;
-        self.reset_game_history();
-    }
-
     pub fn clear_hash(&mut self) {
         self.transposition_table = TranspositionTable::new(self.options.hash_mb);
     }
