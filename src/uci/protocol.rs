@@ -11,7 +11,7 @@ pub(super) fn write_uci_identification(stdout: &mut io::Stdout, engine: &Engine)
     writeln!(stdout, "id name Sable {}", env!("CARGO_PKG_VERSION"))?;
     writeln!(stdout, "id author Ellie Fulterer")?;
     writeln!(stdout, "option name Hash type spin default 16 min 1 max 32768")?;
-    writeln!(stdout, "option name Threads type spin default 1 min 1 max 128")?;
+    writeln!(stdout, "option name Threads type spin default 1 min 1 max 256")?;
     writeln!(stdout, "option name Ponder type check default false")?;
     writeln!(stdout, "option name MultiPV type spin default 1 min 1 max 256")?;
     writeln!(stdout, "option name UCI_Chess960 type check default false")?;

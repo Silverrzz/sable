@@ -6,6 +6,8 @@ CC ?= cc
 EVALFILE ?=
 MANIFEST := $(ROOT)/Cargo.toml
 TARGET_DIR ?= $(ROOT)/target
+unexport CC
+unexport CXX
 
 ifeq ($(OS),Windows_NT)
 BIN_SUFFIX := .exe

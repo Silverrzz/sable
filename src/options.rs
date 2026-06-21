@@ -42,7 +42,7 @@ pub(crate) fn apply_engine_option(
 ) -> Result<(), EngineError> {
     match EngineOption::from_name(name)? {
         EngineOption::Hash => options.hash_mb = parse_u32_option(name, value, 1, 32768)?,
-        EngineOption::Threads => options.threads = parse_u32_option(name, value, 1, 128)?,
+        EngineOption::Threads => options.threads = parse_u32_option(name, value, 1, 256)?,
         EngineOption::Ponder => options.ponder = parse_bool_option(name, value)?,
         EngineOption::MultiPv => options.multi_pv = parse_u32_option(name, value, 1, 256)?,
         EngineOption::UciChess960 => options.uci_chess960 = parse_bool_option(name, value)?,

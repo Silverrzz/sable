@@ -1,6 +1,7 @@
+mod genfens;
 mod uci;
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use sable_engine::{Engine, SearchLimits, SearchRequest, embedded_eval_label, has_embedded_eval};
 use std::env;
@@ -27,6 +28,10 @@ enum Command {
 }
 
 fn main() -> Result<()> {
+    if let Some(commands) = protocol_script_commands() {
+        return run_protocol_script(commands);
+    }
+
     let cli = Cli::parse();
     match cli.command.unwrap_or_else(command_from_env) {
         Command::Uci => uci::run_uci_loop(),
@@ -37,6 +42,77 @@ fn main() -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn protocol_script_commands() -> Option<Vec<String>> {
+    let commands = env::args().skip(1).collect::<Vec<_>>();
+    if commands
+        .iter()
+        .any(|command| is_protocol_script_command(command.trim()))
+    {
+        Some(commands)
+    } else {
+        None
+    }
+}
+
+fn is_protocol_script_command(command: &str) -> bool {
+    command == "quit"
+        || command == "isready"
+        || command.starts_with("setoption ")
+        || command.starts_with("genfens ")
+}
+
+fn run_protocol_script(commands: Vec<String>) -> Result<()> {
+    let mut engine = Engine::default();
+    for command in commands {
+        let command = command.trim();
+        if command.is_empty() {
+            continue;
+        }
+        if command == "quit" {
+            break;
+        }
+        if command == "isready" {
+            println!("readyok");
+            continue;
+        }
+        if command.starts_with("setoption ") {
+            apply_script_setoption(command, &mut engine)?;
+            continue;
+        }
+        if command.starts_with("genfens ") {
+            genfens::run_command(command, &mut engine)?;
+            continue;
+        }
+        bail!("unsupported protocol script command: {command}");
+    }
+    Ok(())
+}
+
+fn apply_script_setoption(command: &str, engine: &mut Engine) -> Result<()> {
+    let rest = command
+        .strip_prefix("setoption ")
+        .context("malformed setoption command")?;
+    let (name, value) = parse_script_setoption(rest)?;
+    engine
+        .set_option(&name, value.as_deref())
+        .with_context(|| format!("failed to apply setoption: {name}"))?;
+    Ok(())
+}
+
+fn parse_script_setoption(rest: &str) -> Result<(String, Option<String>)> {
+    let rest = rest
+        .strip_prefix("name ")
+        .context("setoption command is missing name")?;
+    let Some((name, value)) = rest.split_once(" value ") else {
+        return Ok((rest.trim().to_owned(), None));
+    };
+    let name = name.trim();
+    if name.is_empty() {
+        bail!("setoption command has an empty name");
+    }
+    Ok((name.to_owned(), Some(value.trim().to_owned())))
 }
 
 fn command_from_env() -> Command {

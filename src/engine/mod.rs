@@ -91,6 +91,11 @@ impl Engine {
         self.search_state.reset();
     }
 
+    pub fn set_board(&mut self, board: Board) {
+        self.board = board;
+        self.reset_game_history();
+    }
+
     pub fn clear_hash(&mut self) {
         self.transposition_table = TranspositionTable::new(self.options.hash_mb);
     }
@@ -185,6 +190,24 @@ impl Engine {
             self.game_history.push(position_key(&self.board));
         }
         Ok(())
+    }
+
+    pub fn full_fen(&self) -> String {
+        self.board.to_string()
+    }
+
+    pub fn legal_moves(&self) -> Vec<Move> {
+        let mut legal_moves = Vec::new();
+        self.board.generate_moves(|piece_moves| {
+            legal_moves.extend(piece_moves);
+            false
+        });
+        legal_moves
+    }
+
+    pub fn play_move(&mut self, mv: Move) {
+        self.board.play(mv);
+        self.game_history.push(position_key(&self.board));
     }
 
     pub fn search(&self, request: &SearchRequest) -> Result<SearchResult, EngineError> {
