@@ -10,7 +10,10 @@ mod model;
 mod types;
 
 pub use api::{embedded_eval_label, has_embedded_eval};
-pub use types::{EvalMode, NnueAccumulators, NnueEvalScratch, NnueModel, PieceContribution};
+pub use types::{
+    EvalMode, NnueAccumulators, NnueArchitectureId, NnueEvalScratch, NnueModel,
+    PieceContribution,
+};
 
 pub(crate) use evaluator::Evaluator;
 pub(crate) use integer::evaluate_position;

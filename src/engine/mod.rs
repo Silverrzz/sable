@@ -12,7 +12,10 @@ pub use verbose_eval::{VerboseEval, VerboseEvalSquare};
 
 use crate::{
     Board, Color, EngineError, EngineOptions, GameStatus, Move,
-    evaluation::{DRAW_SCORE, EvalMode, Evaluator, LOSS_SCORE, NnueModel, is_board_drawn},
+    evaluation::{
+        DRAW_SCORE, EvalMode, Evaluator, LOSS_SCORE, NnueArchitectureId, NnueModel,
+        is_board_drawn,
+    },
     options::apply_engine_option,
     perft::perft,
     search::{
@@ -100,6 +103,12 @@ impl Engine {
         self.transposition_table = TranspositionTable::new(self.options.hash_mb);
     }
 
+    pub fn active_nnue_architecture_id(&self) -> Option<NnueArchitectureId> {
+        self.evaluator
+            .active_nnue_model()
+            .map(|model| model.architecture_id())
+    }
+
     pub fn set_option(&mut self, name: &str, value: Option<&str>) -> Result<(), EngineError> {
         let normalized = name.to_ascii_lowercase().replace(' ', "");
         let previous_hash_mb = self.options.hash_mb;
@@ -181,6 +190,12 @@ impl Engine {
         self.board = parse_fen(fen, self.options.uci_chess960)?;
         self.reset_game_history();
         self.apply_moves(moves)
+    }
+
+    pub fn set_board(&mut self, board: Board) {
+        self.board = board;
+        self.reset_game_history();
+        self.search_state.reset();
     }
 
     pub fn apply_moves(&mut self, moves: &[String]) -> Result<(), EngineError> {

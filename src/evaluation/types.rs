@@ -16,6 +16,8 @@ pub(super) const BULLET_QUANT_MAGIC: &[u8; 8] = b"SBRBLTQ1";
 pub(super) const PIECE_SQUARE_FEATURES: usize = 768;
 pub(super) const KING_BUCKETS: usize = 64;
 pub(super) const KING_BUCKET_FEATURES: usize = PIECE_SQUARE_FEATURES * KING_BUCKETS;
+pub(super) const VEX_KING_BUCKETS: usize = 16;
+pub(super) const VEX_INPUT_FEATURES: usize = PIECE_SQUARE_FEATURES * VEX_KING_BUCKETS;
 pub(super) const SIDE_TO_MOVE_FEATURE: usize = KING_BUCKET_FEATURES;
 pub(super) const MAX_MOVE_FEATURE_UPDATES: usize = 6;
 pub(super) const FINNY_TABLE_ENTRIES: usize = KING_BUCKETS * 2;
@@ -25,6 +27,16 @@ pub(super) const BULLET_FLAG_HAS_SIDE_TO_MOVE: u32 = 1 << 0;
 pub(super) const NATIVE_BULLET_QA: i16 = 255;
 pub(super) const NATIVE_BULLET_QB: i16 = 64;
 pub(super) const NATIVE_BULLET_OUTPUT_SCALE: i32 = 400;
+pub(super) const VEX_BUCKET_LAYOUT: [usize; 32] = [
+    0, 1, 2, 3,
+    0, 1, 2, 3,
+    4, 5, 6, 7,
+    4, 5, 6, 7,
+    8, 9, 10, 11,
+    8, 9, 10, 11,
+    12, 13, 14, 15,
+    12, 13, 14, 15,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EvalMode {
@@ -57,8 +69,82 @@ impl Default for EvalMode {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NnueArchitectureId {
+    Nightweave,
+    Vex,
+}
+
+impl NnueArchitectureId {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Nightweave => "nightweave",
+            Self::Vex => "vex",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum NnuePerspectiveMode {
+    Single,
+    DualConcat,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum NnueFeatureLayout {
+    KingBuckets64,
+    MirroredKingBuckets16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct NnueArchitecture {
+    pub(super) id: NnueArchitectureId,
+    pub(super) feature_layout: NnueFeatureLayout,
+    pub(super) perspective_mode: NnuePerspectiveMode,
+    pub(super) input_features: usize,
+}
+
+impl NnueArchitecture {
+    pub(super) const fn nightweave() -> Self {
+        Self {
+            id: NnueArchitectureId::Nightweave,
+            feature_layout: NnueFeatureLayout::KingBuckets64,
+            perspective_mode: NnuePerspectiveMode::Single,
+            input_features: KING_BUCKET_FEATURES,
+        }
+    }
+
+    pub(super) const fn vex() -> Self {
+        Self {
+            id: NnueArchitectureId::Vex,
+            feature_layout: NnueFeatureLayout::MirroredKingBuckets16,
+            perspective_mode: NnuePerspectiveMode::DualConcat,
+            input_features: VEX_INPUT_FEATURES,
+        }
+    }
+
+    pub(super) const fn bucket_count(self) -> usize {
+        match self.feature_layout {
+            NnueFeatureLayout::KingBuckets64 => KING_BUCKETS,
+            NnueFeatureLayout::MirroredKingBuckets16 => VEX_KING_BUCKETS,
+        }
+    }
+
+    pub(super) const fn output_input_size(self, hidden: usize) -> usize {
+        match self.perspective_mode {
+            NnuePerspectiveMode::Single => hidden,
+            NnuePerspectiveMode::DualConcat => hidden * 2,
+        }
+    }
+
+    pub(super) const fn side_to_move_feature_index(self) -> usize {
+        self.input_features
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct NnueModel {
+    pub(super) architecture: NnueArchitecture,
     pub(super) layers: Vec<QuantizedLayer>,
     pub(super) inference: NnueInference,
     pub(super) output_scale: i32,

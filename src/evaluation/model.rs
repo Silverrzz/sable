@@ -132,6 +132,7 @@ impl NnueModel {
             for piece in ALL_PIECES {
                 for square in board.pieces(piece) & board.colors(color) {
                     let feature = feature_index_for_perspective(
+                        self.architecture,
                         perspective,
                         king_square,
                         color,
@@ -153,7 +154,7 @@ impl NnueModel {
                 values,
                 hidden,
                 &self.first_layer_feature_weights,
-                SIDE_TO_MOVE_FEATURE,
+                self.architecture.side_to_move_feature_index(),
                 1,
             );
         }
@@ -225,7 +226,7 @@ impl NnueModel {
                 &mut entry.values,
                 hidden,
                 &self.first_layer_feature_weights,
-                SIDE_TO_MOVE_FEATURE,
+                self.architecture.side_to_move_feature_index(),
                 sign,
             );
         }
@@ -273,6 +274,7 @@ impl NnueModel {
             let square = bits.trailing_zeros() as usize;
             bits &= bits - 1;
             let feature = feature_index_for_perspective(
+                self.architecture,
                 perspective,
                 king_square,
                 color,
@@ -309,7 +311,7 @@ impl NnueModel {
             &mut accumulators.values,
             hidden,
             &self.first_layer_feature_weights,
-            SIDE_TO_MOVE_FEATURE,
+            self.architecture.side_to_move_feature_index(),
             sign,
         );
         true
@@ -387,6 +389,7 @@ impl NnueModel {
         let Some(updates) = collect_move_feature_updates(
             before,
             mv,
+            self.architecture,
             self.has_side_to_move_feature,
             perspective,
         ) else {

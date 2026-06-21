@@ -29,10 +29,11 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR should be set by Cargo"));
     let embedded_path = out_dir.join("embedded-default-eval.bin");
     let source = workspace_default_weights();
-    let default_eval_mode = default_eval_mode();
+    let has_weights = source.exists();
+    let default_eval_mode = default_eval_mode(has_weights);
     println!("cargo:rustc-env=SABLE_ENGINE_DEFAULT_EVAL_MODE={default_eval_mode}");
 
-    if !source.exists() {
+    if !has_weights {
         fs::write(&embedded_path, []).unwrap_or_else(|error| {
             panic!(
                 "Failed to write empty embedded eval placeholder '{}': {error}",
@@ -68,8 +69,14 @@ fn main() {
     );
 }
 
-fn default_eval_mode() -> String {
-    let raw = env::var("SABLER_DEFAULT_EVAL").unwrap_or_else(|_| "hce".to_owned());
+fn default_eval_mode(has_weights: bool) -> String {
+    let raw = env::var("SABLER_DEFAULT_EVAL").unwrap_or_else(|_| {
+        if has_weights {
+            "nnue".to_owned()
+        } else {
+            "hce".to_owned()
+        }
+    });
     let mut key = raw.to_ascii_lowercase();
     key.retain(|ch| ch != ' ' && ch != '-');
     match key.as_str() {
@@ -86,12 +93,18 @@ fn workspace_default_weights() -> PathBuf {
         return PathBuf::from(path);
     }
 
-    let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("data");
-    let p = data.join("quantised.bin");
-    if p.exists() {
-        return p;
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let repo_default = manifest_dir.join("data").join("quantised.bin");
+    if repo_default.exists() {
+        return repo_default;
     }
-    data.join("quantised.bin")
+
+    let workspace_default = manifest_dir.join("..").join("data").join("quantised.bin");
+    if workspace_default.exists() {
+        return workspace_default;
+    }
+
+    repo_default
 }
 
 fn display_label(source: &Path) -> String {
