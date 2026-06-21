@@ -27,13 +27,13 @@ fn main() {
     }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR should be set by Cargo"));
-    let embedded_path = out_dir.join("embedded-default-eval.bin");
     let source = workspace_default_weights();
     let has_weights = source.exists();
     let default_eval_mode = default_eval_mode(has_weights);
     println!("cargo:rustc-env=SABLE_ENGINE_DEFAULT_EVAL_MODE={default_eval_mode}");
 
     if !has_weights {
+        let embedded_path = out_dir.join("embedded-default-eval-empty.bin");
         fs::write(&embedded_path, []).unwrap_or_else(|error| {
             panic!(
                 "Failed to write empty embedded eval placeholder '{}': {error}",
@@ -51,9 +51,17 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed={}", source.display());
-    fs::copy(&source, &embedded_path).unwrap_or_else(|error| {
+    let bytes = fs::read(&source).unwrap_or_else(|error| {
         panic!(
-            "Failed to copy embedded eval from '{}' to '{}': {error}",
+            "Failed to read embedded eval from '{}': {error}",
+            source.display()
+        )
+    });
+    let embedded_hash = fnv1a64(&bytes);
+    let embedded_path = out_dir.join(format!("embedded-default-eval-{embedded_hash:016x}.bin"));
+    fs::write(&embedded_path, bytes).unwrap_or_else(|error| {
+        panic!(
+            "Failed to write embedded eval from '{}' to '{}': {error}",
             source.display(),
             embedded_path.display()
         )
@@ -67,6 +75,15 @@ fn main() {
         "cargo:rustc-env=SABLE_ENGINE_EMBEDDED_EVAL_LABEL={}",
         display_label(&source)
     );
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 fn default_eval_mode(has_weights: bool) -> String {
