@@ -86,11 +86,7 @@ pub(super) fn search_move_loop(
     };
     let mut searched_moves = 0_u32;
     let mut captures_tried = 0_u32;
-    let child_depth = if in_check && u32::from(ply) < root_depth.saturating_mul(2) {
-        depth
-    } else {
-        depth - 1
-    };
+    let child_depth = depth - 1;
     while let Some(ordered) = moves.next(board, context.ordering()) {
         if context.should_stop().is_some() {
             return None;

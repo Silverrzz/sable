@@ -17,10 +17,6 @@ impl SearchProfile {
         }
     }
 
-    pub(super) fn reduce_late_quiet_checks(self) -> bool {
-        self.sparse_pawnless_endgame
-    }
-
     pub(super) fn sparse_pawnless_endgame(self) -> bool {
         self.sparse_pawnless_endgame
     }

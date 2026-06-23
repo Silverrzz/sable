@@ -6,8 +6,10 @@ mod tt;
 use crate::{Board, Move};
 
 use super::{
+    constants::*,
     context::SearchContext,
     correction_history::CorrectionContext,
+    move_generation::{MoveFilter, collect_moves},
     position_key::position_key,
     pruning::{
         apply_mate_distance_pruning, internal_iterative_reduction, requires_full_mate_search,
@@ -15,6 +17,7 @@ use super::{
     quiescence::quiescence,
     root::{SearchOutcome, terminal_outcome},
     scoring::terminal_score,
+    see::static_exchange_eval,
 };
 
 use move_loop::{FinishNodeParams, MoveLoopParams, finish_node, search_move_loop};
@@ -156,6 +159,30 @@ pub(in crate::search) fn negamax(
         PruneResult::Interrupted => return None,
     }
 
+    match try_probcut(
+        ProbCutParams {
+            board,
+            repetition,
+            depth,
+            root_depth,
+            beta,
+            is_pv_node,
+            in_check,
+            needs_full_mate_search,
+            previous_move,
+            correction_context,
+            ply,
+            tt_entry,
+            excluded_move,
+        },
+        static_eval,
+        context,
+    ) {
+        PruneResult::Continue => {}
+        PruneResult::Done(outcome) => return Some(outcome),
+        PruneResult::Interrupted => return None,
+    }
+
     let loop_result = search_move_loop(
         MoveLoopParams {
             board,
@@ -193,4 +220,123 @@ pub(in crate::search) fn negamax(
         loop_result,
         context,
     )
+}
+
+struct ProbCutParams<'a> {
+    board: &'a Board,
+    repetition: bool,
+    depth: u32,
+    root_depth: u32,
+    beta: i32,
+    is_pv_node: bool,
+    in_check: bool,
+    needs_full_mate_search: bool,
+    previous_move: Option<Move>,
+    correction_context: CorrectionContext,
+    ply: u16,
+    tt_entry: Option<super::transposition::TranspositionEntry>,
+    excluded_move: Option<Move>,
+}
+
+fn try_probcut(
+    params: ProbCutParams<'_>,
+    static_eval: static_eval::StaticEvalState,
+    context: &mut SearchContext<'_>,
+) -> PruneResult {
+    if params.depth < PROBCUT_MIN_DEPTH
+        || params.is_pv_node
+        || params.in_check
+        || params.needs_full_mate_search
+        || params.repetition
+        || params.excluded_move.is_some()
+        || static_eval.corrected.is_none()
+    {
+        return PruneResult::Continue;
+    }
+
+    let probcut_beta = params.beta.saturating_add(PROBCUT_MARGIN);
+    let child_alpha = probcut_beta.saturating_neg();
+    let child_beta = child_alpha.saturating_add(1);
+    let probcut_depth = params.depth.saturating_sub(PROBCUT_DEPTH_REDUCTION).max(1);
+    let tt_move = params.tt_entry.and_then(|entry| entry.best_move);
+    let mut moves = collect_moves(
+        params.board,
+        MoveFilter::Tactical,
+        tt_move,
+        params.previous_move,
+        params.ply,
+    );
+
+    while let Some(ordered) = moves.next(params.board, context.ordering()) {
+        if context.should_stop().is_some() {
+            return PruneResult::Interrupted;
+        }
+        let see = ordered
+            .see
+            .unwrap_or_else(|| static_exchange_eval(params.board, ordered.mv));
+        if see < PROBCUT_SEE_THRESHOLD {
+            continue;
+        }
+
+        let mut next = params.board.clone();
+        next.play_unchecked(ordered.mv);
+        let next_key = position_key(&next);
+        let next_repetition = context.push_position(&next, next_key);
+        context.push_eval_state(params.board, &next, ordered.mv);
+        let child_correction_context =
+            params.correction_context.after_move(ordered.mv, ordered.moving_piece);
+
+        let qsearch = quiescence(
+            &next,
+            next_repetition,
+            child_alpha,
+            child_beta,
+            Some(ordered.mv),
+            child_correction_context,
+            &[],
+            context,
+            params.ply + 1,
+        );
+        context.note_searched_move(params.ply + 1);
+        let Some(qsearch) = qsearch else {
+            context.pop_eval_state(params.board, ordered.mv);
+            context.pop_position(next_key);
+            return PruneResult::Interrupted;
+        };
+        if -qsearch.score < probcut_beta {
+            context.pop_eval_state(params.board, ordered.mv);
+            context.pop_position(next_key);
+            continue;
+        }
+
+        let reduced = negamax(
+            &next,
+            next_repetition,
+            probcut_depth,
+            params.root_depth,
+            child_alpha,
+            child_beta,
+            &[],
+            Some(ordered.mv),
+            child_correction_context,
+            context,
+            params.ply + 1,
+            true,
+            None,
+        );
+        let Some(reduced) = reduced else {
+            context.pop_eval_state(params.board, ordered.mv);
+            context.pop_position(next_key);
+            return PruneResult::Interrupted;
+        };
+        context.pop_eval_state(params.board, ordered.mv);
+        context.pop_position(next_key);
+
+        let score = -reduced.score;
+        if score >= probcut_beta {
+            return PruneResult::Done(terminal_outcome(score, false));
+        }
+    }
+
+    PruneResult::Continue
 }
