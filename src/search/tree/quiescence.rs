@@ -121,6 +121,7 @@ pub(in crate::search) fn quiescence(
     };
     let mut interrupted = false;
     let mut found_move = false;
+    let mut searched_moves = 0_u32;
 
     while let Some(ordered) = moves.next(board, context.ordering()) {
         if context.should_stop().is_some() {
@@ -128,6 +129,12 @@ pub(in crate::search) fn quiescence(
             break;
         }
         found_move = true;
+        if in_check
+            && searched_moves >= QSEARCH_MAX_EVASION_MOVES
+            && Some(ordered.mv) != pv_move
+        {
+            continue;
+        }
         if !in_check
             && Some(ordered.mv) != pv_move
             && let Some(stand_pat) = stand_pat
@@ -173,6 +180,7 @@ pub(in crate::search) fn quiescence(
             break;
         };
         context.note_searched_move(ply + 1);
+        searched_moves += 1;
         context.pop_eval_state(board, ordered.mv);
         context.pop_position(next_key);
         let child_score = -child.score;
