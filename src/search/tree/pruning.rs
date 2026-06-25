@@ -199,10 +199,19 @@ pub(in crate::search) fn late_move_reduction(
     if move_number >= 24 {
         reduction += 1;
     }
+    if !is_pv_node && depth >= 3 && move_number >= 3 {
+        reduction += 1;
+    }
     if !is_pv_node && depth >= 4 && move_number >= 4 {
         reduction += 1;
     }
+    if !is_pv_node && depth >= 6 && move_number >= 8 && move_score < 0 {
+        reduction += 1;
+    }
     if !is_pv_node && depth >= 10 && move_number >= 12 {
+        reduction += 1;
+    }
+    if !is_pv_node && depth >= 12 && move_number >= 16 {
         reduction += 1;
     }
 

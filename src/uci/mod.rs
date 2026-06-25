@@ -11,6 +11,7 @@ use position::apply_position;
 use protocol::{
     eval_source_label, format_static_eval_score, format_verbose_eval, write_uci_identification,
 };
+pub(crate) use protocol::format_uci_info;
 use sable_engine::Engine;
 use std::{
     io::{self, Write},

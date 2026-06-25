@@ -52,7 +52,7 @@ fn write_eval_file_option(stdout: &mut io::Stdout, engine: &Engine) -> Result<()
     Ok(())
 }
 
-pub(super) fn format_uci_info(info: &sable_engine::SearchInfo, show_wdl: bool) -> String {
+pub(crate) fn format_uci_info(info: &sable_engine::SearchInfo, show_wdl: bool) -> String {
     let elapsed_ms = info.time_ms.unwrap_or(0);
     let depth = info.depth.unwrap_or(1);
     let seldepth = info.seldepth.unwrap_or(depth);

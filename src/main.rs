@@ -24,6 +24,7 @@ enum Command {
         fen: Option<String>,
     },
     Bench,
+    Bmt5k,
     Version,
 }
 
@@ -37,6 +38,7 @@ fn main() -> Result<()> {
         Command::Uci => uci::run_uci_loop(),
         Command::Perft { depth, fen } => run_perft(depth, fen),
         Command::Bench => run_bench(),
+        Command::Bmt5k => run_bmt5k(),
         Command::Version => {
             print_version_info();
             Ok(())
@@ -126,6 +128,7 @@ fn command_from_env() -> Command {
             fen: None,
         },
         "bench" => Command::Bench,
+        "bmt5k" => Command::Bmt5k,
         "version" => Command::Version,
         _ => Command::Uci,
     }
@@ -203,5 +206,34 @@ fn run_bench() -> Result<()> {
     }
     let all_ms = start_all.elapsed().as_millis() as u64;
     println!("{} nodes {} nps", total_nodes, nodes_per_second(total_nodes, all_ms));
+    Ok(())
+}
+
+fn run_bmt5k() -> Result<()> {
+    const MOVE_TIME_MS: u64 = 5_000;
+
+    let engine = Engine::default();
+    let request = SearchRequest {
+        limits: SearchLimits {
+            move_time_ms: Some(MOVE_TIME_MS),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let result = engine.search_with_observer(&request, None, |info| {
+        println!("{}", uci::format_uci_info(info, false));
+    })?;
+
+    match result.best_move {
+        Some(best) => {
+            if let Some(ponder) = result.ponder_move {
+                println!("bestmove {best} ponder {ponder}");
+            } else {
+                println!("bestmove {best}");
+            }
+        }
+        None => println!("bestmove 0000"),
+    }
     Ok(())
 }
