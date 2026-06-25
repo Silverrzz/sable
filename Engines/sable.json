@@ -45,8 +45,8 @@
     "datagen_presets" : {
 
         "default" : {
-            "both_options"       : "Threads=1 Hash=8",
-            "both_time_control"  : "N=20000",
+            "both_options"       : "Threads=1 Hash=8 SoftNodes=5000",
+            "both_time_control"  : "N=100000",
             "book_name"          : "NONE",
             "win_adj"            : "None",
             "draw_adj"           : "None",

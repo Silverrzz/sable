@@ -246,20 +246,21 @@ impl Engine {
     where
         F: FnMut(&SearchInfo),
     {
+        let request = self.search_request_with_option_defaults(request);
         let candidate_moves = select_candidate_moves(
             &self.board,
             &request.search_moves,
             self.options.uci_chess960,
         )?;
-        let max_depth = max_depth_from_limits(request);
-        let budget = self.compute_search_budget(request);
+        let max_depth = max_depth_from_limits(&request);
+        let budget = self.compute_search_budget(&request);
         let persistent = self.options.multi_pv <= 1;
         let (search_state_generation, search_state) = self.search_state_for_request(persistent);
         let transposition_table = self.transposition_table_for_request(persistent);
         let (result, search_state) = run_search(
             &self.board,
             &self.game_history,
-            request,
+            &request,
             &candidate_moves,
             budget,
             max_depth,
@@ -278,6 +279,16 @@ impl Engine {
                 .store_if_current(search_state_generation, search_state);
         }
         Ok(result)
+    }
+
+    fn search_request_with_option_defaults(&self, request: &SearchRequest) -> SearchRequest {
+        let mut request = request.clone();
+        if request.limits.soft_nodes.is_none() {
+            if let (Some(soft_nodes), Some(nodes)) = (self.options.soft_nodes, request.limits.nodes) {
+                request.limits.soft_nodes = Some(soft_nodes.min(nodes));
+            }
+        }
+        request
     }
 
     fn search_state_for_request(&self, persistent: bool) -> (u64, PersistentSearchState) {
