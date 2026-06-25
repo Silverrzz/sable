@@ -7,7 +7,7 @@ use crate::{
 use super::{
     constants::*,
     move_generation::{MoveFilter, pick_better_move, tactical_move_score_with_history},
-    see::static_exchange_eval,
+    see::static_exchange_eval_for_move,
 };
 
 #[derive(Clone, Debug)]
@@ -432,10 +432,16 @@ impl MovePicker {
     }
 
     pub(in crate::search) fn tactical_see(&mut self, board: &Board, index: usize) -> i32 {
-        if let Some(see) = self.get(index).see {
+        let candidate = self.get(index);
+        if let Some(see) = candidate.see {
             return see;
         }
-        let see = static_exchange_eval(board, self.get(index).mv);
+        let see = static_exchange_eval_for_move(
+            board,
+            candidate.mv,
+            candidate.moving_piece,
+            candidate.captured_piece,
+        );
         self.get_mut(index).see = Some(see);
         see
     }

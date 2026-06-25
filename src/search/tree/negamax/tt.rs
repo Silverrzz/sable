@@ -61,16 +61,7 @@ fn exact_tt_cutoff(
         };
     }
 
-    let pv = entry
-        .best_move
-        .filter(|&mv| board.is_legal(mv))
-        .map(|mv| vec![PvMove::new(board, mv, context.chess960())])
-        .unwrap_or_default();
-    Some(SearchOutcome {
-        score: entry_score,
-        repetition_draw: false,
-        pv,
-    })
+    Some(terminal_outcome(entry_score, false))
 }
 
 struct TtCutoffPv {

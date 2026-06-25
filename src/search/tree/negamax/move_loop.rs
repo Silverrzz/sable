@@ -12,11 +12,11 @@ use super::{
         position_key::position_key,
         pruning::{
             ChildSearchParams, is_see_prune_candidate, search_child_with_lmr,
-            should_futility_prune_quiet, should_prune_late_quiet, should_see_prune_capture,
+            should_futility_prune_quiet, should_prune_late_quiet,
         },
         root::{PvMove, SearchOutcome, is_better_score, parent_outcome, terminal_outcome},
         search_profile::SearchProfile,
-        see::{move_gives_check, static_exchange_eval},
+        see::{move_gives_check, static_exchange_eval_for_move},
         transposition::{Bound, TranspositionEntry, is_mate_score, score_from_tt},
     },
 };
@@ -317,7 +317,14 @@ fn see_capture_prune(params: SeeCapturePruneParams<'_>) -> SeeCapturePruneResult
     let see = params
         .ordered
         .see
-        .unwrap_or_else(|| static_exchange_eval(params.board, params.ordered.mv));
+        .unwrap_or_else(|| {
+            static_exchange_eval_for_move(
+                params.board,
+                params.ordered.mv,
+                params.ordered.moving_piece,
+                params.ordered.captured_piece,
+            )
+        });
     if !is_see_prune_candidate(params.depth, params.is_pv_node, params.captures_tried, see) {
         return SeeCapturePruneResult {
             gives_check: None,
@@ -332,13 +339,7 @@ fn see_capture_prune(params: SeeCapturePruneParams<'_>) -> SeeCapturePruneResult
     );
     SeeCapturePruneResult {
         gives_check: Some(gives_check),
-        pruned: should_see_prune_capture(
-            params.depth,
-            params.is_pv_node,
-            gives_check,
-            params.captures_tried,
-            see,
-        ),
+        pruned: !gives_check,
     }
 }
 

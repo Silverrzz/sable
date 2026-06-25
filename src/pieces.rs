@@ -8,10 +8,3 @@ pub(crate) const ALL_PIECES: [Piece; 6] = [
     Piece::Queen,
     Piece::King,
 ];
-
-pub(crate) const NON_PAWN_MATERIAL: [Piece; 4] = [
-    Piece::Knight,
-    Piece::Bishop,
-    Piece::Rook,
-    Piece::Queen,
-];

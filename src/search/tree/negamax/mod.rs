@@ -17,7 +17,7 @@ use super::{
     quiescence::quiescence,
     root::{SearchOutcome, terminal_outcome},
     scoring::terminal_score,
-    see::static_exchange_eval,
+    see::static_exchange_eval_for_move,
 };
 
 use move_loop::{FinishNodeParams, MoveLoopParams, finish_node, search_move_loop};
@@ -273,7 +273,14 @@ fn try_probcut(
         }
         let see = ordered
             .see
-            .unwrap_or_else(|| static_exchange_eval(params.board, ordered.mv));
+            .unwrap_or_else(|| {
+                static_exchange_eval_for_move(
+                    params.board,
+                    ordered.mv,
+                    ordered.moving_piece,
+                    ordered.captured_piece,
+                )
+            });
         if see < PROBCUT_SEE_THRESHOLD {
             continue;
         }
