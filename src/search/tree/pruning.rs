@@ -2,7 +2,6 @@
 use crate::{
     Board, Move, Piece,
     evaluation::LOSS_SCORE,
-    pieces::NON_PAWN_MATERIAL,
 };
 
 use super::{
@@ -267,9 +266,10 @@ pub(in crate::search) fn should_verify_null_move(
 #[inline]
 pub(in crate::search) fn side_has_non_pawn_material(board: &Board) -> bool {
     let side = board.side_to_move();
-    let non_pawn_material = NON_PAWN_MATERIAL
-        .into_iter()
-        .fold(cozy_chess::BitBoard::EMPTY, |pieces, piece| pieces | board.pieces(piece));
+    let non_pawn_material = board.pieces(Piece::Knight)
+        | board.pieces(Piece::Bishop)
+        | board.pieces(Piece::Rook)
+        | board.pieces(Piece::Queen);
     !(board.colors(side) & non_pawn_material).is_empty()
 }
 
@@ -367,21 +367,6 @@ pub(in crate::search) fn should_futility_prune_quiet(
         && static_eval
             .saturating_add(futility_margin(depth, improving))
             <= alpha
-}
-
-#[inline]
-pub(in crate::search) fn should_see_prune_capture(
-    depth: u32,
-    is_pv_node: bool,
-    gives_check: bool,
-    searched_moves: u32,
-    see: i32,
-) -> bool {
-    depth <= SEE_PRUNING_MAX_DEPTH
-        && !is_pv_node
-        && !gives_check
-        && searched_moves > 0
-        && see < -see_pruning_margin(depth)
 }
 
 #[inline]

@@ -8,7 +8,7 @@ use super::{
     constants::*,
     move_ordering::{CandidateMove, MoveOrdering, MovePicker, ScoredMove, scaled_history_score},
     scoring::{move_score, piece_value},
-    see::static_exchange_eval,
+    see::static_exchange_eval_for_move,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -35,7 +35,9 @@ pub(in crate::search) fn ordered_root_moves(
         } else {
             None
         };
-        let see = is_capture.then(|| static_exchange_eval(board, *mv));
+        let see = is_capture.then(|| {
+            static_exchange_eval_for_move(board, *mv, moving_piece, captured_piece)
+        });
         moves.push(ScoredMove {
             mv: *mv,
             score: move_score(

@@ -128,6 +128,7 @@ pub(in crate::search) fn parent_outcome(
     }
 }
 
+#[cfg(debug_assertions)]
 pub(in crate::search) fn debug_validate_pv(board: &Board, pv: &[PvMove], tag: &str) {
     let mut b = board.clone();
     for (i, pm) in pv.iter().enumerate() {
@@ -144,3 +145,7 @@ pub(in crate::search) fn debug_validate_pv(board: &Board, pv: &[PvMove], tag: &s
         b.play_unchecked(pm.mv);
     }
 }
+
+#[cfg(not(debug_assertions))]
+#[inline]
+pub(in crate::search) fn debug_validate_pv(_board: &Board, _pv: &[PvMove], _tag: &str) {}

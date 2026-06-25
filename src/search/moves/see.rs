@@ -8,15 +8,30 @@ use cozy_chess::{
 };
 
 use super::{
-    board_moves::{captured_piece, en_passant_target, is_en_passant},
+    board_moves::{en_passant_target, is_en_passant},
     scoring::piece_value,
 };
 
-pub(in crate::search) fn static_exchange_eval(board: &Board, mv: Move) -> i32 {
+pub(in crate::search) fn static_exchange_eval_for_move(
+    board: &Board,
+    mv: Move,
+    moving_piece: Piece,
+    captured_piece: Option<Piece>,
+) -> i32 {
     let side = board.side_to_move();
-    let moving_piece = board.piece_on(mv.from).unwrap_or(Piece::Pawn);
     let ep_target = en_passant_target(board, side);
-    let Some(captured_piece) = captured_piece(board, moving_piece, mv, ep_target) else {
+    static_exchange_eval_with_target(board, mv, moving_piece, captured_piece, side, ep_target)
+}
+
+fn static_exchange_eval_with_target(
+    board: &Board,
+    mv: Move,
+    moving_piece: Piece,
+    captured_piece: Option<Piece>,
+    side: Color,
+    ep_target: Option<Square>,
+) -> i32 {
+    let Some(captured_piece) = captured_piece else {
         return mv.promotion.map(piece_value).unwrap_or(0);
     };
     let captured_square = if is_en_passant(moving_piece, mv, ep_target) {
