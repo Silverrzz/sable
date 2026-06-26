@@ -289,6 +289,12 @@ impl Engine {
         {
             request.limits.soft_nodes = Some(nodes);
         }
+        if self.options.use_soft_nodes
+            && request.limits.hard_nodes.is_none()
+            && let Some(soft_nodes) = request.limits.soft_nodes
+        {
+            request.limits.hard_nodes = Some(soft_nodes.saturating_mul(10));
+        }
         request
     }
 
