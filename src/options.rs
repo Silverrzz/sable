@@ -6,7 +6,7 @@ pub struct EngineOptions {
     pub threads: u32,
     pub ponder: bool,
     pub multi_pv: u32,
-    pub soft_nodes: Option<u64>,
+    pub use_soft_nodes: bool,
     pub uci_chess960: bool,
     pub uci_show_wdl: bool,
     pub move_overhead_ms: u64,
@@ -21,7 +21,7 @@ impl Default for EngineOptions {
             threads: 1,
             ponder: false,
             multi_pv: 1,
-            soft_nodes: None,
+            use_soft_nodes: false,
             uci_chess960: false,
             uci_show_wdl: false,
             move_overhead_ms: 100,
@@ -47,10 +47,7 @@ pub(crate) fn apply_engine_option(
         EngineOption::Threads => options.threads = parse_u32_option(name, value, 1, 256)?,
         EngineOption::Ponder => options.ponder = parse_bool_option(name, value)?,
         EngineOption::MultiPv => options.multi_pv = parse_u32_option(name, value, 1, 256)?,
-        EngineOption::SoftNodes => {
-            let parsed = parse_u64_option(name, value, 0, u64::MAX)?;
-            options.soft_nodes = (parsed > 0).then_some(parsed);
-        }
+        EngineOption::UseSoftNodes => options.use_soft_nodes = parse_bool_option(name, value)?,
         EngineOption::UciChess960 => options.uci_chess960 = parse_bool_option(name, value)?,
         EngineOption::UciShowWdl => options.uci_show_wdl = parse_bool_option(name, value)?,
         EngineOption::MoveOverhead => {
@@ -70,7 +67,7 @@ enum EngineOption {
     Threads,
     Ponder,
     MultiPv,
-    SoftNodes,
+    UseSoftNodes,
     UciChess960,
     UciShowWdl,
     MoveOverhead,
@@ -85,7 +82,7 @@ impl EngineOption {
             "threads" => Ok(Self::Threads),
             "ponder" => Ok(Self::Ponder),
             "multipv" => Ok(Self::MultiPv),
-            "softnodes" => Ok(Self::SoftNodes),
+            "usesoftnodes" => Ok(Self::UseSoftNodes),
             "uci_chess960" => Ok(Self::UciChess960),
             "uci_showwdl" => Ok(Self::UciShowWdl),
             "moveoverhead" => Ok(Self::MoveOverhead),
@@ -117,28 +114,6 @@ fn parse_u32_option(
     let raw = required_option_value(name, value)?;
     let parsed = raw
         .parse::<u32>()
-        .map_err(|_| EngineError::InvalidOptionValue {
-            option: name.to_owned(),
-            value: raw.to_owned(),
-        })?;
-    if parsed < min || parsed > max {
-        return Err(EngineError::InvalidOptionValue {
-            option: name.to_owned(),
-            value: raw.to_owned(),
-        });
-    }
-    Ok(parsed)
-}
-
-fn parse_u64_option(
-    name: &str,
-    value: Option<&str>,
-    min: u64,
-    max: u64,
-) -> Result<u64, EngineError> {
-    let raw = required_option_value(name, value)?;
-    let parsed = raw
-        .parse::<u64>()
         .map_err(|_| EngineError::InvalidOptionValue {
             option: name.to_owned(),
             value: raw.to_owned(),
