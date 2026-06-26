@@ -283,10 +283,11 @@ impl Engine {
 
     fn search_request_with_option_defaults(&self, request: &SearchRequest) -> SearchRequest {
         let mut request = request.clone();
-        if request.limits.soft_nodes.is_none() {
-            if let (Some(soft_nodes), Some(nodes)) = (self.options.soft_nodes, request.limits.nodes) {
-                request.limits.soft_nodes = Some(soft_nodes.min(nodes));
-            }
+        if self.options.use_soft_nodes
+            && request.limits.soft_nodes.is_none()
+            && let Some(nodes) = request.limits.nodes.take()
+        {
+            request.limits.soft_nodes = Some(nodes);
         }
         request
     }

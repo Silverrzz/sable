@@ -53,6 +53,7 @@ An in-development personal project written in Rust designed to play Chess better
 |Threads|spin|1|1 / 128|Number of search threads.|
 |Ponder|check|false||Standard UCI ponder option. `go ponder` is held until `ponderhit` or `stop`.|
 |MultiPV|spin|1|1 / 256|Number of principal variations to search and report.|
+|UseSoftNodes|check|false||Treats go nodes as a soft node limit for datagen.|
 |UCI_Chess960|check|false||Enables Chess960 FEN parsing and castling move notation.|
 |UCI_ShowWDL|check|false||Adds WDL values to UCI info lines.|
 |Move Overhead|spin|100|0 / 10000|Milliseconds reserved from time controls to avoid flagging.|

@@ -45,13 +45,13 @@
     "datagen_presets" : {
 
         "default" : {
-            "both_options"       : "Threads=1 Hash=8 SoftNodes=5000",
-            "both_time_control"  : "N=100000",
-            "book_name"          : "NONE",
-            "win_adj"            : "None",
-            "draw_adj"           : "None",
-            "datagen_max_games"  : 10000000,
-            "workload_size"      : 128,
+            "both_options"       : "Threads=1 Hash=8 UseSoftNodes=true",
+            "both_time_control"  : "N=5000",
+            "book_name"          : "UHO_Lichess_4852_v1.epd",
+            "win_adj"            : "movecount=5 score=2000",
+            "draw_adj"           : "movenumber=32 movecount=6 score=10",
+            "datagen_max_games"  : 5000000,
+            "workload_size"      : 32,
             "upload_pgns"        : "COMPACT"
         }
     }
