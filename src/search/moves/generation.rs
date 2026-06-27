@@ -63,17 +63,18 @@ pub(in crate::search) fn ordered_root_moves(
     moves
 }
 
-pub(in crate::search) fn collect_moves(
+pub(in crate::search) fn collect_moves_into(
     board: &Board,
     filter: MoveFilter,
     pv_move: Option<Move>,
     previous_move: Option<Move>,
     ply: u16,
-) -> MovePicker {
+    moves: &mut MovePicker,
+) {
     let side = board.side_to_move();
     let enemy_occupancy = board.colors(!side);
     let ep_target = en_passant_target(board, side);
-    let mut moves = MovePicker::new(pv_move, side, previous_move, ply, filter);
+    moves.reset(pv_move, side, previous_move, ply, filter);
     let mut ordinal = 0;
     board.generate_moves(|piece_moves| {
         for mv in piece_moves {
@@ -92,18 +93,14 @@ pub(in crate::search) fn collect_moves(
                 mv,
                 moving_piece: piece_moves.piece,
                 captured_piece,
-                is_capture,
-                is_promotion,
                 ordinal,
                 see: None,
                 score: None,
-                tried: false,
             });
             ordinal += 1;
         }
         false
     });
-    moves
 }
 
 pub(in crate::search) fn is_tactical_move(board: &Board, mv: Move) -> bool {
@@ -131,11 +128,11 @@ pub(in crate::search) fn priority_move_for_node(
 }
 
 pub(in crate::search) fn pick_better_move(
-    current: Option<(usize, i32, usize)>,
+    current: Option<(usize, i32, u16)>,
     index: usize,
     score: i32,
-    ordinal: usize,
-) -> Option<(usize, i32, usize)> {
+    ordinal: u16,
+) -> Option<(usize, i32, u16)> {
     match current {
         Some((_, best_score, best_ordinal))
             if best_score > score || (best_score == score && best_ordinal < ordinal) =>
@@ -148,7 +145,7 @@ pub(in crate::search) fn pick_better_move(
 
 pub(in crate::search) fn tactical_move_score(candidate: CandidateMove, see: i32) -> i32 {
     let promotion_value = candidate.mv.promotion.map(piece_value).unwrap_or(0);
-    if candidate.is_capture {
+    if candidate.captured_piece.is_some() {
         let victim = candidate.captured_piece.unwrap_or(Piece::Pawn);
         let see_order = see.clamp(-10_000, 10_000);
         return CAPTURE_SCORE

@@ -9,7 +9,8 @@ use super::{
     constants::*,
     context::SearchContext,
     correction_history::CorrectionContext,
-    move_generation::{MoveFilter, collect_moves},
+    move_generation::{MoveFilter, collect_moves_into},
+    move_ordering::MovePicker,
     position_key::position_key,
     pruning::{
         apply_mate_distance_pruning, internal_iterative_reduction, requires_full_mate_search,
@@ -259,12 +260,14 @@ fn try_probcut(
     let child_beta = child_alpha.saturating_add(1);
     let probcut_depth = params.depth.saturating_sub(PROBCUT_DEPTH_REDUCTION).max(1);
     let tt_move = params.tt_entry.and_then(|entry| entry.best_move);
-    let mut moves = collect_moves(
+    let mut moves = MovePicker::new();
+    collect_moves_into(
         params.board,
         MoveFilter::Tactical,
         tt_move,
         params.previous_move,
         params.ply,
+        &mut moves,
     );
 
     while let Some(ordered) = moves.next(params.board, context.ordering()) {

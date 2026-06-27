@@ -247,21 +247,18 @@ pub(in crate::search) struct CandidateMove {
     pub(in crate::search) mv: Move,
     pub(in crate::search) moving_piece: Piece,
     pub(in crate::search) captured_piece: Option<Piece>,
-    pub(in crate::search) is_capture: bool,
-    pub(in crate::search) is_promotion: bool,
-    pub(in crate::search) ordinal: usize,
+    pub(in crate::search) ordinal: u16,
     pub(in crate::search) see: Option<i32>,
     pub(in crate::search) score: Option<i32>,
-    pub(in crate::search) tried: bool,
 }
 
 impl CandidateMove {
     pub(in crate::search) fn is_quiet(self) -> bool {
-        !self.is_capture && !self.is_promotion
+        !self.is_tactical()
     }
 
     pub(in crate::search) fn is_tactical(self) -> bool {
-        self.is_capture || self.is_promotion
+        self.captured_piece.is_some() || self.mv.promotion.is_some()
     }
 }
 
@@ -277,6 +274,15 @@ pub(in crate::search) enum MovePickerStage {
 pub(in crate::search) struct MovePicker {
     moves: [MaybeUninit<CandidateMove>; MAX_CANDIDATE_MOVES],
     pub(in crate::search) len: usize,
+    tactical_indices: [u16; MAX_CANDIDATE_MOVES],
+    tactical_len: usize,
+    quiet_indices: [u16; MAX_CANDIDATE_MOVES],
+    quiet_len: usize,
+    bad_tactical_indices: [u16; MAX_CANDIDATE_MOVES],
+    bad_tactical_len: usize,
+    searched_indices: [u16; MAX_CANDIDATE_MOVES],
+    searched_len: usize,
+    priority_index: Option<u16>,
     stage: MovePickerStage,
     priority_move: Option<Move>,
     side: Color,
@@ -286,29 +292,65 @@ pub(in crate::search) struct MovePicker {
 }
 
 impl MovePicker {
-    pub(in crate::search) fn new(
+    pub(in crate::search) fn new() -> Self {
+        Self {
+            moves: [const { MaybeUninit::uninit() }; MAX_CANDIDATE_MOVES],
+            len: 0,
+            tactical_indices: [0; MAX_CANDIDATE_MOVES],
+            tactical_len: 0,
+            quiet_indices: [0; MAX_CANDIDATE_MOVES],
+            quiet_len: 0,
+            bad_tactical_indices: [0; MAX_CANDIDATE_MOVES],
+            bad_tactical_len: 0,
+            searched_indices: [0; MAX_CANDIDATE_MOVES],
+            searched_len: 0,
+            priority_index: None,
+            stage: MovePickerStage::Done,
+            priority_move: None,
+            side: Color::White,
+            previous_move: None,
+            ply: 0,
+            filter: MoveFilter::All,
+        }
+    }
+
+    pub(in crate::search) fn reset(
+        &mut self,
         priority_move: Option<Move>,
         side: Color,
         previous_move: Option<Move>,
         ply: u16,
         filter: MoveFilter,
-    ) -> Self {
-        Self {
-            moves: [const { MaybeUninit::uninit() }; MAX_CANDIDATE_MOVES],
-            len: 0,
-            stage: MovePickerStage::Priority,
-            priority_move,
-            side,
-            previous_move,
-            ply,
-            filter,
-        }
+    ) {
+        self.len = 0;
+        self.tactical_len = 0;
+        self.quiet_len = 0;
+        self.bad_tactical_len = 0;
+        self.searched_len = 0;
+        self.priority_index = None;
+        self.stage = MovePickerStage::Priority;
+        self.priority_move = priority_move;
+        self.side = side;
+        self.previous_move = previous_move;
+        self.ply = ply;
+        self.filter = filter;
     }
 
     pub(in crate::search) fn push(&mut self, candidate: CandidateMove) {
         assert!(self.len < MAX_CANDIDATE_MOVES, "move picker capacity exceeded");
-        self.moves[self.len].write(candidate);
+        let index = self.len;
+        self.moves[index].write(candidate);
         self.len += 1;
+        let index = index as u16;
+        if Some(candidate.mv) == self.priority_move && self.priority_index.is_none() {
+            self.priority_index = Some(index);
+        } else if candidate.is_tactical() {
+            self.tactical_indices[self.tactical_len] = index;
+            self.tactical_len += 1;
+        } else if self.filter == MoveFilter::All {
+            self.quiet_indices[self.quiet_len] = index;
+            self.quiet_len += 1;
+        }
     }
 
     pub(in crate::search) fn get(&self, index: usize) -> CandidateMove {
@@ -321,6 +363,12 @@ impl MovePicker {
         unsafe { self.moves[index].assume_init_mut() }
     }
 
+    pub(in crate::search) fn searched_candidates(&self) -> impl Iterator<Item = CandidateMove> + '_ {
+        self.searched_indices[..self.searched_len]
+            .iter()
+            .map(|&index| self.get(index as usize))
+    }
+
     pub(in crate::search) fn next(
         &mut self,
         board: &Board,
@@ -330,13 +378,8 @@ impl MovePicker {
             match self.stage {
                 MovePickerStage::Priority => {
                     self.stage = MovePickerStage::GoodTactical;
-                    if let Some(mv) = self.priority_move {
-                        for index in 0..self.len {
-                            let candidate = self.get(index);
-                            if !candidate.tried && candidate.mv == mv {
-                                return Some(self.take_scored(index, PV_MOVE_SCORE));
-                            }
-                        }
+                    if let Some(index) = self.priority_index {
+                        return Some(self.take_scored(index as usize, PV_MOVE_SCORE));
                     }
                 }
                 MovePickerStage::GoodTactical => {
@@ -367,12 +410,13 @@ impl MovePicker {
     }
 
     pub(in crate::search) fn take_scored(&mut self, index: usize, score: i32) -> ScoredMove {
-        let candidate = self.get_mut(index);
-        candidate.tried = true;
+        self.searched_indices[self.searched_len] = index as u16;
+        self.searched_len += 1;
+        let candidate = self.get(index);
         ScoredMove {
             mv: candidate.mv,
             score,
-            ordinal: candidate.ordinal,
+            ordinal: candidate.ordinal as usize,
             is_quiet: candidate.is_quiet(),
             moving_piece: candidate.moving_piece,
             captured_piece: candidate.captured_piece,
@@ -382,11 +426,9 @@ impl MovePicker {
 
     pub(in crate::search) fn best_quiet(&mut self, ordering: &MoveOrdering) -> Option<(usize, i32)> {
         let mut best = None;
-        for index in 0..self.len {
+        for position in 0..self.quiet_len {
+            let index = self.quiet_indices[position] as usize;
             let candidate = self.get(index);
-            if candidate.tried || !candidate.is_quiet() {
-                continue;
-            }
             let score = if let Some(score) = candidate.score {
                 score
             } else {
@@ -399,9 +441,9 @@ impl MovePicker {
                 self.get_mut(index).score = Some(score);
                 score
             };
-            best = pick_better_move(best, index, score, candidate.ordinal);
+            best = pick_better_move(best, position, score, candidate.ordinal);
         }
-        best.map(|(index, score, _)| (index, score))
+        best.map(|(position, score, _)| (self.remove_quiet(position) as usize, score))
     }
 
     pub(in crate::search) fn best_tactical(
@@ -410,25 +452,51 @@ impl MovePicker {
         ordering: &MoveOrdering,
         bad_tactical: bool,
     ) -> Option<(usize, i32)> {
+        if bad_tactical {
+            return self.best_bad_tactical(board, ordering);
+        }
         let mut best = None;
-        for index in 0..self.len {
+        let mut position = 0;
+        while position < self.tactical_len {
+            let index = self.tactical_indices[position] as usize;
             let candidate = self.get(index);
-            if candidate.tried || !candidate.is_tactical() {
-                continue;
-            }
             let see = self.tactical_see(board, index);
-            if (see < 0) != bad_tactical {
+            if see < 0 {
+                let index = self.remove_tactical(position);
+                self.bad_tactical_indices[self.bad_tactical_len] = index;
+                self.bad_tactical_len += 1;
                 continue;
             }
             let score = self.tactical_score(board, index, ordering);
             best = pick_better_move(
                 best,
-                index,
+                position,
+                score,
+                candidate.ordinal,
+            );
+            position += 1;
+        }
+        best.map(|(position, score, _)| (self.remove_tactical(position) as usize, score))
+    }
+
+    pub(in crate::search) fn best_bad_tactical(
+        &mut self,
+        board: &Board,
+        ordering: &MoveOrdering,
+    ) -> Option<(usize, i32)> {
+        let mut best = None;
+        for position in 0..self.bad_tactical_len {
+            let index = self.bad_tactical_indices[position] as usize;
+            let candidate = self.get(index);
+            let score = self.tactical_score(board, index, ordering);
+            best = pick_better_move(
+                best,
+                position,
                 score,
                 candidate.ordinal,
             );
         }
-        best.map(|(index, score, _)| (index, score))
+        best.map(|(position, score, _)| (self.remove_bad_tactical(position) as usize, score))
     }
 
     pub(in crate::search) fn tactical_see(&mut self, board: &Board, index: usize) -> i32 {
@@ -454,6 +522,30 @@ impl MovePicker {
         let score = tactical_move_score_with_history(ordering, self.side, self.get(index), see);
         self.get_mut(index).score = Some(score);
         score
+    }
+
+    fn remove_tactical(&mut self, position: usize) -> u16 {
+        debug_assert!(position < self.tactical_len);
+        let index = self.tactical_indices[position];
+        self.tactical_len -= 1;
+        self.tactical_indices[position] = self.tactical_indices[self.tactical_len];
+        index
+    }
+
+    fn remove_quiet(&mut self, position: usize) -> u16 {
+        debug_assert!(position < self.quiet_len);
+        let index = self.quiet_indices[position];
+        self.quiet_len -= 1;
+        self.quiet_indices[position] = self.quiet_indices[self.quiet_len];
+        index
+    }
+
+    fn remove_bad_tactical(&mut self, position: usize) -> u16 {
+        debug_assert!(position < self.bad_tactical_len);
+        let index = self.bad_tactical_indices[position];
+        self.bad_tactical_len -= 1;
+        self.bad_tactical_indices[position] = self.bad_tactical_indices[self.bad_tactical_len];
+        index
     }
 }
 

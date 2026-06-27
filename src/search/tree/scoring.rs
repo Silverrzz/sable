@@ -42,12 +42,9 @@ pub(in crate::search) fn move_score(
                 mv,
                 moving_piece,
                 captured_piece,
-                is_capture: true,
-                is_promotion: mv.promotion.is_some(),
                 ordinal: 0,
                 see: Some(see),
                 score: None,
-                tried: false,
             },
             see,
         );
