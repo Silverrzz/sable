@@ -38,7 +38,7 @@ pub(in crate::search) fn search_root_depth(
         pv: Vec::new(),
     };
     let mut alpha = alpha;
-    let pv_move = previous_pv.first().map(|pv| pv.mv);
+    let pv_move = previous_pv.last().map(|pv| pv.mv);
     let moves = ordered_root_moves(board, candidate_moves, pv_move, context.ordering());
     let is_pv_node = beta > alpha.saturating_add(1);
     let mut searched_moves = 0_u32;
@@ -211,7 +211,7 @@ fn search_root_child(
     let next_repetition = context.push_position(&next, next_key);
     context.push_eval_state(board, &next, ordered.mv);
     let child_pv = if Some(ordered.mv) == pv_move && !previous_pv.is_empty() {
-        &previous_pv[1..]
+        &previous_pv[..previous_pv.len() - 1]
     } else {
         &[]
     };
