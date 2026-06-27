@@ -42,6 +42,51 @@ fn static_exchange_eval_with_target(
     static_exchange_eval_capture(board, mv, moving_piece, captured_piece, captured_square)
 }
 
+pub(in crate::search) fn static_exchange_eval_for_quiet_move(
+    board: &Board,
+    mv: Move,
+    moving_piece: Piece,
+) -> i32 {
+    let mut colors = [board.colors(Color::White), board.colors(Color::Black)];
+    let mut pieces = [
+        board.pieces(Piece::Pawn),
+        board.pieces(Piece::Knight),
+        board.pieces(Piece::Bishop),
+        board.pieces(Piece::Rook),
+        board.pieces(Piece::Queen),
+        board.pieces(Piece::King),
+    ];
+    let mut occupied = board.occupied();
+    let side = board.side_to_move();
+
+    remove_piece(
+        &mut colors,
+        &mut pieces,
+        &mut occupied,
+        side,
+        moving_piece,
+        mv.from,
+    );
+    add_piece(
+        &mut colors,
+        &mut pieces,
+        &mut occupied,
+        side,
+        moving_piece,
+        mv.to,
+    );
+
+    static_exchange_eval_on_target(
+        mv.to,
+        moving_piece,
+        0,
+        !side,
+        &mut colors,
+        &mut pieces,
+        &mut occupied,
+    )
+}
+
 pub(in crate::search) fn move_gives_check(
     board: &Board,
     mv: Move,
@@ -132,8 +177,6 @@ pub(in crate::search) fn static_exchange_eval_capture(
     let side = board.side_to_move();
     let placed_piece = mv.promotion.unwrap_or(moving_piece);
     let promotion_gain = piece_value(placed_piece) - piece_value(moving_piece);
-    let mut gains = [0_i32; 32];
-    let mut depth = 0_usize;
 
     remove_piece(
         &mut colors,
@@ -160,22 +203,41 @@ pub(in crate::search) fn static_exchange_eval_capture(
         mv.to,
     );
 
-    gains[0] = piece_value(captured_piece) + promotion_gain;
-    let mut target_piece = placed_piece;
-    let mut attacker_side = !side;
+    static_exchange_eval_on_target(
+        mv.to,
+        placed_piece,
+        piece_value(captured_piece) + promotion_gain,
+        !side,
+        &mut colors,
+        &mut pieces,
+        &mut occupied,
+    )
+}
 
+fn static_exchange_eval_on_target(
+    target: Square,
+    mut target_piece: Piece,
+    initial_gain: i32,
+    mut attacker_side: Color,
+    colors: &mut [BitBoard; 2],
+    pieces: &mut [BitBoard; 6],
+    occupied: &mut BitBoard,
+) -> i32 {
+    let mut gains = [0_i32; 32];
+    let mut depth = 0_usize;
+    gains[0] = initial_gain;
     while depth + 1 < gains.len() {
         let Some((attacker_piece, attacker_square)) =
-            least_valuable_attacker(mv.to, attacker_side, occupied, &colors, &pieces)
+            least_valuable_attacker(target, attacker_side, *occupied, colors, pieces)
         else {
             break;
         };
         depth += 1;
         gains[depth] = piece_value(target_piece) - gains[depth - 1];
         remove_piece(
-            &mut colors,
-            &mut pieces,
-            &mut occupied,
+            colors,
+            pieces,
+            occupied,
             attacker_side,
             attacker_piece,
             attacker_square,

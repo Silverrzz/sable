@@ -16,7 +16,10 @@ use super::{
         },
         root::{PvMove, SearchOutcome, is_better_score, parent_outcome, terminal_outcome},
         search_profile::SearchProfile,
-        see::{move_gives_check, static_exchange_eval_for_move},
+        see::{
+            move_gives_check, static_exchange_eval_for_move,
+            static_exchange_eval_for_quiet_move,
+        },
         transposition::{Bound, TranspositionEntry, is_mate_score, score_from_tt},
     },
 };
@@ -117,6 +120,19 @@ pub(super) fn search_move_loop(
         let gives_check = capture_prune
             .gives_check
             .unwrap_or_else(|| !next.checkers().is_empty());
+        if see_quiet_prune(SeeQuietPruneParams {
+            board,
+            ordered,
+            depth,
+            is_pv_node,
+            in_check,
+            needs_full_mate_search,
+            pv_move,
+            searched_moves,
+            gives_check,
+        }) {
+            continue;
+        }
         if should_static_prune_quiet(
             static_eval,
             depth,
@@ -343,6 +359,40 @@ fn see_capture_prune(params: SeeCapturePruneParams<'_>) -> SeeCapturePruneResult
         gives_check: Some(gives_check),
         pruned: !gives_check,
     }
+}
+
+struct SeeQuietPruneParams<'a> {
+    board: &'a Board,
+    ordered: ScoredMove,
+    depth: u32,
+    is_pv_node: bool,
+    in_check: bool,
+    needs_full_mate_search: bool,
+    pv_move: Option<Move>,
+    searched_moves: u32,
+    gives_check: bool,
+}
+
+fn see_quiet_prune(params: SeeQuietPruneParams<'_>) -> bool {
+    if params.in_check
+        || params.needs_full_mate_search
+        || !params.ordered.is_quiet
+        || params.gives_check
+        || Some(params.ordered.mv) == params.pv_move
+    {
+        return false;
+    }
+    let see = static_exchange_eval_for_quiet_move(
+        params.board,
+        params.ordered.mv,
+        params.ordered.moving_piece,
+    );
+    is_see_prune_candidate(
+        params.depth,
+        params.is_pv_node,
+        params.searched_moves,
+        see,
+    )
 }
 
 fn should_static_prune_quiet(
