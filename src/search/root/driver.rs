@@ -420,7 +420,12 @@ fn finish_search(
     mut context: SearchContext<'_>,
 ) -> (SearchResult, PersistentSearchState) {
     context.flush_shared_node_counts();
-    let ponder_move = root.best_pv.get(1).map(|pv| pv.mv);
+    let ponder_move = root
+        .best_pv
+        .len()
+        .checked_sub(2)
+        .and_then(|index| root.best_pv.get(index))
+        .map(|pv| pv.mv);
     let info = build_search_info(
         board,
         budget,

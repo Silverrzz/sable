@@ -105,6 +105,7 @@ fn tt_cutoff_pv(
             } else {
                 TtPvStatus::Usable
             };
+            pv.reverse();
             return TtCutoffPv { pv, status };
         }
         repetition_keys.push(key);
@@ -114,6 +115,7 @@ fn tt_cutoff_pv(
             .filter(|entry| entry.bound == Bound::Exact)
             .and_then(|entry| entry.best_move);
     }
+    pv.reverse();
     TtCutoffPv {
         pv,
         status: TtPvStatus::Usable,

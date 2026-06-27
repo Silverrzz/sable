@@ -104,9 +104,9 @@ pub(in crate::search) fn parent_outcome(
     if child.repetition_draw {
         pv.clear();
     } else if pv.len() >= MAX_PV_LENGTH {
-        pv.truncate(MAX_PV_LENGTH - 1);
+        pv.remove(0);
     }
-    pv.insert(0, PvMove::new(board, mv, chess960));
+    pv.push(PvMove::new(board, mv, chess960));
     SearchOutcome {
         score: -child.score,
         repetition_draw: child.repetition_draw,
@@ -117,9 +117,9 @@ pub(in crate::search) fn parent_outcome(
 #[cfg(debug_assertions)]
 pub(in crate::search) fn debug_validate_pv(board: &Board, pv: &[PvMove], tag: &str) {
     let mut b = board.clone();
-    for (i, pm) in pv.iter().enumerate() {
+    for (i, pm) in pv.iter().rev().enumerate() {
         if !b.is_legal(pm.mv) {
-            let seq: Vec<String> = pv.iter().map(|p| p.mv.to_string()).collect();
+            let seq: Vec<String> = pv.iter().rev().map(|p| p.mv.to_string()).collect();
             eprintln!(
                 "PVBUG[{tag}] illegal move #{i} {} from {} | pv: {}",
                 pm.mv,

@@ -156,6 +156,7 @@ where
         .info
         .pv
         .iter()
+        .rev()
         .map(|&mv| PvMove::new(board, mv, chess960))
         .collect();
     debug_validate_pv(board, &pv, "SMPFINAL");

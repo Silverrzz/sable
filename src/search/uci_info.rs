@@ -21,7 +21,7 @@ pub(super) fn build_search_info(
     let nodes = context.total_nodes();
     let nps = nodes_per_second(nodes, elapsed_ns);
     let pv_uci = format_pv_uci(board, pv, chess960);
-    let pv = pv.iter().map(|mv| mv.mv).collect::<Vec<_>>();
+    let pv = pv.iter().rev().map(|mv| mv.mv).collect::<Vec<_>>();
     SearchInfo {
         budget: budget.clone(),
         depth: Some(depth),
@@ -41,7 +41,7 @@ pub(super) fn build_search_info(
 fn format_pv_uci(board: &Board, pv: &[PvMove], chess960: bool) -> Vec<String> {
     let mut board = board.clone();
     let mut pv_uci = Vec::with_capacity(pv.len());
-    for pv_move in pv {
+    for pv_move in pv.iter().rev() {
         pv_uci.push(format_uci_move_for_board(&board, pv_move.mv, chess960));
         if board.is_legal(pv_move.mv) {
             board.play_unchecked(pv_move.mv);

@@ -69,7 +69,7 @@ pub(super) fn search_move_loop(
 
     let side = board.side_to_move();
     let search_profile = SearchProfile::for_board(board);
-    let pv_move = previous_pv.first().map(|pv| pv.mv);
+    let pv_move = previous_pv.last().map(|pv| pv.mv);
     let tt_move = tt_entry.and_then(|entry| entry.best_move);
     let priority_move = priority_move_for_node(board, pv_move, tt_move, in_check);
     let mut moves = MovePicker::new();
@@ -150,8 +150,8 @@ pub(super) fn search_move_loop(
         context.push_eval_state(board, &next, ordered.mv);
         let child_correction_context =
             correction_context.after_move(ordered.mv, ordered.moving_piece);
-        let child_pv = if Some(ordered.mv) == pv_move {
-            &previous_pv[1..]
+        let child_pv = if Some(ordered.mv) == pv_move && !previous_pv.is_empty() {
+            &previous_pv[..previous_pv.len() - 1]
         } else {
             &[]
         };
@@ -434,7 +434,7 @@ pub(super) fn finish_node(
     } else {
         Bound::Exact
     };
-    let best_move = result.best.pv.first().map(|pv| pv.mv);
+    let best_move = result.best.pv.last().map(|pv| pv.mv);
     if params.use_tt
         && !result.best.repetition_draw
         && let Some(raw_eval) = params.raw_static_eval
