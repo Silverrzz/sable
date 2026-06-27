@@ -7,7 +7,7 @@ use super::{
         constants::*,
         context::SearchContext,
         correction_history::{CorrectionContext, should_update_correction_history},
-        move_generation::{MoveFilter, collect_moves, priority_move_for_node},
+        move_generation::{MoveFilter, collect_moves_into, priority_move_for_node},
         move_ordering::{MovePicker, ScoredMove},
         position_key::position_key,
         pruning::{
@@ -72,12 +72,14 @@ pub(super) fn search_move_loop(
     let pv_move = previous_pv.first().map(|pv| pv.mv);
     let tt_move = tt_entry.and_then(|entry| entry.best_move);
     let priority_move = priority_move_for_node(board, pv_move, tt_move, in_check);
-    let mut moves = collect_moves(
+    let mut moves = MovePicker::new();
+    collect_moves_into(
         board,
         MoveFilter::All,
         priority_move,
         previous_move,
         ply,
+        &mut moves,
     );
     let mut best = SearchOutcome {
         score: i32::MIN,
@@ -384,10 +386,9 @@ fn record_cutoff_and_failures(
         );
     }
 
-    for index in 0..moves.len {
-        let candidate = moves.get(index);
-        if !candidate.tried || candidate.mv == ordered.mv {
-            continue;
+    for candidate in moves.searched_candidates() {
+        if candidate.mv == ordered.mv {
+            break;
         }
         if candidate.is_quiet() {
             context.ordering_mut().record_quiet_failure(

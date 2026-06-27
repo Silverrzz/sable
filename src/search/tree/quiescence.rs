@@ -8,7 +8,8 @@ use super::{
     constants::*,
     context::SearchContext,
     correction_history::CorrectionContext,
-    move_generation::{MoveFilter, collect_moves, priority_move_for_node},
+    move_generation::{MoveFilter, collect_moves_into, priority_move_for_node},
+    move_ordering::MovePicker,
     position_key::{PositionKey, position_key},
     pruning::{apply_mate_distance_pruning, should_q_delta_prune_capture},
     root::{PvMove, SearchOutcome, is_better_score, parent_outcome, terminal_outcome},
@@ -107,12 +108,14 @@ pub(in crate::search) fn quiescence(
     } else {
         MoveFilter::Tactical
     };
-    let mut moves = collect_moves(
+    let mut moves = MovePicker::new();
+    collect_moves_into(
         board,
         filter,
         priority_move,
         previous_move,
         ply,
+        &mut moves,
     );
     let mut best = SearchOutcome {
         score: stand_pat.unwrap_or(i32::MIN),
