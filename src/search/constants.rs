@@ -1,5 +1,3 @@
-
-pub(super) const DEFAULT_MAX_DEPTH: u32 = 64;
 pub(super) const MAX_ORDERING_PLY: usize = 128;
 pub(super) const MAX_CANDIDATE_MOVES: usize = 256;
 pub(super) const MAX_PV_LENGTH: usize = MAX_ORDERING_PLY;
