@@ -1,7 +1,8 @@
 
 use crate::{
-    Board, Color, Move, Piece,
+    Board, Color, Move, Piece, Square,
 };
+use cozy_chess::{BitBoard, Rank};
 
 use super::{
     board_moves::{captured_piece, en_passant_target, is_en_passant},
@@ -75,15 +76,25 @@ pub(in crate::search) fn collect_moves_into(
     let enemy_occupancy = board.colors(!side);
     let ep_target = en_passant_target(board, side);
     moves.reset(pv_move, side, previous_move, ply, filter);
+    match filter {
+        MoveFilter::All => collect_all_moves_into(board, enemy_occupancy, ep_target, moves),
+        MoveFilter::Tactical => {
+            collect_tactical_moves_into(board, side, enemy_occupancy, ep_target, moves);
+        }
+    }
+}
+
+fn collect_all_moves_into(
+    board: &Board,
+    enemy_occupancy: BitBoard,
+    ep_target: Option<Square>,
+    moves: &mut MovePicker,
+) {
     let mut ordinal = 0;
     board.generate_moves(|piece_moves| {
         for mv in piece_moves {
             let is_capture =
                 enemy_occupancy.has(mv.to) || is_en_passant(piece_moves.piece, mv, ep_target);
-            let is_promotion = mv.promotion.is_some();
-            if filter == MoveFilter::Tactical && !is_capture && !is_promotion {
-                continue;
-            }
             let captured_piece = if is_capture {
                 captured_piece(board, piece_moves.piece, mv, ep_target)
             } else {
@@ -101,6 +112,62 @@ pub(in crate::search) fn collect_moves_into(
         }
         false
     });
+}
+
+fn collect_tactical_moves_into(
+    board: &Board,
+    side: Color,
+    enemy_occupancy: BitBoard,
+    ep_target: Option<Square>,
+    moves: &mut MovePicker,
+) {
+    let mut ordinal = 0;
+    let pawn_tactical_targets = pawn_tactical_targets(side, enemy_occupancy, ep_target);
+    board.generate_moves(|mut piece_moves| {
+        piece_moves.to &= if piece_moves.piece == Piece::Pawn {
+            pawn_tactical_targets
+        } else {
+            enemy_occupancy
+        };
+        if piece_moves.to.is_empty() {
+            return false;
+        }
+        for mv in piece_moves {
+            let is_capture =
+                enemy_occupancy.has(mv.to) || is_en_passant(piece_moves.piece, mv, ep_target);
+            let captured_piece = if is_capture {
+                captured_piece(board, piece_moves.piece, mv, ep_target)
+            } else {
+                None
+            };
+            moves.push(CandidateMove {
+                mv,
+                moving_piece: piece_moves.piece,
+                captured_piece,
+                ordinal,
+                see: None,
+                score: None,
+            });
+            ordinal += 1;
+        }
+        false
+    });
+}
+
+fn pawn_tactical_targets(
+    side: Color,
+    enemy_occupancy: BitBoard,
+    ep_target: Option<Square>,
+) -> BitBoard {
+    let promotion_rank = match side {
+        Color::White => Rank::Eighth,
+        Color::Black => Rank::First,
+    };
+    let mut targets = enemy_occupancy | promotion_rank.bitboard();
+    if let Some(ep_target) = ep_target {
+        targets |= ep_target.bitboard();
+    }
+    targets
 }
 
 pub(in crate::search) fn is_tactical_move(board: &Board, mv: Move) -> bool {
