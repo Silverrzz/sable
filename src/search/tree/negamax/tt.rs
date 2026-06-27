@@ -47,7 +47,7 @@ fn exact_tt_cutoff(
     if is_pv_node {
         let cutoff_pv = tt_cutoff_pv(board, entry.best_move, context, depth);
         return match cutoff_pv.status {
-            TtPvStatus::Usable => Some(SearchOutcome {
+            TtPvStatus::Complete => Some(SearchOutcome {
                 score: entry_score,
                 repetition_draw: false,
                 pv: cutoff_pv.pv,
@@ -57,7 +57,7 @@ fn exact_tt_cutoff(
                 repetition_draw: true,
                 pv: cutoff_pv.pv,
             }),
-            TtPvStatus::IllegalMove => None,
+            TtPvStatus::Incomplete | TtPvStatus::IllegalMove => None,
         };
     }
 
@@ -70,8 +70,9 @@ struct TtCutoffPv {
 }
 
 enum TtPvStatus {
-    Usable,
+    Complete,
     RepetitionDraw,
+    Incomplete,
     IllegalMove,
 }
 
@@ -84,16 +85,14 @@ fn tt_cutoff_pv(
     let mut board = board.clone();
     let mut next_move = first_move;
     let mut repetition_keys = context.repetition_keys().to_vec();
-    let mut pv = Vec::with_capacity(depth.min(MAX_PV_LENGTH as u32) as usize);
-    while pv.len() < depth as usize && pv.len() < MAX_PV_LENGTH {
+    let target_len = depth.min(MAX_PV_LENGTH as u32) as usize;
+    let mut pv = Vec::with_capacity(target_len);
+    while pv.len() < target_len {
         let Some(mv) = next_move else {
-            break;
+            return finish_tt_cutoff_pv(pv, TtPvStatus::Incomplete);
         };
         if !board.is_legal(mv) {
-            return TtCutoffPv {
-                pv,
-                status: TtPvStatus::IllegalMove,
-            };
+            return finish_tt_cutoff_pv(pv, TtPvStatus::IllegalMove);
         }
         pv.push(PvMove::new(&board, mv, context.chess960()));
         board.play_unchecked(mv);
@@ -103,21 +102,27 @@ fn tt_cutoff_pv(
             let status = if repetition {
                 TtPvStatus::RepetitionDraw
             } else {
-                TtPvStatus::Usable
+                TtPvStatus::Complete
             };
-            pv.reverse();
-            return TtCutoffPv { pv, status };
+            return finish_tt_cutoff_pv(pv, status);
         }
         repetition_keys.push(key);
-        next_move = context
-            .transposition_table()
-            .probe(key)
-            .filter(|entry| entry.bound == Bound::Exact)
-            .and_then(|entry| entry.best_move);
+        if pv.len() == target_len {
+            break;
+        }
+        let remaining_depth = depth.saturating_sub(pv.len() as u32);
+        let Some(entry) = context.transposition_table().probe(key) else {
+            return finish_tt_cutoff_pv(pv, TtPvStatus::Incomplete);
+        };
+        if entry.bound != Bound::Exact || u32::from(entry.depth) < remaining_depth {
+            return finish_tt_cutoff_pv(pv, TtPvStatus::Incomplete);
+        }
+        next_move = entry.best_move;
     }
+    finish_tt_cutoff_pv(pv, TtPvStatus::Complete)
+}
+
+fn finish_tt_cutoff_pv(mut pv: Vec<PvMove>, status: TtPvStatus) -> TtCutoffPv {
     pv.reverse();
-    TtCutoffPv {
-        pv,
-        status: TtPvStatus::Usable,
-    }
+    TtCutoffPv { pv, status }
 }
