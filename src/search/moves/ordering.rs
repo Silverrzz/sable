@@ -337,16 +337,27 @@ impl MovePicker {
         self.quiets_sorted = false;
     }
 
-    pub(in crate::search) fn push(&mut self, candidate: CandidateMove) {
+    #[inline]
+    pub(in crate::search) fn push_tactical(&mut self, candidate: CandidateMove) {
+        self.push_classified(candidate, true);
+    }
+
+    #[inline]
+    pub(in crate::search) fn push_quiet(&mut self, candidate: CandidateMove) {
+        self.push_classified(candidate, false);
+    }
+
+    #[inline]
+    fn push_classified(&mut self, candidate: CandidateMove, is_tactical: bool) {
         assert!(self.moves.len() < MAX_CANDIDATE_MOVES, "move picker capacity exceeded");
         let index = self.moves.len();
         self.moves.push(candidate);
         let index = index as u16;
         if Some(candidate.mv) == self.priority_move && self.priority_index.is_none() {
             self.priority_index = Some(index);
-        } else if candidate.is_tactical() {
+        } else if is_tactical {
             self.tactical_indices.push(index);
-        } else if self.filter == MoveFilter::All {
+        } else {
             self.quiet_indices.push(index);
         }
     }
