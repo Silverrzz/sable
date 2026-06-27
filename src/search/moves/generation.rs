@@ -93,21 +93,22 @@ fn collect_all_moves_into(
     let mut ordinal = 0;
     board.generate_moves(|piece_moves| {
         for mv in piece_moves {
-            let is_capture =
-                enemy_occupancy.has(mv.to) || is_en_passant(piece_moves.piece, mv, ep_target);
-            let captured_piece = if is_capture {
-                captured_piece(board, piece_moves.piece, mv, ep_target)
-            } else {
-                None
-            };
-            moves.push(CandidateMove {
+            let captured_piece =
+                captured_piece_for_generated_move(board, piece_moves.piece, mv, enemy_occupancy, ep_target);
+            let is_tactical = captured_piece.is_some() || mv.promotion.is_some();
+            let candidate = CandidateMove {
                 mv,
                 moving_piece: piece_moves.piece,
                 captured_piece,
                 ordinal,
                 see: None,
                 score: None,
-            });
+            };
+            if is_tactical {
+                moves.push_tactical(candidate);
+            } else {
+                moves.push_quiet(candidate);
+            }
             ordinal += 1;
         }
         false
@@ -133,14 +134,9 @@ fn collect_tactical_moves_into(
             return false;
         }
         for mv in piece_moves {
-            let is_capture =
-                enemy_occupancy.has(mv.to) || is_en_passant(piece_moves.piece, mv, ep_target);
-            let captured_piece = if is_capture {
-                captured_piece(board, piece_moves.piece, mv, ep_target)
-            } else {
-                None
-            };
-            moves.push(CandidateMove {
+            let captured_piece =
+                captured_piece_for_generated_move(board, piece_moves.piece, mv, enemy_occupancy, ep_target);
+            moves.push_tactical(CandidateMove {
                 mv,
                 moving_piece: piece_moves.piece,
                 captured_piece,
@@ -152,6 +148,23 @@ fn collect_tactical_moves_into(
         }
         false
     });
+}
+
+#[inline]
+fn captured_piece_for_generated_move(
+    board: &Board,
+    moving_piece: Piece,
+    mv: Move,
+    enemy_occupancy: BitBoard,
+    ep_target: Option<Square>,
+) -> Option<Piece> {
+    if enemy_occupancy.has(mv.to) {
+        board.piece_on(mv.to)
+    } else if is_en_passant(moving_piece, mv, ep_target) {
+        Some(Piece::Pawn)
+    } else {
+        None
+    }
 }
 
 fn pawn_tactical_targets(
