@@ -85,6 +85,7 @@ You can create your own Sable build with cargo build --release.
     - Ciekce
     - DarkNeutrino
     - jb1729
+    - Dan
     - Many others..!!
 - Close friends who helped with datagen for my net
     - wnnb3dgy
