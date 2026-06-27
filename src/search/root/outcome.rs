@@ -101,9 +101,7 @@ pub(in crate::search) fn parent_outcome(
     chess960: bool,
 ) -> SearchOutcome {
     let mut pv = child.pv;
-    if child.repetition_draw {
-        pv.clear();
-    } else if pv.len() >= MAX_PV_LENGTH {
+    if pv.len() >= MAX_PV_LENGTH {
         pv.remove(0);
     }
     pv.push(PvMove::new(board, mv, chess960));
