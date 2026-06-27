@@ -222,7 +222,7 @@ where
         );
     }
 
-    finish_search(&budget, root, context)
+    finish_search(board, &budget, root, chess960, context)
 }
 
 struct RootSearchState {
@@ -297,9 +297,11 @@ where
         root.completed_depth = depth;
         for (idx, result) in iteration_results.iter().take(requested_multi_pv).enumerate() {
             let mut info = build_search_info(
+                board,
                 budget,
                 root.completed_depth,
                 context,
+                chess960,
                 result.score,
                 &result.pv,
             );
@@ -358,9 +360,11 @@ where
         root.best_pv = iteration_outcome.pv.clone();
         root.completed_depth = depth;
         let info = build_search_info(
+            board,
             budget,
             root.completed_depth,
             context,
+            chess960,
             root.best_score,
             &root.best_pv,
         );
@@ -409,16 +413,20 @@ fn record_completed_iteration(
 }
 
 fn finish_search(
+    board: &Board,
     budget: &SearchBudget,
     root: RootSearchState,
+    chess960: bool,
     mut context: SearchContext<'_>,
 ) -> (SearchResult, PersistentSearchState) {
     context.flush_shared_node_counts();
     let ponder_move = root.best_pv.get(1).map(|pv| pv.mv);
     let info = build_search_info(
+        board,
         budget,
         root.completed_depth,
         &mut context,
+        chess960,
         root.best_score,
         &root.best_pv,
     );

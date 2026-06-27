@@ -1,4 +1,4 @@
-use crate::{Board, Move, evaluation::DRAW_SCORE, protocol::uci::format_uci_move_for_board};
+use crate::{Board, Move, evaluation::DRAW_SCORE};
 
 use super::super::constants::{
     DRAW_PREFERENCE_MAX_SCORE, MAX_PV_LENGTH, ROOT_REPETITION_DEFER_MIN_SCORE,
@@ -14,27 +14,11 @@ pub(in crate::search) struct SearchOutcome {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::search) struct PvMove {
     pub(in crate::search) mv: Move,
-    pub(in crate::search) uci: Option<[u8; 5]>,
-    pub(in crate::search) uci_len: usize,
 }
 
 impl PvMove {
-    pub(in crate::search) fn new(board: &Board, mv: Move, chess960: bool) -> Self {
-        let uci = format_uci_move_for_board(board, mv, chess960);
-        let mut bytes = [0; 5];
-        let uci_len = uci.len().min(bytes.len());
-        bytes[..uci_len].copy_from_slice(&uci.as_bytes()[..uci_len]);
-        Self {
-            mv,
-            uci: Some(bytes),
-            uci_len,
-        }
-    }
-
-    pub(in crate::search) fn to_uci(self) -> String {
-        self.uci
-            .map(|bytes| String::from_utf8_lossy(&bytes[..self.uci_len]).into_owned())
-            .unwrap_or_else(|| self.mv.to_string())
+    pub(in crate::search) fn new(_board: &Board, mv: Move, _chess960: bool) -> Self {
+        Self { mv }
     }
 }
 
@@ -116,11 +100,13 @@ pub(in crate::search) fn parent_outcome(
     child: SearchOutcome,
     chess960: bool,
 ) -> SearchOutcome {
-    let mut pv = Vec::with_capacity(1 + child.pv.len().min(MAX_PV_LENGTH - 1));
-    pv.push(PvMove::new(board, mv, chess960));
-    if !child.repetition_draw {
-        pv.extend(child.pv.into_iter().take(MAX_PV_LENGTH - 1));
+    let mut pv = child.pv;
+    if child.repetition_draw {
+        pv.clear();
+    } else if pv.len() >= MAX_PV_LENGTH {
+        pv.truncate(MAX_PV_LENGTH - 1);
     }
+    pv.insert(0, PvMove::new(board, mv, chess960));
     SearchOutcome {
         score: -child.score,
         repetition_draw: child.repetition_draw,
