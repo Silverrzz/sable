@@ -251,6 +251,15 @@ pub(in crate::search) struct CandidateMove {
     pub(in crate::search) score: Option<i32>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct QuietScoreContext {
+    first_killer: Option<Move>,
+    second_killer: Option<Move>,
+    counter_move: Option<Move>,
+    history_base: usize,
+    continuation_base: Option<usize>,
+}
+
 impl CandidateMove {
     pub(in crate::search) fn is_quiet(self) -> bool {
         !self.is_tactical()
@@ -283,6 +292,7 @@ pub(in crate::search) struct MovePicker {
     previous_move: Option<Move>,
     ply: u16,
     filter: MoveFilter,
+    quiets_sorted: bool,
 }
 
 impl MovePicker {
@@ -300,6 +310,7 @@ impl MovePicker {
             previous_move: None,
             ply: 0,
             filter: MoveFilter::All,
+            quiets_sorted: false,
         }
     }
 
@@ -323,6 +334,7 @@ impl MovePicker {
         self.previous_move = previous_move;
         self.ply = ply;
         self.filter = filter;
+        self.quiets_sorted = false;
     }
 
     pub(in crate::search) fn push(&mut self, candidate: CandidateMove) {
@@ -374,7 +386,7 @@ impl MovePicker {
                 }
                 MovePickerStage::Quiet => {
                     if self.filter == MoveFilter::All
-                        && let Some((index, score)) = self.best_quiet(ordering)
+                        && let Some((index, score)) = self.next_quiet(ordering)
                     {
                         return Some(self.take_scored(index, score));
                     }
@@ -407,26 +419,105 @@ impl MovePicker {
         }
     }
 
-    pub(in crate::search) fn best_quiet(&mut self, ordering: &MoveOrdering) -> Option<(usize, i32)> {
-        let mut best = None;
+    pub(in crate::search) fn next_quiet(&mut self, ordering: &MoveOrdering) -> Option<(usize, i32)> {
+        self.sort_quiets_once(ordering);
+        let index = self.quiet_indices.pop()? as usize;
+        let score = self.get(index).score.unwrap_or(0);
+        Some((index, score))
+    }
+
+    fn sort_quiets_once(&mut self, ordering: &MoveOrdering) {
+        if self.quiets_sorted {
+            return;
+        }
+        if self.quiet_indices.len() <= 1 {
+            if let Some(&index) = self.quiet_indices.first() {
+                let index = index as usize;
+                let candidate = self.get(index);
+                if candidate.score.is_none() {
+                    let context = self.quiet_score_context(ordering);
+                    let score = Self::quiet_score_for_candidate(ordering, context, candidate);
+                    self.get_mut(index).score = Some(score);
+                }
+            }
+            self.quiets_sorted = true;
+            return;
+        }
+        let context = self.quiet_score_context(ordering);
+        let mut scored = ArrayVec::<(u16, i32, u16), MAX_CANDIDATE_MOVES>::new();
         for position in 0..self.quiet_indices.len() {
-            let index = self.quiet_indices[position] as usize;
-            let candidate = self.get(index);
+            let index = self.quiet_indices[position];
+            let index_usize = index as usize;
+            let candidate = self.get(index_usize);
             let score = if let Some(score) = candidate.score {
                 score
             } else {
-                let score = ordering.quiet_score(
-                    self.side,
-                    candidate.mv,
-                    self.previous_move,
-                    self.ply,
-                );
-                self.get_mut(index).score = Some(score);
+                let score = Self::quiet_score_for_candidate(ordering, context, candidate);
+                self.get_mut(index_usize).score = Some(score);
                 score
             };
-            best = pick_better_move(best, position, score, candidate.ordinal);
+            scored.push((index, score, candidate.ordinal));
         }
-        best.map(|(position, score, _)| (self.quiet_indices.swap_remove(position) as usize, score))
+        scored.sort_unstable_by(|(_, left_score, left_ordinal), (_, right_score, right_ordinal)| {
+            left_score
+                .cmp(right_score)
+                .then_with(|| right_ordinal.cmp(left_ordinal))
+        });
+        self.quiet_indices.clear();
+        for (index, _, _) in scored {
+            self.quiet_indices.push(index);
+        }
+        self.quiets_sorted = true;
+    }
+
+    #[inline]
+    fn quiet_score_context(&self, ordering: &MoveOrdering) -> QuietScoreContext {
+        let ply = ordering_ply(self.ply);
+        let side = self.side as usize;
+        let previous_move = self.previous_move;
+        let counter_move = previous_move.and_then(|previous_move| {
+            ordering.counter_moves.get(MoveOrdering::counter_move_index(
+                side,
+                previous_move.from as usize,
+                previous_move.to as usize,
+            )).copied().flatten()
+        });
+        QuietScoreContext {
+            first_killer: ordering.killers[ply][0],
+            second_killer: ordering.killers[ply][1],
+            counter_move,
+            history_base: side * 64 * 64,
+            continuation_base: previous_move.map(|previous_move| {
+                ((side * 64) + previous_move.to as usize) * 64 * 64
+            }),
+        }
+    }
+
+    #[inline]
+    fn quiet_score_for_candidate(
+        ordering: &MoveOrdering,
+        context: QuietScoreContext,
+        candidate: CandidateMove,
+    ) -> i32 {
+        let mv = candidate.mv;
+        if context.first_killer == Some(mv) {
+            return FIRST_KILLER_SCORE;
+        }
+        if context.second_killer == Some(mv) {
+            return SECOND_KILLER_SCORE;
+        }
+        if context.counter_move == Some(mv) {
+            return COUNTER_MOVE_SCORE;
+        }
+        let move_offset = (mv.from as usize) * 64 + mv.to as usize;
+        let mut score = ordering.history[context.history_base + move_offset];
+        if let Some(continuation_base) = context.continuation_base {
+            score = score.saturating_add(
+                ordering.continuation_history[continuation_base + move_offset]
+                    / CONTINUATION_HISTORY_ORDERING_DIVISOR,
+            );
+        }
+        score.clamp(-MAX_HISTORY_SCORE, MAX_HISTORY_SCORE)
     }
 
     pub(in crate::search) fn best_tactical(
