@@ -152,6 +152,7 @@ pub(super) fn search_move_loop(
                 ordered,
                 depth,
                 root_depth,
+                is_pv_node,
                 in_check,
                 needs_full_mate_search,
                 ply,
@@ -234,6 +235,7 @@ struct SingularExtensionParams<'a> {
     ordered: ScoredMove,
     depth: u32,
     root_depth: u32,
+    is_pv_node: bool,
     in_check: bool,
     needs_full_mate_search: bool,
     ply: u16,
@@ -267,14 +269,14 @@ fn singular_extension(
         return Some(0);
     }
 
-    let singular_beta = tt_score.saturating_sub(singular_extension_margin(params.depth));
+    let single_extension_beta = tt_score.saturating_sub(single_extension_margin(params.depth));
     let excluded = negamax(
         params.board,
         params.repetition,
         singular_extension_search_depth(params.depth),
         params.root_depth,
-        singular_beta.saturating_sub(1),
-        singular_beta,
+        single_extension_beta.saturating_sub(1),
+        single_extension_beta,
         &[],
         params.previous_move,
         params.correction_context,
@@ -284,26 +286,21 @@ fn singular_extension(
         Some(params.ordered.mv),
     )?;
 
-    if excluded.score >= singular_beta {
+    if excluded.score >= single_extension_beta {
         return Some(0);
     }
 
-    if excluded.score < singular_beta.saturating_sub(double_extension_margin(params.depth)) {
-        Some(2)
-    } else {
-        Some(1)
-    }
+    let double_extension_beta =
+        single_extension_beta.saturating_sub(SINGULAR_EXTENSION_DOUBLE_EXTRA_MARGIN);
+    let can_double_extend = !params.is_pv_node && excluded.score < double_extension_beta;
+
+    Some(if can_double_extend { 2 } else { 1 })
 }
 
 #[inline]
-fn singular_extension_margin(depth: u32) -> i32 {
-    SINGULAR_EXTENSION_BASE_MARGIN
-        + SINGULAR_EXTENSION_MARGIN_PER_DEPTH.saturating_mul(depth.min(32) as i32)
-}
-
-#[inline]
-fn double_extension_margin(depth: u32) -> i32 {
-    singular_extension_margin(depth)
+fn single_extension_margin(depth: u32) -> i32 {
+    SINGULAR_EXTENSION_SINGLE_BASE_MARGIN
+        + SINGULAR_EXTENSION_SINGLE_MARGIN_PER_DEPTH.saturating_mul(depth.min(32) as i32)
 }
 
 #[inline]
