@@ -284,10 +284,14 @@ fn singular_extension(
         Some(params.ordered.mv),
     )?;
 
-    if excluded.score < singular_beta {
-        Some(1)
+    if excluded.score >= singular_beta {
+        return Some(0);
+    }
+
+    if excluded.score < singular_beta.saturating_sub(double_extension_margin(params.depth)) {
+        Some(2)
     } else {
-        Some(0)
+        Some(1)
     }
 }
 
@@ -295,6 +299,11 @@ fn singular_extension(
 fn singular_extension_margin(depth: u32) -> i32 {
     SINGULAR_EXTENSION_BASE_MARGIN
         + SINGULAR_EXTENSION_MARGIN_PER_DEPTH.saturating_mul(depth.min(32) as i32)
+}
+
+#[inline]
+fn double_extension_margin(depth: u32) -> i32 {
+    singular_extension_margin(depth)
 }
 
 #[inline]
