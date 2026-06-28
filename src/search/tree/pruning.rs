@@ -380,10 +380,13 @@ pub(in crate::search) fn should_futility_prune_quiet(
 
 #[inline]
 pub(in crate::search) fn is_see_prune_candidate(depth: u32, is_pv_node: bool, searched_moves: u32, see: i32) -> bool {
-    depth <= SEE_PRUNING_MAX_DEPTH
-        && !is_pv_node
-        && searched_moves > 0
+    can_try_see_pruning(depth, is_pv_node, searched_moves)
         && see < -see_pruning_margin(depth)
+}
+
+#[inline]
+pub(in crate::search) fn can_try_see_pruning(depth: u32, is_pv_node: bool, searched_moves: u32) -> bool {
+    depth <= SEE_PRUNING_MAX_DEPTH && !is_pv_node && searched_moves > 0
 }
 
 #[inline]
