@@ -12,7 +12,7 @@ pub(crate) fn parse_legal_move_for_board(
     chess960: bool,
 ) -> Result<Move, EngineError> {
     if let Ok(parsed) = Move::from_str(mv)
-        && board.is_legal(parsed)
+        && crate::chess::is_legal(board, parsed)
     {
         return Ok(parsed);
     }
@@ -20,13 +20,13 @@ pub(crate) fn parse_legal_move_for_board(
     if !chess960
         && let Some(mapped) = map_castling_uci_notation(mv)
         && let Ok(parsed) = Move::from_str(mapped)
-        && board.is_legal(parsed)
+        && crate::chess::is_legal(board, parsed)
     {
         return Ok(parsed);
     }
 
     if let Some(mapped) = map_castling_target_notation(board, mv)
-        && board.is_legal(mapped)
+        && crate::chess::is_legal(board, mapped)
     {
         return Ok(mapped);
     }

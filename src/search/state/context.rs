@@ -191,7 +191,7 @@ impl<'a> SearchContext<'a> {
     }
 
     pub(in crate::search) fn push_position(&mut self, board: &Board, key: PositionKey) -> bool {
-        let repeated = is_repetition(key, board.halfmove_clock(), &self.repetition.path_keys);
+        let repeated = is_repetition(key, crate::chess::halfmove_clock(board), &self.repetition.path_keys);
         self.repetition.path_keys.push(key);
         repeated
     }

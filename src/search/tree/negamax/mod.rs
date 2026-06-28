@@ -84,7 +84,7 @@ pub(in crate::search) fn negamax(
         return Some(outcome);
     }
 
-    let in_check = !board.checkers().is_empty();
+    let in_check = !crate::chess::checkers(board).is_empty();
     let needs_full_mate_search = requires_full_mate_search(alpha, beta);
     let expected_cut_node = !is_pv_node && beta == alpha.saturating_add(1);
     let hash_move = tt_entry.and_then(|entry| entry.best_move);
@@ -289,7 +289,7 @@ fn try_probcut(
         }
 
         let mut next = params.board.clone();
-        next.play_unchecked(ordered.mv);
+        crate::chess::play_unchecked(&mut next, ordered.mv);
         let next_key = position_key(&next);
         let next_repetition = context.push_position(&next, next_key);
         context.push_eval_state(params.board, &next, ordered.mv);

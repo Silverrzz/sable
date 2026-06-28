@@ -206,7 +206,7 @@ fn search_root_child(
     let root_key = position_key(board);
     context.push_repetition_key(root_key);
     let mut next = board.clone();
-    next.play_unchecked(ordered.mv);
+    crate::chess::play_unchecked(&mut next, ordered.mv);
     let next_key = position_key(&next);
     let next_repetition = context.push_position(&next, next_key);
     context.push_eval_state(board, &next, ordered.mv);

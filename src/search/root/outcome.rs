@@ -116,7 +116,7 @@ pub(in crate::search) fn parent_outcome(
 pub(in crate::search) fn debug_validate_pv(board: &Board, pv: &[PvMove], tag: &str) {
     let mut b = board.clone();
     for (i, pm) in pv.iter().rev().enumerate() {
-        if !b.is_legal(pm.mv) {
+        if !crate::chess::is_legal(&b, pm.mv) {
             let seq: Vec<String> = pv.iter().rev().map(|p| p.mv.to_string()).collect();
             eprintln!(
                 "PVBUG[{tag}] illegal move #{i} {} from {} | pv: {}",
@@ -126,7 +126,7 @@ pub(in crate::search) fn debug_validate_pv(board: &Board, pv: &[PvMove], tag: &s
             );
             return;
         }
-        b.play_unchecked(pm.mv);
+        crate::chess::play_unchecked(&mut b, pm.mv);
     }
 }
 

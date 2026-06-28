@@ -91,13 +91,13 @@ fn tt_cutoff_pv(
         let Some(mv) = next_move else {
             return finish_tt_cutoff_pv(pv, TtPvStatus::Incomplete);
         };
-        if !board.is_legal(mv) {
+        if !crate::chess::is_legal(&board, mv) {
             return finish_tt_cutoff_pv(pv, TtPvStatus::IllegalMove);
         }
         pv.push(PvMove::new(&board, mv, context.chess960()));
-        board.play_unchecked(mv);
+        crate::chess::play_unchecked(&mut board, mv);
         let key = position_key(&board);
-        let repetition = is_repetition(key, board.halfmove_clock(), &repetition_keys);
+        let repetition = is_repetition(key, crate::chess::halfmove_clock(&board), &repetition_keys);
         if terminal_score(&board, repetition, pv.len() as u16).is_some() {
             let status = if repetition {
                 TtPvStatus::RepetitionDraw

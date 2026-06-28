@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use crate::{
     Board, EngineError, Move,
+    chess::{generate_moves},
     protocol::uci::{map_castling_target_notation, map_castling_uci_notation},
 };
 
@@ -17,16 +18,16 @@ pub(crate) fn select_candidate_moves(
     let mut filtered = Vec::new();
     for mv in search_moves {
         let parsed = Move::from_str(mv).map_err(|_| EngineError::InvalidSearchMove(mv.clone()))?;
-        if board.is_legal(parsed) {
+        if crate::chess::is_legal(board, parsed) {
             filtered.push(parsed);
         } else if !chess960
             && let Some(mapped) = map_castling_uci_notation(mv)
             && let Ok(mapped) = Move::from_str(mapped)
-            && board.is_legal(mapped)
+            && crate::chess::is_legal(board, mapped)
         {
             filtered.push(mapped);
         } else if let Some(mapped) = map_castling_target_notation(board, mv)
-            && board.is_legal(mapped)
+            && crate::chess::is_legal(board, mapped)
         {
             filtered.push(mapped);
         } else {
@@ -38,7 +39,7 @@ pub(crate) fn select_candidate_moves(
 
 fn legal_moves(board: &Board) -> Vec<Move> {
     let mut legal_moves = Vec::new();
-    board.generate_moves(|piece_moves| {
+    generate_moves(board, |piece_moves| {
         legal_moves.extend(piece_moves);
         false
     });

@@ -1,5 +1,7 @@
-use crate::{Board, Color, Piece, Square};
-use cozy_chess::{BitBoard, get_king_moves};
+use crate::{
+    Board, Color, Piece, Square,
+    chess::{BitBoard, get_king_moves},
+};
 
 use super::geometry::{build_pawn_files, collect_pawn_attacks};
 
@@ -37,7 +39,7 @@ pub(super) struct HceInfo {
 impl HceInfo {
     #[inline]
     pub(super) fn new(board: &Board) -> Self {
-        let colors = [board.colors(Color::White), board.colors(Color::Black)];
+        let colors = [crate::chess::colors(board, Color::White), crate::chess::colors(board, Color::Black)];
         let occupied = colors[Color::White as usize] | colors[Color::Black as usize];
         let mut piece_colors = [[BitBoard::EMPTY; 6]; 2];
         for color in [Color::White, Color::Black] {
@@ -50,7 +52,7 @@ impl HceInfo {
                 Piece::Queen,
                 Piece::King,
             ] {
-                piece_colors[color_idx][piece as usize] = board.colored_pieces(color, piece);
+                piece_colors[color_idx][piece as usize] = crate::chess::colored_pieces(board, color, piece);
             }
         }
 

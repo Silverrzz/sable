@@ -43,8 +43,8 @@ fn format_pv_uci(board: &Board, pv: &[PvMove], chess960: bool) -> Vec<String> {
     let mut pv_uci = Vec::with_capacity(pv.len());
     for pv_move in pv.iter().rev() {
         pv_uci.push(format_uci_move_for_board(&board, pv_move.mv, chess960));
-        if board.is_legal(pv_move.mv) {
-            board.play_unchecked(pv_move.mv);
+        if crate::chess::is_legal(&board, pv_move.mv) {
+            crate::chess::play_unchecked(&mut board, pv_move.mv);
         }
     }
     pv_uci

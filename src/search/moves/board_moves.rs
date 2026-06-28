@@ -1,8 +1,8 @@
 
 use crate::{
     Board, Color, Move, Piece, Square,
+    chess::{Rank},
 };
-use cozy_chess::Rank;
 pub(in crate::search) fn captured_piece(
     board: &Board,
     moving_piece: Piece,
@@ -12,7 +12,7 @@ pub(in crate::search) fn captured_piece(
     if is_en_passant(moving_piece, mv, ep_target) {
         Some(Piece::Pawn)
     } else {
-        board.piece_on(mv.to)
+        crate::chess::piece_on(board, mv.to)
     }
 }
 
@@ -21,7 +21,5 @@ pub(in crate::search) fn is_en_passant(moving_piece: Piece, mv: Move, ep_target:
 }
 
 pub(in crate::search) fn en_passant_target(board: &Board, side: Color) -> Option<Square> {
-    board
-        .en_passant()
-        .map(|file| Square::new(file, Rank::Sixth.relative_to(side)))
+    crate::chess::en_passant(board).map(|file| Square::new(file, Rank::Sixth.relative_to(side)))
 }

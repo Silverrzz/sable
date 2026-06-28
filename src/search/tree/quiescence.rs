@@ -36,7 +36,7 @@ pub(in crate::search) fn quiescence(
     if let Some(score) = terminal_score(board, repetition, ply) {
         return Some(terminal_outcome(score, repetition));
     }
-    let in_check = !board.checkers().is_empty();
+    let in_check = !crate::chess::checkers(board).is_empty();
     if let Some(score) = apply_mate_distance_pruning(&mut alpha, &mut beta, ply) {
         return Some(terminal_outcome(score, false));
     }
@@ -155,7 +155,7 @@ pub(in crate::search) fn quiescence(
         }
 
         let mut next = board.clone();
-        next.play_unchecked(ordered.mv);
+        crate::chess::play_unchecked(&mut next, ordered.mv);
         let next_key = position_key(&next);
         let next_repetition = context.push_position(&next, next_key);
         context.push_eval_state(board, &next, ordered.mv);
@@ -258,7 +258,7 @@ pub(in crate::search) fn qsearch_tt_cutoff(
         Bound::Exact => {
             let pv = entry
                 .best_move
-                .filter(|&mv| board.is_legal(mv))
+                .filter(|&mv| crate::chess::is_legal(board, mv))
                 .map(|mv| vec![PvMove::new(board, mv, context.chess960())])
                 .unwrap_or_default();
             Some(SearchOutcome {

@@ -70,7 +70,7 @@ pub(super) fn search_move_loop(
         excluded_move,
     } = params;
 
-    let side = board.side_to_move();
+    let side = crate::chess::side_to_move(board);
     let search_profile = SearchProfile::for_board(board);
     let pv_move = previous_pv.last().map(|pv| pv.mv);
     let tt_move = tt_entry.and_then(|entry| entry.best_move);
@@ -116,10 +116,10 @@ pub(super) fn search_move_loop(
             continue;
         }
         let mut next = board.clone();
-        next.play_unchecked(ordered.mv);
+        crate::chess::play_unchecked(&mut next, ordered.mv);
         let gives_check = capture_prune
             .gives_check
-            .unwrap_or_else(|| !next.checkers().is_empty());
+            .unwrap_or_else(|| !crate::chess::checkers(&next).is_empty());
         if should_static_prune_quiet(
             static_eval,
             depth,

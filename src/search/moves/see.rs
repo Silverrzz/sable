@@ -1,10 +1,10 @@
 
 use crate::{
     Board, Color, Move, Piece, Square,
-};
-use cozy_chess::{
-    BitBoard, Rank, get_bishop_moves, get_king_moves, get_knight_moves, get_pawn_attacks,
-    get_rook_moves,
+    chess::{
+        BitBoard, Rank, get_bishop_moves, get_king_moves, get_knight_moves,
+        get_pawn_attacks, get_rook_moves,
+    },
 };
 
 use super::{
@@ -18,7 +18,7 @@ pub(in crate::search) fn static_exchange_eval_for_move(
     moving_piece: Piece,
     captured_piece: Option<Piece>,
 ) -> i32 {
-    let side = board.side_to_move();
+    let side = crate::chess::side_to_move(board);
     let ep_target = en_passant_target(board, side);
     static_exchange_eval_with_target(board, mv, moving_piece, captured_piece, side, ep_target)
 }
@@ -47,17 +47,17 @@ pub(in crate::search) fn static_exchange_eval_for_quiet_move(
     mv: Move,
     moving_piece: Piece,
 ) -> i32 {
-    let mut colors = [board.colors(Color::White), board.colors(Color::Black)];
+    let mut colors = [crate::chess::colors(board, Color::White), crate::chess::colors(board, Color::Black)];
     let mut pieces = [
-        board.pieces(Piece::Pawn),
-        board.pieces(Piece::Knight),
-        board.pieces(Piece::Bishop),
-        board.pieces(Piece::Rook),
-        board.pieces(Piece::Queen),
-        board.pieces(Piece::King),
+        crate::chess::pieces(board, Piece::Pawn),
+        crate::chess::pieces(board, Piece::Knight),
+        crate::chess::pieces(board, Piece::Bishop),
+        crate::chess::pieces(board, Piece::Rook),
+        crate::chess::pieces(board, Piece::Queen),
+        crate::chess::pieces(board, Piece::King),
     ];
-    let mut occupied = board.occupied();
-    let side = board.side_to_move();
+    let mut occupied = crate::chess::occupied(board);
+    let side = crate::chess::side_to_move(board);
 
     remove_piece(
         &mut colors,
@@ -93,9 +93,9 @@ pub(in crate::search) fn move_gives_check(
     moving_piece: Piece,
     captured_piece: Option<Piece>,
 ) -> bool {
-    let side = board.side_to_move();
+    let side = crate::chess::side_to_move(board);
     let enemy = !side;
-    let enemy_king = board.king(enemy);
+    let enemy_king = crate::chess::king(board, enemy);
     let ep_target = en_passant_target(board, side);
     let captured_square = if is_en_passant(moving_piece, mv, ep_target) {
         Square::new(mv.to.file(), Rank::Fifth.relative_to(side))
@@ -103,16 +103,16 @@ pub(in crate::search) fn move_gives_check(
         mv.to
     };
     let placed_piece = mv.promotion.unwrap_or(moving_piece);
-    let mut colors = [board.colors(Color::White), board.colors(Color::Black)];
+    let mut colors = [crate::chess::colors(board, Color::White), crate::chess::colors(board, Color::Black)];
     let mut pieces = [
-        board.pieces(Piece::Pawn),
-        board.pieces(Piece::Knight),
-        board.pieces(Piece::Bishop),
-        board.pieces(Piece::Rook),
-        board.pieces(Piece::Queen),
-        board.pieces(Piece::King),
+        crate::chess::pieces(board, Piece::Pawn),
+        crate::chess::pieces(board, Piece::Knight),
+        crate::chess::pieces(board, Piece::Bishop),
+        crate::chess::pieces(board, Piece::Rook),
+        crate::chess::pieces(board, Piece::Queen),
+        crate::chess::pieces(board, Piece::King),
     ];
-    let mut occupied = board.occupied();
+    let mut occupied = crate::chess::occupied(board);
 
     remove_piece(
         &mut colors,
@@ -164,17 +164,17 @@ pub(in crate::search) fn static_exchange_eval_capture(
     captured_piece: Piece,
     captured_square: Square,
 ) -> i32 {
-    let mut colors = [board.colors(Color::White), board.colors(Color::Black)];
+    let mut colors = [crate::chess::colors(board, Color::White), crate::chess::colors(board, Color::Black)];
     let mut pieces = [
-        board.pieces(Piece::Pawn),
-        board.pieces(Piece::Knight),
-        board.pieces(Piece::Bishop),
-        board.pieces(Piece::Rook),
-        board.pieces(Piece::Queen),
-        board.pieces(Piece::King),
+        crate::chess::pieces(board, Piece::Pawn),
+        crate::chess::pieces(board, Piece::Knight),
+        crate::chess::pieces(board, Piece::Bishop),
+        crate::chess::pieces(board, Piece::Rook),
+        crate::chess::pieces(board, Piece::Queen),
+        crate::chess::pieces(board, Piece::King),
     ];
-    let mut occupied = board.occupied();
-    let side = board.side_to_move();
+    let mut occupied = crate::chess::occupied(board);
+    let side = crate::chess::side_to_move(board);
     let placed_piece = mv.promotion.unwrap_or(moving_piece);
     let promotion_gain = piece_value(placed_piece) - piece_value(moving_piece);
 

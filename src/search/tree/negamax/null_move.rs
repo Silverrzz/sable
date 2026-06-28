@@ -45,7 +45,7 @@ pub(super) fn try_null_move_pruning(
         return PruneResult::Continue;
     };
 
-    let Some(null_board) = params.board.null_move() else {
+    let Some(null_board) = crate::chess::null_move(params.board) else {
         return PruneResult::Continue;
     };
     let search_profile = SearchProfile::for_board(params.board);

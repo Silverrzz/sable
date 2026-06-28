@@ -1,6 +1,4 @@
-use cozy_chess::Square;
-
-use crate::{Color, Piece};
+use crate::{Color, Piece, Square};
 
 pub(super) const WIN_SCORE: i32 = 30_000;
 pub(crate) const LOSS_SCORE: i32 = -WIN_SCORE;

@@ -97,7 +97,7 @@ impl NnueModel {
         if accumulators.values.len() != hidden || black_values.len() != hidden {
             return self.evaluate(board);
         }
-        let (stm_values, ntm_values) = match board.side_to_move() {
+        let (stm_values, ntm_values) = match crate::chess::side_to_move(board) {
             Color::White => (accumulators.values.as_slice(), black_values),
             Color::Black => (black_values, accumulators.values.as_slice()),
         };
@@ -123,7 +123,7 @@ impl NnueModel {
         board: &Board,
         accumulators: &'a NnueAccumulators,
     ) -> Option<&'a [i16]> {
-        if self.side_to_move_relative && board.side_to_move() == Color::Black {
+        if self.side_to_move_relative && crate::chess::side_to_move(board) == Color::Black {
             accumulators.black_values.as_deref()
         } else {
             Some(&accumulators.values)
@@ -154,7 +154,7 @@ impl NnueModel {
             return Vec::new();
         };
 
-        let to_white = |stm: i32| match board.side_to_move() {
+        let to_white = |stm: i32| match crate::chess::side_to_move(board) {
             Color::White => stm,
             Color::Black => -stm,
         };
@@ -170,7 +170,7 @@ impl NnueModel {
             Piece::Queen,
         ] {
             for color in [Color::White, Color::Black] {
-                for sq in board.pieces(piece) & board.colors(color) {
+                for sq in crate::chess::pieces(board, piece) & crate::chess::colors(board, color) {
                     let sq_idx = sq as usize;
                     let mut modified = accumulators.clone();
                     let feat = feature_index_for_perspective(
@@ -229,7 +229,7 @@ impl NnueModel {
             return self.evaluate(board);
         }
         let white_score = self.evaluate(board);
-        match board.side_to_move() {
+        match crate::chess::side_to_move(board) {
             Color::White => white_score,
             Color::Black => -white_score,
         }
@@ -244,7 +244,7 @@ impl NnueModel {
             return self.evaluate_with_accumulators(board, accumulators);
         }
         let white_score = self.evaluate_with_accumulators(board, accumulators);
-        match board.side_to_move() {
+        match crate::chess::side_to_move(board) {
             Color::White => white_score,
             Color::Black => -white_score,
         }
@@ -261,7 +261,7 @@ impl NnueModel {
         }
         let white_score =
             self.evaluate_with_accumulators_and_scratch(board, accumulators, scratch);
-        match board.side_to_move() {
+        match crate::chess::side_to_move(board) {
             Color::White => white_score,
             Color::Black => -white_score,
         }
