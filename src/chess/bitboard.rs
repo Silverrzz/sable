@@ -45,10 +45,6 @@ impl BitBoard {
         Self(bitboard.0)
     }
 
-    #[inline]
-    pub(crate) const fn to_cozy(self) -> cozy_chess::BitBoard {
-        cozy_chess::BitBoard(self.0)
-    }
 }
 
 impl IntoIterator for BitBoard {
