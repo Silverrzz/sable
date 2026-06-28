@@ -11,7 +11,7 @@ use super::{
         move_ordering::{MovePicker, ScoredMove},
         position_key::position_key,
         pruning::{
-            ChildSearchParams, is_see_prune_candidate, search_child_with_lmr,
+            ChildSearchParams, can_try_see_pruning, is_see_prune_candidate, search_child_with_lmr,
             should_futility_prune_quiet, should_prune_late_quiet,
         },
         root::{PvMove, SearchOutcome, is_better_score, parent_outcome, terminal_outcome},
@@ -120,6 +120,16 @@ pub(super) fn search_move_loop(
         let gives_check = capture_prune
             .gives_check
             .unwrap_or_else(|| !next.checkers().is_empty());
+        if should_static_prune_quiet(
+            static_eval,
+            depth,
+            alpha,
+            ordered,
+            searched_moves,
+            gives_check,
+        ) {
+            continue;
+        }
         if see_quiet_prune(SeeQuietPruneParams {
             board,
             ordered,
@@ -131,16 +141,6 @@ pub(super) fn search_move_loop(
             searched_moves,
             gives_check,
         }) {
-            continue;
-        }
-        if should_static_prune_quiet(
-            static_eval,
-            depth,
-            alpha,
-            ordered,
-            searched_moves,
-            gives_check,
-        ) {
             continue;
         }
         let extension = singular_extension(
@@ -332,6 +332,12 @@ fn see_capture_prune(params: SeeCapturePruneParams<'_>) -> SeeCapturePruneResult
             pruned: false,
         };
     };
+    if !can_try_see_pruning(params.depth, params.is_pv_node, params.captures_tried) {
+        return SeeCapturePruneResult {
+            gives_check: None,
+            pruned: false,
+        };
+    }
     let see = params
         .ordered
         .see
@@ -379,6 +385,7 @@ fn see_quiet_prune(params: SeeQuietPruneParams<'_>) -> bool {
         || !params.ordered.is_quiet
         || params.gives_check
         || Some(params.ordered.mv) == params.pv_move
+        || !can_try_see_pruning(params.depth, params.is_pv_node, params.searched_moves)
     {
         return false;
     }
