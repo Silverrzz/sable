@@ -1,8 +1,11 @@
-use crate::{Board, GameStatus, Move, evaluation::DRAW_SCORE};
+use crate::{Board, Move, evaluation::DRAW_SCORE};
 
 use super::super::constants::{
     DRAW_PREFERENCE_MAX_SCORE, MAX_PV_LENGTH, ROOT_REPETITION_DEFER_MIN_SCORE,
 };
+
+#[cfg(debug_assertions)]
+use crate::GameStatus;
 
 #[derive(Clone, Debug, Default)]
 pub(in crate::search) struct SearchOutcome {
