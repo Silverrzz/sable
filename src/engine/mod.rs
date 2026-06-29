@@ -12,6 +12,7 @@ pub use verbose_eval::{VerboseEval, VerboseEvalSquare};
 
 use crate::{
     Board, Color, EngineError, EngineOptions, GameStatus, Move,
+    chess::{board_from_fen, generate_moves},
     evaluation::{
         DRAW_SCORE, EvalMode, Evaluator, LOSS_SCORE, NnueArchitectureId, NnueModel,
         is_board_drawn,
@@ -196,7 +197,7 @@ impl Engine {
     pub fn apply_moves(&mut self, moves: &[String]) -> Result<(), EngineError> {
         for mv in moves {
             let parsed = parse_legal_move_for_board(&self.board, mv, self.options.uci_chess960)?;
-            self.board.play(parsed);
+            crate::chess::play(&mut self.board, parsed);
             self.game_history.push(position_key(&self.board));
         }
         Ok(())
@@ -208,7 +209,7 @@ impl Engine {
 
     pub fn legal_moves(&self) -> Vec<Move> {
         let mut legal_moves = Vec::new();
-        self.board.generate_moves(|piece_moves| {
+        generate_moves(&self.board, |piece_moves| {
             legal_moves.extend(piece_moves);
             false
         });
@@ -216,7 +217,7 @@ impl Engine {
     }
 
     pub fn play_move(&mut self, mv: Move) {
-        self.board.play(mv);
+        crate::chess::play(&mut self.board, mv);
         self.game_history.push(position_key(&self.board));
     }
 
@@ -319,11 +320,11 @@ impl Engine {
     }
 
     pub fn side_to_move(&self) -> Color {
-        self.board.side_to_move()
+        crate::chess::side_to_move(&self.board)
     }
 
     pub fn status(&self) -> GameStatus {
-        self.board.status()
+        crate::chess::status(&self.board)
     }
 
     pub fn perft(&self, depth: u32) -> u64 {
@@ -360,7 +361,7 @@ impl Engine {
         {
             return terminal_static_eval(DRAW_SCORE);
         }
-        match self.board.status() {
+        match crate::chess::status(&self.board) {
             GameStatus::Drawn => return terminal_static_eval(DRAW_SCORE),
             GameStatus::Won => return terminal_static_eval(LOSS_SCORE),
             GameStatus::Ongoing => {}
@@ -393,14 +394,14 @@ fn should_reset_transposition_table(
 }
 
 fn parse_fen(fen: &str, chess960: bool) -> Result<Board, EngineError> {
-    match Board::from_fen(fen, chess960) {
+    match board_from_fen(fen, chess960) {
         Ok(board) => Ok(board),
         Err(_) => {
             let normalized = normalize_fen(fen);
             if normalized == fen {
                 return Err(EngineError::InvalidFen(fen.to_owned()));
             }
-            Board::from_fen(&normalized, chess960)
+            board_from_fen(&normalized, chess960)
                 .map_err(|_| EngineError::InvalidFen(fen.to_owned()))
         }
     }

@@ -3,8 +3,7 @@ mod geometry;
 mod terms;
 mod types;
 
-use crate::{Board, Color, pieces::ALL_PIECES};
-use cozy_chess::BitBoard;
+use crate::{Board, Color, chess::{BitBoard}, pieces::ALL_PIECES};
 
 use geometry::pst_square_index;
 use terms::side_hce_terms;
@@ -261,7 +260,7 @@ pub(crate) fn hce_score_for_white(board: &Board) -> i32 {
     mg_score += white_terms.mg - black_terms.mg;
     eg_score += white_terms.eg - black_terms.eg;
 
-    if board.side_to_move() == Color::White {
+    if crate::chess::side_to_move(board) == Color::White {
         mg_score += HCE_TEMPO_MG;
         eg_score += HCE_TEMPO_EG;
     } else {
@@ -276,7 +275,7 @@ pub(crate) fn hce_score_for_white(board: &Board) -> i32 {
 
 pub(crate) fn hce_score_for_side_to_move(board: &Board) -> i32 {
     let white_score = hce_score_for_white(board);
-    if board.side_to_move() == Color::White {
+    if crate::chess::side_to_move(board) == Color::White {
         white_score
     } else {
         -white_score

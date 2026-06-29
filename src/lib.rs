@@ -1,3 +1,4 @@
+mod chess;
 mod engine;
 mod error;
 mod evaluation;
@@ -8,8 +9,8 @@ mod protocol;
 mod search;
 mod simd;
 
-pub(crate) use cozy_chess::Square;
-pub use cozy_chess::{Board, Color, GameStatus, Move, Piece};
+pub(crate) use chess::Square;
+pub use chess::{Board, Color, GameStatus, Move, Piece};
 pub use engine::{Engine, VerboseEval, VerboseEvalSquare};
 pub use error::EngineError;
 pub use evaluation::{

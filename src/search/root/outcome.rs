@@ -4,6 +4,9 @@ use super::super::constants::{
     DRAW_PREFERENCE_MAX_SCORE, MAX_PV_LENGTH, ROOT_REPETITION_DEFER_MIN_SCORE,
 };
 
+#[cfg(debug_assertions)]
+use crate::GameStatus;
+
 #[derive(Clone, Debug, Default)]
 pub(in crate::search) struct SearchOutcome {
     pub(in crate::search) score: i32,
@@ -116,7 +119,17 @@ pub(in crate::search) fn parent_outcome(
 pub(in crate::search) fn debug_validate_pv(board: &Board, pv: &[PvMove], tag: &str) {
     let mut b = board.clone();
     for (i, pm) in pv.iter().rev().enumerate() {
-        if !b.is_legal(pm.mv) {
+        if crate::chess::status(&b) != GameStatus::Ongoing {
+            let seq: Vec<String> = pv.iter().rev().map(|p| p.mv.to_string()).collect();
+            eprintln!(
+                "PVBUG[{tag}] move #{i} {} continues from terminal {} | pv: {}",
+                pm.mv,
+                b.to_string(),
+                seq.join(" ")
+            );
+            return;
+        }
+        if !crate::chess::is_legal(&b, pm.mv) {
             let seq: Vec<String> = pv.iter().rev().map(|p| p.mv.to_string()).collect();
             eprintln!(
                 "PVBUG[{tag}] illegal move #{i} {} from {} | pv: {}",
@@ -126,7 +139,7 @@ pub(in crate::search) fn debug_validate_pv(board: &Board, pv: &[PvMove], tag: &s
             );
             return;
         }
-        b.play_unchecked(pm.mv);
+        crate::chess::play_unchecked(&mut b, pm.mv);
     }
 }
 

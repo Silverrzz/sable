@@ -1,6 +1,7 @@
-use cozy_chess::{File, Rank};
-
-use crate::{Board, Move, Piece, Square};
+use crate::{
+    Board, Move, Piece, Square,
+    chess::{File, Rank},
+};
 
 pub(crate) fn map_castling_uci_notation(mv: &str) -> Option<&'static str> {
     match mv {
@@ -22,14 +23,14 @@ pub(crate) fn map_castling_target_notation(board: &Board, mv: &str) -> Option<Mo
     }
     let from = mv.get(0..2)?.parse::<Square>().ok()?;
     let to = mv.get(2..4)?.parse::<Square>().ok()?;
-    let color = board.side_to_move();
+    let color = crate::chess::side_to_move(board);
     let rank = Rank::First.relative_to(color);
-    if from != board.king(color) || from.rank() != rank || to.rank() != rank {
+    if from != crate::chess::king(board, color) || from.rank() != rank || to.rank() != rank {
         return None;
     }
     let rook_file = match to.file() {
-        File::G => board.castle_rights(color).short,
-        File::C => board.castle_rights(color).long,
+        File::G => crate::chess::castle_rights(board, color).short,
+        File::C => crate::chess::castle_rights(board, color).long,
         _ => None,
     }?;
     Some(Move {
@@ -54,15 +55,15 @@ enum CastleSide {
 }
 
 fn castling_side(board: &Board, mv: Move) -> Option<(CastleSide, Rank)> {
-    if board.piece_on(mv.from) != Some(Piece::King) {
+    if crate::chess::piece_on(board, mv.from) != Some(Piece::King) {
         return None;
     }
-    if board.color_on(mv.from) != Some(board.side_to_move()) || !board.is_legal(mv) {
+    if crate::chess::color_on(board, mv.from) != Some(crate::chess::side_to_move(board)) || !crate::chess::is_legal(board, mv) {
         return None;
     }
 
-    let rank = Rank::First.relative_to(board.side_to_move());
-    let rights = board.castle_rights(board.side_to_move());
+    let rank = Rank::First.relative_to(crate::chess::side_to_move(board));
+    let rights = crate::chess::castle_rights(board, crate::chess::side_to_move(board));
     if rights.short.map(|file| Square::new(file, rank)) == Some(mv.to) {
         return Some((CastleSide::Short, rank));
     }

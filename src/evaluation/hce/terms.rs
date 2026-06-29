@@ -1,5 +1,5 @@
 use crate::{Color, Piece};
-use cozy_chess::{get_bishop_moves, get_knight_moves, get_rook_moves};
+use crate::chess::{get_bishop_moves, get_knight_moves, get_rook_moves};
 
 use super::{
     HCE_BISHOP_MOBILITY_EG, HCE_BISHOP_MOBILITY_MG, HCE_BISHOP_OUTPOST_EG,

@@ -1,5 +1,4 @@
-use crate::{Color, Square};
-use cozy_chess::BitBoard;
+use crate::{Color, Square, chess::BitBoard};
 
 use super::{FILE_A_MASK, FILE_H_MASK, PASSED_PAWN_MASKS};
 

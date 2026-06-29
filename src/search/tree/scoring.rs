@@ -72,7 +72,7 @@ pub(in crate::search) fn terminal_score(board: &Board, repetition: bool, ply: u1
     if repetition || is_board_drawn(board) {
         return Some(DRAW_SCORE);
     }
-    match board.status() {
+    match crate::chess::status(board) {
         GameStatus::Ongoing => None,
         GameStatus::Drawn => Some(DRAW_SCORE),
         GameStatus::Won => Some(LOSS_SCORE.saturating_add(ply as i32)),

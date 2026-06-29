@@ -23,7 +23,7 @@ impl SearchProfile {
 }
 
 pub(super) fn is_sparse_pawnless_endgame(board: &Board) -> bool {
-    board.pieces(Piece::Pawn).is_empty()
+    crate::chess::pieces(board, Piece::Pawn).is_empty()
         && non_king_piece_count(board) <= SPARSE_ENDGAME_MAX_NON_KING_PIECES
 }
 
@@ -36,6 +36,6 @@ pub(super) fn non_king_piece_count(board: &Board) -> u32 {
         Piece::Queen,
     ]
     .into_iter()
-    .map(|piece| board.pieces(piece).len() as u32)
+    .map(|piece| crate::chess::pieces(board, piece).len() as u32)
     .sum()
 }

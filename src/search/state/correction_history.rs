@@ -101,7 +101,7 @@ impl CorrectionHistory {
             .saturating_sub(raw_eval)
             .clamp(-MAX_CORRECTION_HISTORY_SCORE, MAX_CORRECTION_HISTORY_SCORE);
         let weight = correction_history_weight(depth);
-        let side = board.side_to_move() as usize;
+        let side = crate::chess::side_to_move(board) as usize;
 
         update_correction_value(
             &mut self.pawn[pawn_correction_index(board, side)],
@@ -145,7 +145,7 @@ impl CorrectionHistory {
         board: &Board,
         correction_context: CorrectionContext,
     ) -> i32 {
-        let side = board.side_to_move() as usize;
+        let side = crate::chess::side_to_move(board) as usize;
         let mut sum = 0_i32;
         let mut weight_sum = 0_i32;
         add_weighted_correction(
@@ -217,13 +217,13 @@ pub(in crate::search) fn should_update_correction_history(
 }
 
 pub(in crate::search) fn is_quiet_correction_move(board: &Board, mv: Move) -> bool {
-    let moving_piece = board.piece_on(mv.from).unwrap_or(Piece::Pawn);
+    let moving_piece = crate::chess::piece_on(board, mv.from).unwrap_or(Piece::Pawn);
     mv.promotion.is_none()
-        && board.piece_on(mv.to).is_none()
+        && crate::chess::piece_on(board, mv.to).is_none()
         && !is_en_passant(
             moving_piece,
             mv,
-            en_passant_target(board, board.side_to_move()),
+            en_passant_target(board, crate::chess::side_to_move(board)),
         )
 }
 
@@ -308,7 +308,7 @@ pub(in crate::search) fn non_pawn_correction_key(board: &Board, color: Color) ->
 }
 
 pub(in crate::search) fn colored_piece_bits(board: &Board, color: Color, piece: Piece) -> u64 {
-    (board.pieces(piece) & board.colors(color)).0
+    (crate::chess::pieces(board, piece) & crate::chess::colors(board, color)).0
 }
 
 pub(in crate::search) fn mix_correction_key(mut key: u64) -> u64 {

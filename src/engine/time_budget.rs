@@ -65,7 +65,7 @@ fn side_clock(
     board: &Board,
     time_control: &crate::search::TimeControl,
 ) -> Option<(u64, u64)> {
-    match board.side_to_move() {
+    match crate::chess::side_to_move(board) {
         Color::White => time_control
             .white_time_ms
             .map(|base_ms| (base_ms, time_control.white_increment_ms.unwrap_or(0))),

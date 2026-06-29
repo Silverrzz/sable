@@ -1,18 +1,16 @@
 
 use crate::{
     Board, Move, Square,
-};
-use cozy_chess::{
-    File, Rank, get_pawn_attacks,
+    chess::{File, Rank, get_pawn_attacks},
 };
 
 pub(crate) type PositionKey = u64;
 
 pub(crate) fn position_key(board: &Board) -> PositionKey {
     if effective_ep_file(board).is_some() {
-        board.hash()
+        crate::chess::hash(board)
     } else {
-        board.hash_without_ep()
+        crate::chess::hash_without_ep(board)
     }
 }
 
@@ -42,7 +40,7 @@ fn previous_game_repetitions(board: &Board, state_keys: &[PositionKey]) -> u8 {
     for &existing in state_keys[..size - 1]
         .iter()
         .rev()
-        .take(usize::from(board.halfmove_clock()))
+        .take(usize::from(crate::chess::halfmove_clock(board)))
     {
         if existing == key {
             prior += 1;
@@ -65,8 +63,8 @@ pub(crate) fn is_claimable_repetition_draw(board: &Board, state_keys: &[Position
 }
 
 pub(in crate::search) fn effective_ep_file(board: &Board) -> Option<File> {
-    let ep_file = board.en_passant()?;
-    let color = board.side_to_move();
+    let ep_file = crate::chess::en_passant(board)?;
+    let color = crate::chess::side_to_move(board);
     let ep_square = Square::new(ep_file, Rank::Sixth.relative_to(color));
     let attackers = get_pawn_attacks(ep_square, !color);
     for attacker in attackers {
@@ -75,7 +73,7 @@ pub(in crate::search) fn effective_ep_file(board: &Board) -> Option<File> {
             to: ep_square,
             promotion: None,
         };
-        if board.is_legal(mv) {
+        if crate::chess::is_legal(board, mv) {
             return Some(ep_file);
         }
     }

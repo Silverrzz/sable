@@ -43,7 +43,7 @@ pub(super) fn build_verbose_eval(
         material_score_white_cp,
         nnue_score_white_cp,
         final_score_stm_cp: static_eval.score_cp,
-        side_to_move: board.side_to_move(),
+        side_to_move: crate::chess::side_to_move(board),
         source: static_eval.source,
         piece_contributions,
     }
@@ -53,7 +53,7 @@ fn piece_map(board: &Board) -> [Option<VerboseEvalSquare>; 64] {
     let mut squares = [None; 64];
     for piece in ALL_PIECES {
         for color in [Color::White, Color::Black] {
-            for sq in board.pieces(piece) & board.colors(color) {
+            for sq in crate::chess::pieces(board, piece) & crate::chess::colors(board, color) {
                 squares[sq as usize] = Some(VerboseEvalSquare { piece, color });
             }
         }
@@ -62,7 +62,7 @@ fn piece_map(board: &Board) -> [Option<VerboseEvalSquare>; 64] {
 }
 
 fn king_square(board: &Board, color: Color, fallback: u8) -> u8 {
-    (board.pieces(Piece::King) & board.colors(color))
+    (crate::chess::pieces(board, Piece::King) & crate::chess::colors(board, color))
         .into_iter()
         .next()
         .map(|sq| sq as u8)
@@ -73,7 +73,7 @@ fn nnue_score_for_white(board: &Board, static_eval: StaticEval) -> Option<i32> {
     if static_eval.source != StaticEvalSource::Nnue {
         return None;
     }
-    Some(match board.side_to_move() {
+    Some(match crate::chess::side_to_move(board) {
         Color::White => static_eval.score_cp,
         Color::Black => -static_eval.score_cp,
     })

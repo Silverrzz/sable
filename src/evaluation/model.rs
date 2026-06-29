@@ -130,7 +130,7 @@ impl NnueModel {
 
         for color in [Color::White, Color::Black] {
             for piece in ALL_PIECES {
-                for square in board.pieces(piece) & board.colors(color) {
+                for square in crate::chess::pieces(board, piece) & crate::chess::colors(board, color) {
                     let feature = feature_index_for_perspective(
                         self.architecture,
                         perspective,
@@ -149,7 +149,7 @@ impl NnueModel {
                 }
             }
         }
-        if self.has_side_to_move_feature && board.side_to_move() == Color::Black {
+        if self.has_side_to_move_feature && crate::chess::side_to_move(board) == Color::Black {
             apply_feature_delta(
                 values,
                 hidden,
@@ -177,7 +177,7 @@ impl NnueModel {
             return false;
         };
         let current_pieces = board_piece_bitboards(board);
-        let current_side = board.side_to_move();
+        let current_side = crate::chess::side_to_move(board);
         let Some(entry) = table.entry_mut(perspective, king_square) else {
             return self.refresh_accumulator_values_full_into(values, board, perspective);
         };
@@ -254,7 +254,7 @@ impl NnueModel {
         entry.values.clear();
         entry.values.extend_from_slice(values);
         entry.pieces = board_piece_bitboards(board);
-        entry.side_to_move = board.side_to_move();
+        entry.side_to_move = crate::chess::side_to_move(board);
         entry.valid = true;
         true
     }
@@ -306,7 +306,7 @@ impl NnueModel {
             return false;
         };
         let hidden = first_layer.bias.len();
-        let sign = if before.side_to_move() == Color::White { 1 } else { -1 };
+        let sign = if crate::chess::side_to_move(before) == Color::White { 1 } else { -1 };
         apply_feature_delta(
             &mut accumulators.values,
             hidden,
@@ -415,7 +415,7 @@ fn board_piece_bitboards(board: &Board) -> [u64; FINNY_PIECE_BITBOARDS] {
     for color in [Color::White, Color::Black] {
         for piece in ALL_PIECES {
             pieces[piece_bitboard_index(color, piece)] =
-                (board.pieces(piece) & board.colors(color)).0;
+                (crate::chess::pieces(board, piece) & crate::chess::colors(board, color)).0;
         }
     }
     pieces

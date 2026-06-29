@@ -274,12 +274,12 @@ pub(in crate::search) fn should_verify_null_move(
 
 #[inline]
 pub(in crate::search) fn side_has_non_pawn_material(board: &Board) -> bool {
-    let side = board.side_to_move();
-    let non_pawn_material = board.pieces(Piece::Knight)
-        | board.pieces(Piece::Bishop)
-        | board.pieces(Piece::Rook)
-        | board.pieces(Piece::Queen);
-    !(board.colors(side) & non_pawn_material).is_empty()
+    let side = crate::chess::side_to_move(board);
+    let non_pawn_material = crate::chess::pieces(board, Piece::Knight)
+        | crate::chess::pieces(board, Piece::Bishop)
+        | crate::chess::pieces(board, Piece::Rook)
+        | crate::chess::pieces(board, Piece::Queen);
+    !(crate::chess::colors(board, side) & non_pawn_material).is_empty()
 }
 
 #[inline]

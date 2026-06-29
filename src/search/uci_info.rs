@@ -1,6 +1,6 @@
 
 use crate::{
-    Board,
+    Board, GameStatus, Move,
     protocol::uci::{format_uci_move_for_board, mate_score_to_uci},
 };
 
@@ -20,8 +20,7 @@ pub(super) fn build_search_info(
     let elapsed_ms = elapsed.as_millis().min(u128::from(u64::MAX)) as u64;
     let nodes = context.total_nodes();
     let nps = nodes_per_second(nodes, elapsed_ns);
-    let pv_uci = format_pv_uci(board, pv, chess960);
-    let pv = pv.iter().rev().map(|mv| mv.mv).collect::<Vec<_>>();
+    let (pv, pv_uci) = playable_pv(board, pv, chess960);
     SearchInfo {
         budget: budget.clone(),
         depth: Some(depth),
@@ -38,16 +37,22 @@ pub(super) fn build_search_info(
     }
 }
 
-fn format_pv_uci(board: &Board, pv: &[PvMove], chess960: bool) -> Vec<String> {
+fn playable_pv(board: &Board, pv: &[PvMove], chess960: bool) -> (Vec<Move>, Vec<String>) {
     let mut board = board.clone();
+    let mut moves = Vec::with_capacity(pv.len());
     let mut pv_uci = Vec::with_capacity(pv.len());
     for pv_move in pv.iter().rev() {
-        pv_uci.push(format_uci_move_for_board(&board, pv_move.mv, chess960));
-        if board.is_legal(pv_move.mv) {
-            board.play_unchecked(pv_move.mv);
+        if crate::chess::status(&board) != GameStatus::Ongoing {
+            break;
         }
+        if !crate::chess::is_legal(&board, pv_move.mv) {
+            break;
+        }
+        pv_uci.push(format_uci_move_for_board(&board, pv_move.mv, chess960));
+        moves.push(pv_move.mv);
+        crate::chess::play_unchecked(&mut board, pv_move.mv);
     }
-    pv_uci
+    (moves, pv_uci)
 }
 
 pub(super) fn nodes_per_second(nodes: u64, elapsed_ns: u128) -> Option<u64> {

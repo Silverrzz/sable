@@ -1,7 +1,6 @@
 use std::path::Path;
 
-use crate::{Board, Color, EngineError, Move, Piece, Square};
-use cozy_chess::Rank;
+use crate::{Board, Color, EngineError, Move, Piece, Square, chess::{Rank}};
 
 use super::{io::invalid_eval_file, types::*};
 
@@ -118,10 +117,10 @@ pub(super) fn collect_move_feature_updates(
     include_side_to_move: bool,
     perspective: Color,
 ) -> Option<FeatureUpdateList> {
-    let side = before.side_to_move();
-    let moving_piece = before.piece_on(mv.from)?;
+    let side = crate::chess::side_to_move(before);
+    let moving_piece = crate::chess::piece_on(before, mv.from)?;
     if moving_piece == Piece::King
-        && (side == perspective || before.color_on(mv.to) == Some(side))
+        && (side == perspective || crate::chess::color_on(before, mv.to) == Some(side))
     {
         return None;
     }
@@ -196,19 +195,19 @@ pub(super) fn captured_piece_for_move(
     mv: Move,
     moving_piece: Piece,
 ) -> Option<(Piece, Square)> {
-    let side = before.side_to_move();
+    let side = crate::chess::side_to_move(before);
     let is_en_passant = moving_piece == Piece::Pawn
         && mv.from.file() != mv.to.file()
-        && before.en_passant() == Some(mv.to.file())
-        && before.piece_on(mv.to).is_none();
+        && crate::chess::en_passant(before) == Some(mv.to.file())
+        && crate::chess::piece_on(before, mv.to).is_none();
     if is_en_passant {
         return Some((
             Piece::Pawn,
             Square::new(mv.to.file(), Rank::Fifth.relative_to(side)),
         ));
     }
-    let piece = before.piece_on(mv.to)?;
-    if before.color_on(mv.to) == Some(!side) {
+    let piece = crate::chess::piece_on(before, mv.to)?;
+    if crate::chess::color_on(before, mv.to) == Some(!side) {
         Some((piece, mv.to))
     } else {
         None
@@ -217,7 +216,7 @@ pub(super) fn captured_piece_for_move(
 
 #[inline(always)]
 pub(super) fn oriented_king_square(board: &Board, perspective: Color) -> Option<usize> {
-    let king_square = (board.pieces(Piece::King) & board.colors(perspective))
+    let king_square = (crate::chess::pieces(board, Piece::King) & crate::chess::colors(board, perspective))
         .into_iter()
         .next()? as usize;
     Some(if perspective == Color::White {
