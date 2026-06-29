@@ -9,6 +9,26 @@ const NOT_FILE_H: u64 = !FILE_H;
 const NOT_FILE_AB: u64 = !(FILE_A | FILE_B);
 const NOT_FILE_GH: u64 = !(FILE_G | FILE_H);
 
+pub(crate) const NORTH: usize = 0;
+pub(crate) const SOUTH: usize = 1;
+pub(crate) const EAST: usize = 2;
+pub(crate) const WEST: usize = 3;
+pub(crate) const NORTH_EAST: usize = 4;
+pub(crate) const NORTH_WEST: usize = 5;
+pub(crate) const SOUTH_EAST: usize = 6;
+pub(crate) const SOUTH_WEST: usize = 7;
+
+const RAYS: [[u64; 64]; 8] = [
+    build_rays(0, 1),
+    build_rays(0, -1),
+    build_rays(1, 0),
+    build_rays(-1, 0),
+    build_rays(1, 1),
+    build_rays(-1, 1),
+    build_rays(1, -1),
+    build_rays(-1, -1),
+];
+
 #[inline]
 pub(crate) fn get_pawn_attacks(square: Square, color: Color) -> BitBoard {
     let bit = square.bitboard().0;
@@ -35,12 +55,22 @@ pub(crate) fn get_knight_moves(square: Square) -> BitBoard {
 
 #[inline]
 pub(crate) fn get_bishop_moves(square: Square, occupied: BitBoard) -> BitBoard {
-    sliding_moves(square, occupied, &[(1, 1), (-1, 1), (1, -1), (-1, -1)])
+    BitBoard(
+        ray_attacks(square, occupied, NORTH_EAST, true)
+            | ray_attacks(square, occupied, NORTH_WEST, true)
+            | ray_attacks(square, occupied, SOUTH_EAST, false)
+            | ray_attacks(square, occupied, SOUTH_WEST, false),
+    )
 }
 
 #[inline]
 pub(crate) fn get_rook_moves(square: Square, occupied: BitBoard) -> BitBoard {
-    sliding_moves(square, occupied, &[(1, 0), (-1, 0), (0, 1), (0, -1)])
+    BitBoard(
+        ray_attacks(square, occupied, NORTH, true)
+            | ray_attacks(square, occupied, SOUTH, false)
+            | ray_attacks(square, occupied, EAST, true)
+            | ray_attacks(square, occupied, WEST, false),
+    )
 }
 
 #[inline]
@@ -59,26 +89,43 @@ pub(crate) fn get_king_moves(square: Square) -> BitBoard {
 }
 
 #[inline]
-fn sliding_moves(square: Square, occupied: BitBoard, directions: &[(i8, i8)]) -> BitBoard {
-    let mut moves = 0u64;
-    let from = square as i8;
-    let file = from & 7;
-    let rank = from >> 3;
+pub(crate) fn ray_mask(square: Square, direction: usize) -> BitBoard {
+    BitBoard(RAYS[direction][square as usize])
+}
 
-    for &(df, dr) in directions {
-        let mut next_file = file + df;
-        let mut next_rank = rank + dr;
-        while (0..8).contains(&next_file) && (0..8).contains(&next_rank) {
-            let next = (next_rank * 8 + next_file) as usize;
-            let bit = 1u64 << next;
-            moves |= bit;
-            if occupied.0 & bit != 0 {
-                break;
-            }
-            next_file += df;
-            next_rank += dr;
-        }
+#[inline]
+fn ray_attacks(square: Square, occupied: BitBoard, direction: usize, increasing: bool) -> u64 {
+    let ray = RAYS[direction][square as usize];
+    let blockers = ray & occupied.0;
+    if blockers == 0 {
+        return ray;
     }
+    let blocker = if increasing {
+        blockers.trailing_zeros() as usize
+    } else {
+        63 - blockers.leading_zeros() as usize
+    };
+    ray ^ RAYS[direction][blocker]
+}
 
-    BitBoard(moves)
+const fn build_rays(df: i8, dr: i8) -> [u64; 64] {
+    let mut rays = [0u64; 64];
+    let mut square = 0;
+    while square < 64 {
+        rays[square] = build_ray(square, df, dr);
+        square += 1;
+    }
+    rays
+}
+
+const fn build_ray(square: usize, df: i8, dr: i8) -> u64 {
+    let mut ray = 0u64;
+    let mut file = (square as i8 & 7) + df;
+    let mut rank = (square as i8 >> 3) + dr;
+    while file >= 0 && file < 8 && rank >= 0 && rank < 8 {
+        ray |= 1u64 << (rank as usize * 8 + file as usize);
+        file += df;
+        rank += dr;
+    }
+    ray
 }

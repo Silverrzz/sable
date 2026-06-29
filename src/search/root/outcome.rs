@@ -1,4 +1,4 @@
-use crate::{Board, Move, evaluation::DRAW_SCORE};
+use crate::{Board, GameStatus, Move, evaluation::DRAW_SCORE};
 
 use super::super::constants::{
     DRAW_PREFERENCE_MAX_SCORE, MAX_PV_LENGTH, ROOT_REPETITION_DEFER_MIN_SCORE,
@@ -116,6 +116,16 @@ pub(in crate::search) fn parent_outcome(
 pub(in crate::search) fn debug_validate_pv(board: &Board, pv: &[PvMove], tag: &str) {
     let mut b = board.clone();
     for (i, pm) in pv.iter().rev().enumerate() {
+        if crate::chess::status(&b) != GameStatus::Ongoing {
+            let seq: Vec<String> = pv.iter().rev().map(|p| p.mv.to_string()).collect();
+            eprintln!(
+                "PVBUG[{tag}] move #{i} {} continues from terminal {} | pv: {}",
+                pm.mv,
+                b.to_string(),
+                seq.join(" ")
+            );
+            return;
+        }
         if !crate::chess::is_legal(&b, pm.mv) {
             let seq: Vec<String> = pv.iter().rev().map(|p| p.mv.to_string()).collect();
             eprintln!(

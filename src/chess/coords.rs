@@ -3,7 +3,7 @@ use std::{fmt, str::FromStr};
 use super::{BitBoard, Color};
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub enum File {
     A = 0,
     B = 1,
@@ -32,16 +32,17 @@ impl File {
     }
 
     #[inline]
-    pub(crate) const fn from_cozy(file: cozy_chess::File) -> Self {
-        match file {
-            cozy_chess::File::A => Self::A,
-            cozy_chess::File::B => Self::B,
-            cozy_chess::File::C => Self::C,
-            cozy_chess::File::D => Self::D,
-            cozy_chess::File::E => Self::E,
-            cozy_chess::File::F => Self::F,
-            cozy_chess::File::G => Self::G,
-            cozy_chess::File::H => Self::H,
+    pub(crate) const fn index(index: usize) -> Self {
+        match index {
+            0 => Self::A,
+            1 => Self::B,
+            2 => Self::C,
+            3 => Self::D,
+            4 => Self::E,
+            5 => Self::F,
+            6 => Self::G,
+            7 => Self::H,
+            _ => panic!("file index out of range"),
         }
     }
 
@@ -84,10 +85,25 @@ impl Rank {
     }
 
     #[inline]
+    pub(crate) const fn index(index: usize) -> Self {
+        match index {
+            0 => Self::First,
+            1 => Self::Second,
+            2 => Self::Third,
+            3 => Self::Fourth,
+            4 => Self::Fifth,
+            5 => Self::Sixth,
+            6 => Self::Seventh,
+            7 => Self::Eighth,
+            _ => panic!("rank index out of range"),
+        }
+    }
+
+    #[inline]
     pub const fn relative_to(self, color: Color) -> Self {
         match color {
             Color::White => self,
-            Color::Black => Self::try_index(7 - self as usize).unwrap(),
+            Color::Black => Self::index(7 - self as usize),
         }
     }
 
@@ -134,6 +150,11 @@ impl Square {
     }
 
     #[inline]
+    pub(crate) const fn index(index: usize) -> Self {
+        Self::index_const(index)
+    }
+
+    #[inline]
     const fn index_const(index: usize) -> Self {
         match index {
             0 => Self::A1, 1 => Self::B1, 2 => Self::C1, 3 => Self::D1,
@@ -158,12 +179,12 @@ impl Square {
 
     #[inline]
     pub const fn file(self) -> File {
-        File::try_index(self as usize & 7).unwrap()
+        File::index(self as usize & 7)
     }
 
     #[inline]
     pub const fn rank(self) -> Rank {
-        Rank::try_index(self as usize >> 3).unwrap()
+        Rank::index(self as usize >> 3)
     }
 
     #[inline]
@@ -171,18 +192,6 @@ impl Square {
         BitBoard(1u64 << self as u8)
     }
 
-    #[inline]
-    pub(crate) const fn from_cozy(square: cozy_chess::Square) -> Self {
-        Self::index_const(square as usize)
-    }
-
-    #[inline]
-    pub(crate) const fn to_cozy(self) -> cozy_chess::Square {
-        match cozy_chess::Square::try_index(self as usize) {
-            Some(square) => square,
-            None => unreachable!(),
-        }
-    }
 }
 
 impl FromStr for Square {

@@ -9,20 +9,6 @@ pub struct Move {
     pub promotion: Option<Piece>,
 }
 
-impl Move {
-    #[inline]
-    pub(crate) const fn to_cozy(self) -> cozy_chess::Move {
-        cozy_chess::Move {
-            from: self.from.to_cozy(),
-            to: self.to.to_cozy(),
-            promotion: match self.promotion {
-                Some(piece) => Some(piece.to_cozy()),
-                None => None,
-            },
-        }
-    }
-}
-
 impl FromStr for Move {
     type Err = MoveParseError;
 

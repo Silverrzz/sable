@@ -1,7 +1,7 @@
 
 use crate::{
     Board, Color, Move, Piece, Square,
-    chess::{BitBoard, Rank, generate_moves},
+    chess::{BitBoard, generate_moves, generate_tactical_moves},
 };
 
 use super::{
@@ -79,7 +79,7 @@ pub(in crate::search) fn collect_moves_into(
     match filter {
         MoveFilter::All => collect_all_moves_into(board, enemy_occupancy, ep_target, moves),
         MoveFilter::Tactical => {
-            collect_tactical_moves_into(board, side, enemy_occupancy, ep_target, moves);
+            collect_tactical_moves_into(board, enemy_occupancy, ep_target, moves);
         }
     }
 }
@@ -117,22 +117,12 @@ fn collect_all_moves_into(
 
 fn collect_tactical_moves_into(
     board: &Board,
-    side: Color,
     enemy_occupancy: BitBoard,
     ep_target: Option<Square>,
     moves: &mut MovePicker,
 ) {
     let mut ordinal = 0;
-    let pawn_tactical_targets = pawn_tactical_targets(side, enemy_occupancy, ep_target);
-    generate_moves(board, |mut piece_moves| {
-        piece_moves.to &= if piece_moves.piece == Piece::Pawn {
-            pawn_tactical_targets
-        } else {
-            enemy_occupancy
-        };
-        if piece_moves.to.is_empty() {
-            return false;
-        }
+    generate_tactical_moves(board, |piece_moves| {
         for mv in piece_moves {
             let captured_piece =
                 captured_piece_for_generated_move(board, piece_moves.piece, mv, enemy_occupancy, ep_target);
@@ -165,22 +155,6 @@ fn captured_piece_for_generated_move(
     } else {
         None
     }
-}
-
-fn pawn_tactical_targets(
-    side: Color,
-    enemy_occupancy: BitBoard,
-    ep_target: Option<Square>,
-) -> BitBoard {
-    let promotion_rank = match side {
-        Color::White => Rank::Eighth,
-        Color::Black => Rank::First,
-    };
-    let mut targets = enemy_occupancy | promotion_rank.bitboard();
-    if let Some(ep_target) = ep_target {
-        targets |= ep_target.bitboard();
-    }
-    targets
 }
 
 pub(in crate::search) fn is_tactical_move(board: &Board, mv: Move) -> bool {

@@ -36,13 +36,8 @@ impl BitBoard {
         if self.0 == 0 {
             None
         } else {
-            Square::try_index(self.0.trailing_zeros() as usize)
+            Some(Square::index(self.0.trailing_zeros() as usize))
         }
-    }
-
-    #[inline]
-    pub(crate) const fn from_cozy(bitboard: cozy_chess::BitBoard) -> Self {
-        Self(bitboard.0)
     }
 
 }
