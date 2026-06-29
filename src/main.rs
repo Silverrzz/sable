@@ -3,7 +3,10 @@ mod uci;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use sable_engine::{Engine, SearchLimits, SearchRequest, embedded_eval_label, has_embedded_eval};
+use sable_engine::{
+    Engine, SearchLimits, SearchRequest, embedded_eval_hash, embedded_eval_label,
+    has_embedded_eval,
+};
 use std::env;
 use std::time::Instant;
 
@@ -118,7 +121,7 @@ fn parse_script_setoption(rest: &str) -> Result<(String, Option<String>)> {
 }
 
 fn command_from_env() -> Command {
-    match env::var("SABLER_MODE")
+    match env::var("SABLE_MODE")
         .unwrap_or_else(|_| "uci".to_owned())
         .to_lowercase()
         .as_str()
@@ -135,16 +138,22 @@ fn command_from_env() -> Command {
 }
 
 fn print_version_info() {
-    let release_id = option_env!("SABLER_RELEASE_ID").unwrap_or("dev");
-    let git_commit = option_env!("SABLER_GIT_COMMIT").unwrap_or("unknown");
+    let release_id = option_env!("SABLE_RELEASE_ID").unwrap_or("dev");
+    let git_commit = option_env!("SABLE_GIT_COMMIT").unwrap_or("unknown");
     let target = option_env!("TARGET").unwrap_or(std::env::consts::ARCH);
     let profile = option_env!("PROFILE").unwrap_or("unknown");
     let default_eval_mode = option_env!("SABLE_ENGINE_DEFAULT_EVAL_MODE").unwrap_or("hce");
+    let engine = Engine::default();
     let default_eval = if has_embedded_eval() {
         embedded_eval_label().unwrap_or("embedded")
     } else {
         "none"
     };
+    let embedded_eval_hash = embedded_eval_hash().unwrap_or("none");
+    let embedded_eval_arch = engine
+        .loaded_nnue_architecture_id()
+        .map(|id| id.as_str())
+        .unwrap_or("none");
     println!("name=Sable");
     println!("pkg_version={}", env!("CARGO_PKG_VERSION"));
     println!("release_id={release_id}");
@@ -152,6 +161,8 @@ fn print_version_info() {
     println!("target={target}");
     println!("profile={profile}");
     println!("embedded_eval={}", if has_embedded_eval() { "true" } else { "false" });
+    println!("embedded_eval_hash={embedded_eval_hash}");
+    println!("embedded_eval_arch={embedded_eval_arch}");
     println!("default_eval_mode={default_eval_mode}");
     println!("default_eval_source={default_eval}");
 }

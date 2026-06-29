@@ -21,10 +21,13 @@ An in-development personal project written in Rust designed to play Chess better
     - repetition handling
     - mate distance pruning
     - check extensions
+    - singular extensions
+    - internal iterative reductions
     - futility pruning
     - reverse futility pruning
     - late quiet pruning
-    - SEE pruning
+    - capture SEE pruning
+    - quiet SEE pruning
     - razoring
     - aspiration windows
     - correction history
@@ -34,24 +37,29 @@ An in-development personal project written in Rust designed to play Chess better
         - continuation
 - A hand crafted evaluation based on PeSTO's evaluation function
 - An efficiently updatable neural network
-    - Nightweave (Currently used model)
-        - (768x64)>64>1 architecture
-        - Trained on 3 iterations of training, with ~70 million positions of selfplay data per iteration
+    - Nightweave
+        - (768x64)>64>1 arch
+        - Trained on 3 iterations of selfplay, with ~70 million positions of data per iteration
         - Trained using [Bullet](https://github.com/jw1912/bullet)
-- A poor attempt at Lazy SMP for efficient multi-thread usage
+    - Vex (Currently used net)
+        - (768x16hm>256)x2->1 arch
+        - Trained on 3 iterations of selfplay, with ~800 million positions of data per iteration
+        - Trained using [Bullet](https://github.com/jw1912/bullet)
+- A rewritten movegen/board layer, because the old cozy middle layer had to go eventually
+- A rebuilt movepicker, faster PV building, and a pile of small search speedups
+- Lazy SMP for efficient multi-thread usage
 - UCI protocol
 
 ## Future Features
-- Sable's 1.0 net 'Nightweave' is a weak proof-of-concept to show myself I could do it, future Sable releases will hopefully come with a considerably stronger net
-- Loads of search improvements, such as various types of extensions and corrhist features that I am missing
+- A net with more complex input features and multi hidden layers
 - A better packaged testing suite
 
 ## UCI Options
 |Name|Type|Default|Min/Max or Vars|Description|
 |-|-|-|-|-|
-|Hash|spin|16|1 / 32768|Transposition table size in MiB.|
-|Threads|spin|1|1 / 128|Number of search threads.|
-|Ponder|check|false||Standard UCI ponder option. `go ponder` is held until `ponderhit` or `stop`.|
+|Hash|spin|16|1 / 32768|Transposition table size in MiB.|s
+|Threads|spin|1|1 / 256|Number of search threads.|
+|Ponder|check|false||`go ponder` is held until `ponderhit` or `stop`.|
 |MultiPV|spin|1|1 / 256|Number of principal variations to search and report.|
 |UseSoftNodes|check|false||Treats go nodes as a soft node limit for datagen.|
 |UCI_Chess960|check|false||Enables Chess960 FEN parsing and castling move notation.|
@@ -62,20 +70,30 @@ An in-development personal project written in Rust designed to play Chess better
 |Eval File|string|embedded if compiled in, otherwise blank||Loads an NNUE file from disk, or `embedded` for the compiled-in net.|
 
 ## Strength
-This section will be updated when more testing is done, from my own low-effort
-evaluations and tests I estimate Sable to be around the level of 2900 elo in STC.
+|Version|My Estimate|
+|-|-|
+|2.0|3400|
+|1.1|2900|
+|1.0|2800|
 
 ## Project Details
-Sable is releasing with 1.0 in a blank repository. This is because the git repo used from 0.1.0 through to 0.61.3
-was filled with private files, large blobs of data that shouldnt have been commited, and it was an all-round mess.
-
-I've been working on Sable for about 2 months for sometimes over 12 hours a day,
-primarily trying to teach myself how everything worked and using various wikis and other engines.
+My primary goal with Sable is to learn more about low-level programming and also training cool networks
 
 With only a moderate proficiency in Rust, in-line completions were frequently used to assist with writing Rust syntax.
 A coding agent never directly touched my codebase, though while developing the code for NNUE, Mr GPT was consulted for explanations and snippets.
 
 You can create your own Sable build with cargo build --release.
+
+## Release Builds
+The embedded NNUE is read from data/quantised.bin by default.
+the source and identity with environment variables:
+
+```text
+SABLE_RELEASE_ID=2.0.0
+SABLE_EVAL_LABEL=vex-1b
+SABLE_DEFAULT_EVAL=nnue
+SABLE_EVAL_FILE=<path to quantised net>
+```
 
 ## Thanks :D
 - Many members in the Stockfish discord server for their help with my questions (no particular order)

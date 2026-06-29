@@ -1,10 +1,10 @@
 use anyhow::Result;
-use sable_engine::Engine;
+use sable_engine::{Engine, embedded_eval_hash, embedded_eval_label, has_embedded_eval};
 use std::io::{self, Write};
 
 pub(super) fn write_uci_identification(stdout: &mut io::Stdout, engine: &Engine) -> Result<()> {
-    let release_id = option_env!("SABLER_RELEASE_ID").unwrap_or("dev");
-    let git_commit = option_env!("SABLER_GIT_COMMIT").unwrap_or("unknown");
+    let release_id = option_env!("SABLE_RELEASE_ID").unwrap_or("dev");
+    let git_commit = option_env!("SABLE_GIT_COMMIT").unwrap_or("unknown");
     let target = option_env!("TARGET").unwrap_or(std::env::consts::ARCH);
     let profile = option_env!("PROFILE").unwrap_or("unknown");
 
@@ -32,11 +32,28 @@ pub(super) fn write_uci_identification(stdout: &mut io::Stdout, engine: &Engine)
         stdout,
         "info string build release_id {release_id} commit {git_commit} target {target} profile {profile}"
     )?;
+    write_eval_identity(stdout, engine)?;
     for warning in engine.startup_warnings() {
         writeln!(stdout, "info string warning {warning}")?;
     }
     writeln!(stdout, "uciok")?;
     stdout.flush()?;
+    Ok(())
+}
+
+fn write_eval_identity(stdout: &mut io::Stdout, engine: &Engine) -> Result<()> {
+    let embedded = if has_embedded_eval() { "true" } else { "false" };
+    let source = embedded_eval_label().unwrap_or("none");
+    let hash = embedded_eval_hash().unwrap_or("none");
+    let arch = engine
+        .loaded_nnue_architecture_id()
+        .map(|id| id.as_str())
+        .unwrap_or("none");
+    let default = engine.eval_mode_option_value().as_uci();
+    writeln!(
+        stdout,
+        "info string eval embedded {embedded} source {source} hash {hash} arch {arch} default {default}"
+    )?;
     Ok(())
 }
 

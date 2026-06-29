@@ -14,7 +14,8 @@ pub use chess::{Board, Color, GameStatus, Move, Piece};
 pub use engine::{Engine, VerboseEval, VerboseEvalSquare};
 pub use error::EngineError;
 pub use evaluation::{
-    EvalMode, NnueArchitectureId, PieceContribution, embedded_eval_label, has_embedded_eval,
+    EvalMode, NnueArchitectureId, PieceContribution, embedded_eval_hash, embedded_eval_label,
+    has_embedded_eval,
 };
 pub(crate) use options::EngineOptions;
 pub use search::{

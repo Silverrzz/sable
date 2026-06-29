@@ -34,6 +34,10 @@ impl Evaluator {
         }
     }
 
+    pub(crate) fn loaded_nnue_model(&self) -> Option<&NnueModel> {
+        self.nnue.as_deref()
+    }
+
     pub(crate) fn evaluate_for_side_to_move(&self, board: &Board) -> i32 {
         if let Some(model) = self.active_nnue_model() {
             return model.evaluate_for_side_to_move(board);

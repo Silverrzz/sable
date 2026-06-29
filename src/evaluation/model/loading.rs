@@ -59,4 +59,12 @@ impl NnueModel {
         let label = option_env!("SABLE_ENGINE_EMBEDDED_EVAL_LABEL").unwrap_or("embedded");
         if label == "none" { None } else { Some(label) }
     }
+
+    pub fn embedded_default_hash() -> Option<&'static str> {
+        if !Self::has_embedded_default() {
+            return None;
+        }
+        let hash = option_env!("SABLE_ENGINE_EMBEDDED_EVAL_HASH").unwrap_or("none");
+        if hash == "none" { None } else { Some(hash) }
+    }
 }

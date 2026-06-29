@@ -9,7 +9,7 @@ mod material;
 mod model;
 mod types;
 
-pub use api::{embedded_eval_label, has_embedded_eval};
+pub use api::{embedded_eval_hash, embedded_eval_label, has_embedded_eval};
 pub use types::{
     EvalMode, NnueAccumulators, NnueArchitectureId, NnueEvalScratch, NnueModel,
     PieceContribution,
