@@ -72,7 +72,7 @@ An in-development personal project written in Rust designed to play Chess better
 ## Strength
 |Version|My Estimate|
 |-|-|
-|2.0|3400|
+|2.0|3300|
 |1.1|2900|
 |1.0|2800|
 
