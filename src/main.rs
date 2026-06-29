@@ -2,7 +2,7 @@ mod uci;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use sable_engine::{Engine, embedded_eval_label, has_embedded_eval};
+use sable_engine::{Engine, SearchLimits, SearchRequest, embedded_eval_label, has_embedded_eval};
 use std::env;
 use std::time::Instant;
 
@@ -95,37 +95,37 @@ fn run_perft(depth: u32, fen: Option<String>) -> Result<()> {
 }
 
 fn run_bench() -> Result<()> {
+    const BENCH_DEPTH: u32 = 15;
+
     let positions = [
         "startpos",
         "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
         "4rrk1/p1pb1ppp/1p1p1n2/8/2PP4/2N1P1P1/PP3PBP/R2R2K1 w - - 0 1",
+        "2r2rk1/pp3ppp/2n1bn2/q2p4/3P4/2P1PN2/PP1NBPPP/R2Q1RK1 w - - 0 10",
+        "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+        "2k4r/8/5p2/p2p1P2/P2P4/P7/8/4K1R1 w - - 0 1"
     ];
+
+    let request = SearchRequest {
+        limits: SearchLimits {
+            depth: Some(BENCH_DEPTH),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
 
     let start_all = Instant::now();
     let mut total_nodes = 0_u64;
-    for (idx, position) in positions.iter().enumerate() {
+    for position in positions {
         let mut engine = Engine::default();
-        if *position != "startpos" {
+        if position != "startpos" {
             engine.set_fen_with_moves(position, &[])?;
         }
-        let start = Instant::now();
-        let nodes = engine.perft(4);
-        let elapsed_ms = start.elapsed().as_millis() as u64;
+        let result = engine.search(&request)?;
+        let nodes = result.info.nodes.unwrap_or(0);
         total_nodes = total_nodes.saturating_add(nodes);
-        println!(
-            "bench case={} nodes={} time_ms={} nps={}",
-            idx + 1,
-            nodes,
-            elapsed_ms,
-            nodes_per_second(nodes, elapsed_ms)
-        );
     }
     let all_ms = start_all.elapsed().as_millis() as u64;
-    println!(
-        "bench summary total_nodes={} total_ms={} total_nps={}",
-        total_nodes,
-        all_ms,
-        nodes_per_second(total_nodes, all_ms)
-    );
+    println!("{} nodes {} nps", total_nodes, nodes_per_second(total_nodes, all_ms));
     Ok(())
 }
