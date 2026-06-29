@@ -105,6 +105,12 @@ impl Engine {
             .map(|model| model.architecture_id())
     }
 
+    pub fn loaded_nnue_architecture_id(&self) -> Option<NnueArchitectureId> {
+        self.evaluator
+            .loaded_nnue_model()
+            .map(|model| model.architecture_id())
+    }
+
     pub fn set_option(&mut self, name: &str, value: Option<&str>) -> Result<(), EngineError> {
         let normalized = name.to_ascii_lowercase().replace(' ', "");
         let previous_hash_mb = self.options.hash_mb;

@@ -6,24 +6,24 @@ use std::{
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-env-changed=SABLER_RELEASE_ID");
-    println!("cargo:rerun-if-env-changed=SABLER_GIT_COMMIT");
-    println!("cargo:rerun-if-env-changed=SABLER_EVAL_FILE");
-    println!("cargo:rerun-if-env-changed=SABLER_EVAL_LABEL");
-    println!("cargo:rerun-if-env-changed=SABLER_DEFAULT_EVAL");
+    println!("cargo:rerun-if-env-changed=SABLE_RELEASE_ID");
+    println!("cargo:rerun-if-env-changed=SABLE_GIT_COMMIT");
+    println!("cargo:rerun-if-env-changed=SABLE_EVAL_FILE");
+    println!("cargo:rerun-if-env-changed=SABLE_EVAL_LABEL");
+    println!("cargo:rerun-if-env-changed=SABLE_DEFAULT_EVAL");
 
-    if let Ok(release_id) = env::var("SABLER_RELEASE_ID")
+    if let Ok(release_id) = env::var("SABLE_RELEASE_ID")
         && !release_id.trim().is_empty()
     {
-        println!("cargo:rustc-env=SABLER_RELEASE_ID={release_id}");
+        println!("cargo:rustc-env=SABLE_RELEASE_ID={release_id}");
     }
 
-    let git_commit = env::var("SABLER_GIT_COMMIT")
+    let git_commit = env::var("SABLE_GIT_COMMIT")
         .ok()
         .filter(|value| !value.trim().is_empty())
         .or_else(git_commit);
     if let Some(git_commit) = git_commit {
-        println!("cargo:rustc-env=SABLER_GIT_COMMIT={git_commit}");
+        println!("cargo:rustc-env=SABLE_GIT_COMMIT={git_commit}");
     }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR should be set by Cargo"));
@@ -47,6 +47,7 @@ fn main() {
             embedded_path.display()
         );
         println!("cargo:rustc-env=SABLE_ENGINE_EMBEDDED_EVAL_LABEL=none");
+        println!("cargo:rustc-env=SABLE_ENGINE_EMBEDDED_EVAL_HASH=none");
         return;
     }
 
@@ -75,6 +76,7 @@ fn main() {
         "cargo:rustc-env=SABLE_ENGINE_EMBEDDED_EVAL_LABEL={}",
         display_label(&source)
     );
+    println!("cargo:rustc-env=SABLE_ENGINE_EMBEDDED_EVAL_HASH={embedded_hash:016x}");
 }
 
 fn fnv1a64(bytes: &[u8]) -> u64 {
@@ -87,7 +89,7 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 }
 
 fn default_eval_mode(has_weights: bool) -> String {
-    let raw = env::var("SABLER_DEFAULT_EVAL").unwrap_or_else(|_| {
+    let raw = env::var("SABLE_DEFAULT_EVAL").unwrap_or_else(|_| {
         if has_weights {
             "nnue".to_owned()
         } else {
@@ -99,12 +101,12 @@ fn default_eval_mode(has_weights: bool) -> String {
     match key.as_str() {
         "" | "hce" | "handcrafted" | "classical" | "material" => "hce".to_owned(),
         "nnue" => "nnue".to_owned(),
-        _ => panic!("SABLER_DEFAULT_EVAL must be 'hce' or 'nnue', got '{raw}'"),
+        _ => panic!("SABLE_DEFAULT_EVAL must be 'hce' or 'nnue', got '{raw}'"),
     }
 }
 
 fn workspace_default_weights() -> PathBuf {
-    if let Ok(path) = env::var("SABLER_EVAL_FILE")
+    if let Ok(path) = env::var("SABLE_EVAL_FILE")
         && !path.trim().is_empty()
     {
         return PathBuf::from(path);
@@ -125,7 +127,7 @@ fn workspace_default_weights() -> PathBuf {
 }
 
 fn display_label(source: &Path) -> String {
-    if let Ok(label) = env::var("SABLER_EVAL_LABEL")
+    if let Ok(label) = env::var("SABLE_EVAL_LABEL")
         && !label.trim().is_empty()
     {
         return label;

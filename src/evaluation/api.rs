@@ -12,3 +12,7 @@ pub fn has_embedded_eval() -> bool {
 pub fn embedded_eval_label() -> Option<&'static str> {
     NnueModel::embedded_default_label()
 }
+
+pub fn embedded_eval_hash() -> Option<&'static str> {
+    NnueModel::embedded_default_hash()
+}
