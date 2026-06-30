@@ -1,6 +1,6 @@
 # Sable
 
-An in-development personal project written in Rust designed to play Chess better than i can! :3
+An in-development personal project written in Rust designed to play Chess better than i can!
 
 ## Included Features
 - Sable uses a principal variation search plus quiescence search with iterative deepening
