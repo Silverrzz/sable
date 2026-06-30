@@ -15,17 +15,6 @@ pub(super) fn integer_div_round(numerator: i64, denominator: i64) -> i32 {
 }
 
 #[inline]
-pub(super) fn accumulator_activation(acc: i32, acc_mul: i32, acc_shift: u32, use_screlu: bool) -> i32 {
-    let scaled = ((acc as i64 * acc_mul as i64) >> acc_shift) as i32;
-    let clamped = scaled.clamp(0, ACTIVATION_Q);
-    if use_screlu {
-        ((clamped as i64 * clamped as i64) / ACTIVATION_Q as i64) as i32
-    } else {
-        clamped
-    }
-}
-
-#[inline]
 pub(super) fn integer_forward(
     accumulator: &[i16],
     inference: &NnueInference,
@@ -50,19 +39,13 @@ pub(super) fn integer_forward(
         );
         &scratch.hidden[..hidden.output_size]
     } else {
-        for (target, acc) in scratch
-            .activations
-            .iter_mut()
-        .zip(accumulator.iter())
-        .take(accumulator.len())
-        {
-            *target = accumulator_activation(
-                i32::from(*acc),
-                inference.acc_mul,
-                inference.acc_shift,
-                inference.use_screlu,
-            );
-        }
+        crate::simd::activate_accumulator_i16(
+            accumulator,
+            inference.acc_mul,
+            inference.acc_shift,
+            inference.use_screlu,
+            &mut scratch.activations[..accumulator.len()],
+        );
         &scratch.activations[..accumulator.len()]
     };
     integer_output_forward(activations, &inference.output)
@@ -88,19 +71,22 @@ pub(super) fn integer_forward_dual(
 
     let input_size = stm_accumulator.len() + ntm_accumulator.len();
     debug_assert!(scratch.activations.len() >= input_size);
-    for (target, acc) in scratch
-        .activations
-        .iter_mut()
-        .zip(stm_accumulator.iter().chain(ntm_accumulator.iter()))
-        .take(input_size)
-    {
-        *target = accumulator_activation(
-            i32::from(*acc),
-            inference.acc_mul,
-            inference.acc_shift,
-            inference.use_screlu,
-        );
-    }
+    let (stm_output, ntm_output) =
+        scratch.activations[..input_size].split_at_mut(stm_accumulator.len());
+    crate::simd::activate_accumulator_i16(
+        stm_accumulator,
+        inference.acc_mul,
+        inference.acc_shift,
+        inference.use_screlu,
+        stm_output,
+    );
+    crate::simd::activate_accumulator_i16(
+        ntm_accumulator,
+        inference.acc_mul,
+        inference.acc_shift,
+        inference.use_screlu,
+        ntm_output,
+    );
     integer_output_forward(&scratch.activations[..input_size], &inference.output)
 }
 
@@ -117,13 +103,13 @@ pub(super) fn fused_accumulator_hidden_forward(
 ) {
     debug_assert_eq!(accumulator.len(), layer.input_size);
     debug_assert!(activations.len() >= layer.input_size);
-    for (target, acc) in activations
-        .iter_mut()
-        .zip(accumulator.iter())
-        .take(layer.input_size)
-    {
-        *target = accumulator_activation(i32::from(*acc), acc_mul, acc_shift, use_screlu);
-    }
+    crate::simd::activate_accumulator_i16(
+        accumulator,
+        acc_mul,
+        acc_shift,
+        use_screlu,
+        &mut activations[..layer.input_size],
+    );
     crate::simd::matrix_vector_i32(
         &layer.weights,
         &activations[..layer.input_size],

@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use sable_engine::{
     Engine, SearchLimits, SearchRequest, embedded_eval_hash, embedded_eval_label,
-    has_embedded_eval,
+    has_embedded_eval, runtime_simd_backend,
 };
 use std::env;
 use std::time::Instant;
@@ -165,6 +165,7 @@ fn print_version_info() {
     println!("embedded_eval_arch={embedded_eval_arch}");
     println!("default_eval_mode={default_eval_mode}");
     println!("default_eval_source={default_eval}");
+    println!("simd_backend={}", runtime_simd_backend());
 }
 
 fn nodes_per_second(nodes: u64, elapsed_ms: u64) -> u64 {
