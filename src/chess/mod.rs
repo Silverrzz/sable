@@ -6,8 +6,8 @@ mod mv;
 mod piece;
 
 pub(crate) use attacks::{
-    EAST, NORTH, NORTH_EAST, NORTH_WEST, SOUTH, SOUTH_EAST, SOUTH_WEST, WEST, get_bishop_moves,
-    get_king_moves, get_knight_moves, get_pawn_attacks, get_rook_moves, ray_mask,
+    between_squares, get_bishop_moves, get_king_moves, get_knight_moves, get_pawn_attacks,
+    get_rook_moves, line_squares,
 };
 pub(crate) use bitboard::BitBoard;
 pub use board::Board;

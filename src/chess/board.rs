@@ -1,9 +1,9 @@
 use std::fmt;
 
 use super::{
-    BitBoard, Color, EAST, File, GameStatus, Move, NORTH, NORTH_EAST, NORTH_WEST, Piece, Rank,
-    SOUTH, SOUTH_EAST, SOUTH_WEST, Square, WEST, get_bishop_moves, get_king_moves,
-    get_knight_moves, get_pawn_attacks, get_rook_moves, ray_mask,
+    BitBoard, Color, File, GameStatus, Move, Piece, Rank, Square, between_squares,
+    get_bishop_moves, get_king_moves, get_knight_moves, get_pawn_attacks, get_rook_moves,
+    line_squares,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -687,6 +687,35 @@ impl MoveGenState {
         let enemy = colors(board, !side);
         let occupied = own | enemy;
         let king_square = king(board, side);
+        let king_state = KingSafetyState::new(board, side, king_square, occupied, own, enemy);
+        Self {
+            occupied,
+            own,
+            enemy,
+            enemy_king: colored_pieces(board, !side, Piece::King),
+            checker_count: king_state.checker_count,
+            evasion_mask: king_state.evasion_mask,
+            pin_masks: king_state.pin_masks,
+        }
+    }
+}
+
+struct KingSafetyState {
+    checker_count: u32,
+    evasion_mask: BitBoard,
+    pin_masks: PinMasks,
+}
+
+impl KingSafetyState {
+    #[inline]
+    fn new(
+        board: &Board,
+        side: Color,
+        king_square: Square,
+        occupied: BitBoard,
+        own: BitBoard,
+        enemy: BitBoard,
+    ) -> Self {
         let checkers = attackers_to(board, king_square, !side);
         let checker_count = checkers.len();
         let evasion_mask = if checker_count == 1 {
@@ -698,13 +727,9 @@ impl MoveGenState {
         let pin_masks = if checker_count >= 2 {
             PinMasks::default()
         } else {
-            build_pin_masks(board, side, king_square)
+            build_pin_masks(board, king_square, occupied, own, enemy)
         };
         Self {
-            occupied,
-            own,
-            enemy,
-            enemy_king: colored_pieces(board, !side, Piece::King),
             checker_count,
             evasion_mask,
             pin_masks,
@@ -841,108 +866,34 @@ impl PinMasks {
 }
 
 #[inline]
-fn build_pin_masks(board: &Board, side: Color, king_square: Square) -> PinMasks {
+fn build_pin_masks(
+    board: &Board,
+    king_square: Square,
+    occupied: BitBoard,
+    own: BitBoard,
+    enemy: BitBoard,
+) -> PinMasks {
     let mut masks = PinMasks::default();
-    let occupied = occupied(board);
-    let own = colors(board, side);
-    let enemy = colors(board, !side);
     let enemy_orthogonal_sliders =
         enemy & (pieces(board, Piece::Rook) | pieces(board, Piece::Queen));
     let enemy_diagonal_sliders =
         enemy & (pieces(board, Piece::Bishop) | pieces(board, Piece::Queen));
-    for (direction, increasing, enemy_sliders) in [
-        (NORTH, true, enemy_orthogonal_sliders),
-        (SOUTH, false, enemy_orthogonal_sliders),
-        (EAST, true, enemy_orthogonal_sliders),
-        (WEST, false, enemy_orthogonal_sliders),
-        (NORTH_EAST, true, enemy_diagonal_sliders),
-        (NORTH_WEST, true, enemy_diagonal_sliders),
-        (SOUTH_EAST, false, enemy_diagonal_sliders),
-        (SOUTH_WEST, false, enemy_diagonal_sliders),
-    ] {
-        find_pin_on_ray(
-            occupied,
-            own,
-            enemy_sliders,
-            king_square,
-            direction,
-            increasing,
-            &mut masks,
-        );
+    let xray_occupied = occupied - own;
+    let snipers = (get_rook_moves(king_square, xray_occupied) & enemy_orthogonal_sliders)
+        | (get_bishop_moves(king_square, xray_occupied) & enemy_diagonal_sliders);
+    for sniper in snipers {
+        let blockers = between_squares(king_square, sniper) & occupied;
+        if blockers.len() != 1 {
+            continue;
+        }
+        let pinned = blockers
+            .next_square()
+            .expect("single blocker is present for pin candidate");
+        if own.has(pinned) {
+            masks.push(pinned, line_squares(king_square, sniper) - king_square.bitboard());
+        }
     }
     masks
-}
-
-#[inline]
-fn find_pin_on_ray(
-    occupied: BitBoard,
-    own: BitBoard,
-    enemy_sliders: BitBoard,
-    king_square: Square,
-    direction: usize,
-    increasing: bool,
-    masks: &mut PinMasks,
-) {
-    let blockers = ray_mask(king_square, direction) & occupied;
-    let Some(candidate) = closest_blocker(blockers, increasing) else {
-        return;
-    };
-    if !own.has(candidate) {
-        return;
-    }
-
-    let blockers_beyond_candidate = ray_mask(candidate, direction) & occupied;
-    let Some(pinner) = closest_blocker(blockers_beyond_candidate, increasing) else {
-        return;
-    };
-    if !enemy_sliders.has(pinner) {
-        return;
-    }
-    let mask = (ray_mask(king_square, direction) - ray_mask(pinner, direction)) | pinner.bitboard();
-    masks.push(candidate, mask);
-}
-
-#[inline]
-fn closest_blocker(blockers: BitBoard, increasing: bool) -> Option<Square> {
-    if blockers.is_empty() {
-        return None;
-    }
-    let index = if increasing {
-        blockers.0.trailing_zeros() as usize
-    } else {
-        63 - blockers.0.leading_zeros() as usize
-    };
-    Some(Square::index(index))
-}
-
-fn between_squares(a: Square, b: Square) -> BitBoard {
-    let af = a.file() as i8;
-    let ar = a.rank() as i8;
-    let bf = b.file() as i8;
-    let br = b.rank() as i8;
-    let df = (bf - af).signum();
-    let dr = (br - ar).signum();
-    if !same_line(af, ar, bf, br) {
-        return BitBoard::EMPTY;
-    }
-
-    let mut file = af + df;
-    let mut rank = ar + dr;
-    let mut squares = BitBoard::EMPTY;
-    while file != bf || rank != br {
-        squares |= Square::new(
-            File::try_index(file as usize).expect("file in bounds"),
-            Rank::try_index(rank as usize).expect("rank in bounds"),
-        )
-        .bitboard();
-        file += df;
-        rank += dr;
-    }
-    squares
-}
-
-fn same_line(af: i8, ar: i8, bf: i8, br: i8) -> bool {
-    af == bf || ar == br || (af - bf).abs() == (ar - br).abs()
 }
 
 fn pseudo_targets(

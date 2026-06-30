@@ -1,5 +1,7 @@
 use std::{
-    env, fs,
+    env,
+    fmt::Write as _,
+    fs,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -27,6 +29,8 @@ fn main() {
     }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR should be set by Cargo"));
+    generate_attack_tables(&out_dir);
+
     let source = workspace_default_weights();
     let has_weights = source.exists();
     let default_eval_mode = default_eval_mode(has_weights);
@@ -77,6 +81,152 @@ fn main() {
         display_label(&source)
     );
     println!("cargo:rustc-env=SABLE_ENGINE_EMBEDDED_EVAL_HASH={embedded_hash:016x}");
+}
+
+const ROOK_TABLE_SIZE: usize = 4096;
+const BISHOP_TABLE_SIZE: usize = 512;
+
+fn generate_attack_tables(out_dir: &Path) {
+    let path = out_dir.join("attack_tables.rs");
+    let rook_masks = slider_masks(false);
+    let bishop_masks = slider_masks(true);
+    let mut out = String::with_capacity(6_000_000);
+    write_u64_array(&mut out, "ROOK_RELEVANT_MASKS", &rook_masks);
+    write_u64_array(&mut out, "BISHOP_RELEVANT_MASKS", &bishop_masks);
+    write_attack_table(
+        &mut out,
+        "ROOK_ATTACKS",
+        "ROOK_TABLE_SIZE",
+        ROOK_TABLE_SIZE,
+        &rook_masks,
+        false,
+    );
+    write_attack_table(
+        &mut out,
+        "BISHOP_ATTACKS",
+        "BISHOP_TABLE_SIZE",
+        BISHOP_TABLE_SIZE,
+        &bishop_masks,
+        true,
+    );
+    fs::write(&path, out).unwrap_or_else(|error| {
+        panic!(
+            "Failed to write generated attack tables '{}': {error}",
+            path.display()
+        )
+    });
+}
+
+fn write_u64_array(out: &mut String, name: &str, values: &[u64; 64]) {
+    writeln!(out, "const {name}: [u64; 64] = [").expect("writing to String cannot fail");
+    for value in values {
+        writeln!(out, "    0x{value:016x},").expect("writing to String cannot fail");
+    }
+    writeln!(out, "];").expect("writing to String cannot fail");
+}
+
+fn write_attack_table(
+    out: &mut String,
+    name: &str,
+    size_name: &str,
+    size: usize,
+    masks: &[u64; 64],
+    bishop: bool,
+) {
+    writeln!(out, "const {name}: [[u64; {size_name}]; 64] = [")
+        .expect("writing to String cannot fail");
+    for (square, mask) in masks.iter().enumerate() {
+        writeln!(out, "    [").expect("writing to String cannot fail");
+        for index in 0..size {
+            let occupied = occupancy_from_index(index, *mask);
+            let attacks = slider_attacks_from(square, occupied, bishop);
+            writeln!(out, "        0x{attacks:016x},").expect("writing to String cannot fail");
+        }
+        writeln!(out, "    ],").expect("writing to String cannot fail");
+    }
+    writeln!(out, "];").expect("writing to String cannot fail");
+}
+
+fn slider_masks(bishop: bool) -> [u64; 64] {
+    let mut masks = [0u64; 64];
+    for (square, mask) in masks.iter_mut().enumerate() {
+        *mask = slider_relevant_mask(square, bishop);
+    }
+    masks
+}
+
+fn slider_relevant_mask(square: usize, bishop: bool) -> u64 {
+    if bishop {
+        relevant_ray(square, 1, 1)
+            | relevant_ray(square, -1, 1)
+            | relevant_ray(square, 1, -1)
+            | relevant_ray(square, -1, -1)
+    } else {
+        relevant_ray(square, 1, 0)
+            | relevant_ray(square, -1, 0)
+            | relevant_ray(square, 0, 1)
+            | relevant_ray(square, 0, -1)
+    }
+}
+
+fn relevant_ray(square: usize, df: i8, dr: i8) -> u64 {
+    let mut ray = 0u64;
+    let mut file = (square as i8 & 7) + df;
+    let mut rank = (square as i8 >> 3) + dr;
+    while (0..8).contains(&file) && (0..8).contains(&rank) {
+        let next_file = file + df;
+        let next_rank = rank + dr;
+        if !(0..8).contains(&next_file) || !(0..8).contains(&next_rank) {
+            break;
+        }
+        ray |= 1u64 << (rank as usize * 8 + file as usize);
+        file = next_file;
+        rank = next_rank;
+    }
+    ray
+}
+
+fn occupancy_from_index(mut index: usize, mut mask: u64) -> u64 {
+    let mut occupied = 0u64;
+    while mask != 0 {
+        let bit = mask & mask.wrapping_neg();
+        if index & 1 != 0 {
+            occupied |= bit;
+        }
+        index >>= 1;
+        mask ^= bit;
+    }
+    occupied
+}
+
+fn slider_attacks_from(square: usize, occupied: u64, bishop: bool) -> u64 {
+    if bishop {
+        ray_attacks_from(square, occupied, 1, 1)
+            | ray_attacks_from(square, occupied, -1, 1)
+            | ray_attacks_from(square, occupied, 1, -1)
+            | ray_attacks_from(square, occupied, -1, -1)
+    } else {
+        ray_attacks_from(square, occupied, 1, 0)
+            | ray_attacks_from(square, occupied, -1, 0)
+            | ray_attacks_from(square, occupied, 0, 1)
+            | ray_attacks_from(square, occupied, 0, -1)
+    }
+}
+
+fn ray_attacks_from(square: usize, occupied: u64, df: i8, dr: i8) -> u64 {
+    let mut attacks = 0u64;
+    let mut file = (square as i8 & 7) + df;
+    let mut rank = (square as i8 >> 3) + dr;
+    while (0..8).contains(&file) && (0..8).contains(&rank) {
+        let bit = 1u64 << (rank as usize * 8 + file as usize);
+        attacks |= bit;
+        if occupied & bit != 0 {
+            break;
+        }
+        file += df;
+        rank += dr;
+    }
+    attacks
 }
 
 fn fnv1a64(bytes: &[u8]) -> u64 {

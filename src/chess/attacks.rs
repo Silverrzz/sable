@@ -9,25 +9,11 @@ const NOT_FILE_H: u64 = !FILE_H;
 const NOT_FILE_AB: u64 = !(FILE_A | FILE_B);
 const NOT_FILE_GH: u64 = !(FILE_G | FILE_H);
 
-pub(crate) const NORTH: usize = 0;
-pub(crate) const SOUTH: usize = 1;
-pub(crate) const EAST: usize = 2;
-pub(crate) const WEST: usize = 3;
-pub(crate) const NORTH_EAST: usize = 4;
-pub(crate) const NORTH_WEST: usize = 5;
-pub(crate) const SOUTH_EAST: usize = 6;
-pub(crate) const SOUTH_WEST: usize = 7;
+const ROOK_TABLE_SIZE: usize = 4096;
+const BISHOP_TABLE_SIZE: usize = 512;
+const BETWEEN: [[u64; 64]; 64] = build_between();
 
-const RAYS: [[u64; 64]; 8] = [
-    build_rays(0, 1),
-    build_rays(0, -1),
-    build_rays(1, 0),
-    build_rays(-1, 0),
-    build_rays(1, 1),
-    build_rays(-1, 1),
-    build_rays(1, -1),
-    build_rays(-1, -1),
-];
+include!(concat!(env!("OUT_DIR"), "/attack_tables.rs"));
 
 #[inline]
 pub(crate) fn get_pawn_attacks(square: Square, color: Color) -> BitBoard {
@@ -55,22 +41,16 @@ pub(crate) fn get_knight_moves(square: Square) -> BitBoard {
 
 #[inline]
 pub(crate) fn get_bishop_moves(square: Square, occupied: BitBoard) -> BitBoard {
-    BitBoard(
-        ray_attacks(square, occupied, NORTH_EAST, true)
-            | ray_attacks(square, occupied, NORTH_WEST, true)
-            | ray_attacks(square, occupied, SOUTH_EAST, false)
-            | ray_attacks(square, occupied, SOUTH_WEST, false),
-    )
+    let square = square as usize;
+    let mask = BISHOP_RELEVANT_MASKS[square];
+    BitBoard(BISHOP_ATTACKS[square][slider_index(occupied.0, mask)])
 }
 
 #[inline]
 pub(crate) fn get_rook_moves(square: Square, occupied: BitBoard) -> BitBoard {
-    BitBoard(
-        ray_attacks(square, occupied, NORTH, true)
-            | ray_attacks(square, occupied, SOUTH, false)
-            | ray_attacks(square, occupied, EAST, true)
-            | ray_attacks(square, occupied, WEST, false),
-    )
+    let square = square as usize;
+    let mask = ROOK_RELEVANT_MASKS[square];
+    BitBoard(ROOK_ATTACKS[square][slider_index(occupied.0, mask)])
 }
 
 #[inline]
@@ -89,43 +69,122 @@ pub(crate) fn get_king_moves(square: Square) -> BitBoard {
 }
 
 #[inline]
-pub(crate) fn ray_mask(square: Square, direction: usize) -> BitBoard {
-    BitBoard(RAYS[direction][square as usize])
+pub(crate) fn between_squares(a: Square, b: Square) -> BitBoard {
+    BitBoard(BETWEEN[a as usize][b as usize])
 }
 
 #[inline]
-fn ray_attacks(square: Square, occupied: BitBoard, direction: usize, increasing: bool) -> u64 {
-    let ray = RAYS[direction][square as usize];
-    let blockers = ray & occupied.0;
-    if blockers == 0 {
-        return ray;
-    }
-    let blocker = if increasing {
-        blockers.trailing_zeros() as usize
+pub(crate) fn line_squares(a: Square, b: Square) -> BitBoard {
+    let between = BETWEEN[a as usize][b as usize];
+    if between != 0 || a == b || same_line(a as usize, b as usize) {
+        BitBoard(between | a.bitboard().0 | b.bitboard().0)
     } else {
-        63 - blockers.leading_zeros() as usize
-    };
-    ray ^ RAYS[direction][blocker]
-}
-
-const fn build_rays(df: i8, dr: i8) -> [u64; 64] {
-    let mut rays = [0u64; 64];
-    let mut square = 0;
-    while square < 64 {
-        rays[square] = build_ray(square, df, dr);
-        square += 1;
+        BitBoard::EMPTY
     }
-    rays
 }
 
-const fn build_ray(square: usize, df: i8, dr: i8) -> u64 {
-    let mut ray = 0u64;
-    let mut file = (square as i8 & 7) + df;
-    let mut rank = (square as i8 >> 3) + dr;
-    while file >= 0 && file < 8 && rank >= 0 && rank < 8 {
-        ray |= 1u64 << (rank as usize * 8 + file as usize);
+#[inline]
+fn slider_index(occupied: u64, mask: u64) -> usize {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::arch::is_x86_feature_detected!("bmi2") {
+            return unsafe { pext_index(occupied, mask) };
+        }
+    }
+    #[cfg(target_arch = "x86")]
+    {
+        if std::arch::is_x86_feature_detected!("bmi2") {
+            return unsafe { pext_index(occupied, mask) };
+        }
+    }
+    compact_index(occupied, mask)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "bmi2")]
+unsafe fn pext_index(occupied: u64, mask: u64) -> usize {
+    core::arch::x86_64::_pext_u64(occupied, mask) as usize
+}
+
+#[cfg(target_arch = "x86")]
+#[target_feature(enable = "bmi2")]
+unsafe fn pext_index(occupied: u64, mask: u64) -> usize {
+    core::arch::x86::_pext_u64(occupied, mask) as usize
+}
+
+#[inline]
+fn compact_index(occupied: u64, mut mask: u64) -> usize {
+    let occupied = occupied & mask;
+    let mut index = 0usize;
+    let mut offset = 0usize;
+    while mask != 0 {
+        let bit = mask & mask.wrapping_neg();
+        if occupied & bit != 0 {
+            index |= 1usize << offset;
+        }
+        mask ^= bit;
+        offset += 1;
+    }
+    index
+}
+
+const fn build_between() -> [[u64; 64]; 64] {
+    let mut between = [[0u64; 64]; 64];
+    let mut from = 0;
+    while from < 64 {
+        let mut to = 0;
+        while to < 64 {
+            between[from][to] = build_between_pair(from, to);
+            to += 1;
+        }
+        from += 1;
+    }
+    between
+}
+
+const fn build_between_pair(from: usize, to: usize) -> u64 {
+    if from == to || !same_line(from, to) {
+        return 0;
+    }
+    let from_file = (from & 7) as i8;
+    let from_rank = (from >> 3) as i8;
+    let to_file = (to & 7) as i8;
+    let to_rank = (to >> 3) as i8;
+    let df = signum(to_file - from_file);
+    let dr = signum(to_rank - from_rank);
+    let mut file = from_file + df;
+    let mut rank = from_rank + dr;
+    let mut mask = 0u64;
+    while file != to_file || rank != to_rank {
+        mask |= 1u64 << ((rank as usize) * 8 + file as usize);
         file += df;
         rank += dr;
     }
-    ray
+    mask
+}
+
+const fn same_line(a: usize, b: usize) -> bool {
+    let af = (a & 7) as i8;
+    let ar = (a >> 3) as i8;
+    let bf = (b & 7) as i8;
+    let br = (b >> 3) as i8;
+    af == bf || ar == br || abs(af - bf) == abs(ar - br)
+}
+
+const fn signum(value: i8) -> i8 {
+    if value > 0 {
+        1
+    } else if value < 0 {
+        -1
+    } else {
+        0
+    }
+}
+
+const fn abs(value: i8) -> i8 {
+    if value < 0 {
+        -value
+    } else {
+        value
+    }
 }

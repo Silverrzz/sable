@@ -104,6 +104,20 @@ impl<'a> SearchContext<'a> {
         let mut eval_stack = Vec::with_capacity(MAX_ORDERING_PLY + 1);
         if let Some(accumulators) = eval_state {
             eval_stack.push(accumulators);
+            while eval_stack.len() < MAX_ORDERING_PLY + 1 {
+                let accumulator = crate::evaluation::NnueAccumulators::empty_like(&eval_stack[0]);
+                eval_stack.push(accumulator);
+            }
+        }
+        let mut eval_boards = Vec::with_capacity(MAX_ORDERING_PLY + 1);
+        eval_boards.push(root_board.clone());
+        let mut eval_pending = Vec::with_capacity(MAX_ORDERING_PLY + 1);
+        eval_pending.push(EvalPending::Root);
+        if !eval_stack.is_empty() {
+            while eval_boards.len() < MAX_ORDERING_PLY + 1 {
+                eval_boards.push(root_board.clone());
+                eval_pending.push(EvalPending::Root);
+            }
         }
         let eval_scratch = evaluator
             .active_nnue_model()
@@ -155,8 +169,8 @@ impl<'a> SearchContext<'a> {
                 chess960,
                 stack: eval_stack,
                 ply: 0,
-                boards: vec![root_board.clone()],
-                pending: vec![EvalPending::Root],
+                boards: eval_boards,
+                pending: eval_pending,
                 materialized: 0,
                 scratch: eval_scratch,
                 finny: eval_finny,
