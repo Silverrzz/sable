@@ -5,8 +5,8 @@ use crate::{Board, Color, Move, Piece, pieces::ALL_PIECES};
 
 use super::{
     features::{
-        apply_feature_delta, collect_move_feature_updates, feature_index_for_perspective,
-        oriented_king_square,
+        apply_feature_delta, apply_feature_deltas, collect_move_feature_updates,
+        feature_index_for_perspective, oriented_king_square,
     },
     types::*,
 };
@@ -396,15 +396,7 @@ impl NnueModel {
             return false;
         };
         let hidden = first_layer.bias.len();
-        for update in updates.iter() {
-            apply_feature_delta(
-                values,
-                hidden,
-                &self.first_layer_feature_weights,
-                update.feature,
-                update.sign,
-            );
-        }
+        apply_feature_deltas(values, hidden, &self.first_layer_feature_weights, &updates);
         true
     }
 

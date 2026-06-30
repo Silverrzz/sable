@@ -22,3 +22,4 @@ pub use search::{
     SearchBudget, SearchInfo, SearchLimits, SearchRequest, SearchResult, StaticEval,
     StaticEvalSource, TimeControl,
 };
+pub use simd::runtime_backend_name as runtime_simd_backend;

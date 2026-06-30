@@ -37,6 +37,57 @@ pub(super) unsafe fn apply_feature_delta(accumulator: &mut [i16], weights: &[i16
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
+pub(super) unsafe fn apply_feature_deltas(
+    accumulator: &mut [i16],
+    feature_weights: &[i16],
+    hidden_size: usize,
+    features: &[usize],
+    signs: &[i32],
+) {
+    unsafe {
+        let len = accumulator.len();
+        let mut idx = 0_usize;
+        let acc_ptr = accumulator.as_mut_ptr();
+        let weights_ptr = feature_weights.as_ptr();
+
+        while idx + 16 <= len {
+            let mut delta = _mm256_setzero_si256();
+            for (&feature, &sign) in features.iter().zip(signs.iter()) {
+                let weight_ptr = weights_ptr.add(feature * hidden_size + idx);
+                let weights = _mm256_loadu_si256(weight_ptr as *const __m256i);
+                if sign > 0 {
+                    delta = _mm256_add_epi16(delta, weights);
+                } else if sign < 0 {
+                    delta = _mm256_sub_epi16(delta, weights);
+                }
+            }
+
+            let acc = _mm256_loadu_si256(acc_ptr.add(idx) as *const __m256i);
+            _mm256_storeu_si256(
+                acc_ptr.add(idx) as *mut __m256i,
+                _mm256_add_epi16(acc, delta),
+            );
+            idx += 16;
+        }
+
+        while idx < len {
+            let mut value = i32::from(*acc_ptr.add(idx));
+            for (&feature, &sign) in features.iter().zip(signs.iter()) {
+                let weight = i32::from(*weights_ptr.add(feature * hidden_size + idx));
+                if sign > 0 {
+                    value += weight;
+                } else if sign < 0 {
+                    value -= weight;
+                }
+            }
+            *acc_ptr.add(idx) = value as i16;
+            idx += 1;
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
 pub(super) unsafe fn screlu_dot_i16(accumulator: &[i16], weights: &[i16], qa: i16) -> i64 {
     unsafe {
         let len = accumulator.len();

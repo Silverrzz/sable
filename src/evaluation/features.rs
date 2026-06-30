@@ -110,6 +110,45 @@ pub(super) fn apply_feature_delta(
     crate::simd::apply_feature_delta(accumulator, &feature_weights[start..end], sign);
 }
 
+pub(super) fn apply_feature_deltas(
+    accumulator: &mut [i16],
+    hidden_size: usize,
+    feature_weights: &[i16],
+    updates: &FeatureUpdateList,
+) {
+    let mut features = [0_usize; MAX_MOVE_FEATURE_UPDATES];
+    let mut signs = [0_i32; MAX_MOVE_FEATURE_UPDATES];
+    let mut len = 0_usize;
+    for update in updates.iter() {
+        features[len] = update.feature;
+        signs[len] = update.sign;
+        len += 1;
+    }
+    apply_feature_delta_batch(
+        accumulator,
+        hidden_size,
+        feature_weights,
+        &features[..len],
+        &signs[..len],
+    );
+}
+
+pub(super) fn apply_feature_delta_batch(
+    accumulator: &mut [i16],
+    hidden_size: usize,
+    feature_weights: &[i16],
+    features: &[usize],
+    signs: &[i32],
+) {
+    crate::simd::apply_feature_deltas(
+        accumulator,
+        feature_weights,
+        hidden_size,
+        features,
+        signs,
+    );
+}
+
 pub(super) fn collect_move_feature_updates(
     before: &Board,
     mv: Move,
