@@ -1,10 +1,8 @@
 
 use crate::{
     Board, Color, Move, Piece, Square,
-    chess::{
-        BitBoard, Rank, get_bishop_moves, get_king_moves, get_knight_moves,
-        get_pawn_attacks, get_rook_moves,
-    },
+    chess::{BoardParts, Rank},
+    pieces::ALL_PIECES,
 };
 
 use super::{
@@ -47,43 +45,15 @@ pub(in crate::search) fn static_exchange_eval_for_quiet_move(
     mv: Move,
     moving_piece: Piece,
 ) -> i32 {
-    let mut colors = [crate::chess::colors(board, Color::White), crate::chess::colors(board, Color::Black)];
-    let mut pieces = [
-        crate::chess::pieces(board, Piece::Pawn),
-        crate::chess::pieces(board, Piece::Knight),
-        crate::chess::pieces(board, Piece::Bishop),
-        crate::chess::pieces(board, Piece::Rook),
-        crate::chess::pieces(board, Piece::Queen),
-        crate::chess::pieces(board, Piece::King),
-    ];
-    let mut occupied = crate::chess::occupied(board);
     let side = crate::chess::side_to_move(board);
-
-    remove_piece(
-        &mut colors,
-        &mut pieces,
-        &mut occupied,
-        side,
-        moving_piece,
-        mv.from,
-    );
-    add_piece(
-        &mut colors,
-        &mut pieces,
-        &mut occupied,
-        side,
-        moving_piece,
-        mv.to,
-    );
+    let mut parts = parts_after_move(board, side, moving_piece, mv, moving_piece, None);
 
     static_exchange_eval_on_target(
         mv.to,
         moving_piece,
         0,
         !side,
-        &mut colors,
-        &mut pieces,
-        &mut occupied,
+        &mut parts,
     )
 }
 
@@ -103,58 +73,9 @@ pub(in crate::search) fn move_gives_check(
         mv.to
     };
     let placed_piece = mv.promotion.unwrap_or(moving_piece);
-    let mut colors = [crate::chess::colors(board, Color::White), crate::chess::colors(board, Color::Black)];
-    let mut pieces = [
-        crate::chess::pieces(board, Piece::Pawn),
-        crate::chess::pieces(board, Piece::Knight),
-        crate::chess::pieces(board, Piece::Bishop),
-        crate::chess::pieces(board, Piece::Rook),
-        crate::chess::pieces(board, Piece::Queen),
-        crate::chess::pieces(board, Piece::King),
-    ];
-    let mut occupied = crate::chess::occupied(board);
-
-    remove_piece(
-        &mut colors,
-        &mut pieces,
-        &mut occupied,
-        side,
-        moving_piece,
-        mv.from,
-    );
-    if let Some(captured_piece) = captured_piece {
-        remove_piece(
-            &mut colors,
-            &mut pieces,
-            &mut occupied,
-            enemy,
-            captured_piece,
-            captured_square,
-        );
-    }
-    add_piece(
-        &mut colors,
-        &mut pieces,
-        &mut occupied,
-        side,
-        placed_piece,
-        mv.to,
-    );
-
-    [
-        Piece::Pawn,
-        Piece::Knight,
-        Piece::Bishop,
-        Piece::Rook,
-        Piece::Queen,
-        Piece::King,
-    ]
-    .into_iter()
-    .any(|piece| {
-        !(attackers_for_piece(enemy_king, side, piece, occupied, &pieces)
-            & colors[side as usize])
-            .is_empty()
-    })
+    let captured = captured_piece.map(|piece| (enemy, piece, captured_square));
+    let parts = parts_after_move(board, side, moving_piece, mv, placed_piece, captured);
+    !parts.attackers_to(enemy_king, side).is_empty()
 }
 
 pub(in crate::search) fn static_exchange_eval_capture(
@@ -164,43 +85,16 @@ pub(in crate::search) fn static_exchange_eval_capture(
     captured_piece: Piece,
     captured_square: Square,
 ) -> i32 {
-    let mut colors = [crate::chess::colors(board, Color::White), crate::chess::colors(board, Color::Black)];
-    let mut pieces = [
-        crate::chess::pieces(board, Piece::Pawn),
-        crate::chess::pieces(board, Piece::Knight),
-        crate::chess::pieces(board, Piece::Bishop),
-        crate::chess::pieces(board, Piece::Rook),
-        crate::chess::pieces(board, Piece::Queen),
-        crate::chess::pieces(board, Piece::King),
-    ];
-    let mut occupied = crate::chess::occupied(board);
     let side = crate::chess::side_to_move(board);
     let placed_piece = mv.promotion.unwrap_or(moving_piece);
     let promotion_gain = piece_value(placed_piece) - piece_value(moving_piece);
-
-    remove_piece(
-        &mut colors,
-        &mut pieces,
-        &mut occupied,
+    let mut parts = parts_after_move(
+        board,
         side,
         moving_piece,
-        mv.from,
-    );
-    remove_piece(
-        &mut colors,
-        &mut pieces,
-        &mut occupied,
-        !side,
-        captured_piece,
-        captured_square,
-    );
-    add_piece(
-        &mut colors,
-        &mut pieces,
-        &mut occupied,
-        side,
+        mv,
         placed_piece,
-        mv.to,
+        Some((!side, captured_piece, captured_square)),
     );
 
     static_exchange_eval_on_target(
@@ -208,10 +102,25 @@ pub(in crate::search) fn static_exchange_eval_capture(
         placed_piece,
         piece_value(captured_piece) + promotion_gain,
         !side,
-        &mut colors,
-        &mut pieces,
-        &mut occupied,
+        &mut parts,
     )
+}
+
+fn parts_after_move(
+    board: &Board,
+    side: Color,
+    moving_piece: Piece,
+    mv: Move,
+    placed_piece: Piece,
+    captured: Option<(Color, Piece, Square)>,
+) -> BoardParts {
+    let mut parts = BoardParts::from_board(board);
+    parts.remove_piece(side, moving_piece, mv.from);
+    if let Some((captured_side, captured_piece, captured_square)) = captured {
+        parts.remove_piece(captured_side, captured_piece, captured_square);
+    }
+    parts.add_piece(side, placed_piece, mv.to);
+    parts
 }
 
 fn static_exchange_eval_on_target(
@@ -219,29 +128,20 @@ fn static_exchange_eval_on_target(
     mut target_piece: Piece,
     initial_gain: i32,
     mut attacker_side: Color,
-    colors: &mut [BitBoard; 2],
-    pieces: &mut [BitBoard; 6],
-    occupied: &mut BitBoard,
+    parts: &mut BoardParts,
 ) -> i32 {
     let mut gains = [0_i32; 32];
     let mut depth = 0_usize;
     gains[0] = initial_gain;
     while depth + 1 < gains.len() {
         let Some((attacker_piece, attacker_square)) =
-            least_valuable_attacker(target, attacker_side, *occupied, colors, pieces)
+            least_valuable_attacker(target, attacker_side, parts)
         else {
             break;
         };
         depth += 1;
         gains[depth] = piece_value(target_piece) - gains[depth - 1];
-        remove_piece(
-            colors,
-            pieces,
-            occupied,
-            attacker_side,
-            attacker_piece,
-            attacker_square,
-        );
+        parts.remove_piece(attacker_side, attacker_piece, attacker_square);
         target_piece = attacker_piece;
         attacker_side = !attacker_side;
     }
@@ -256,73 +156,13 @@ fn static_exchange_eval_on_target(
 pub(in crate::search) fn least_valuable_attacker(
     target: Square,
     side: Color,
-    occupied: BitBoard,
-    colors: &[BitBoard; 2],
-    pieces: &[BitBoard; 6],
+    parts: &BoardParts,
 ) -> Option<(Piece, Square)> {
-    for piece in [
-        Piece::Pawn,
-        Piece::Knight,
-        Piece::Bishop,
-        Piece::Rook,
-        Piece::Queen,
-        Piece::King,
-    ] {
-        let attackers =
-            attackers_for_piece(target, side, piece, occupied, pieces) & colors[side as usize];
+    for piece in ALL_PIECES {
+        let attackers = parts.attackers_for_piece(target, side, piece) & parts.color(side);
         if let Some(square) = attackers.next_square() {
             return Some((piece, square));
         }
     }
     None
-}
-
-pub(in crate::search) fn attackers_for_piece(
-    target: Square,
-    side: Color,
-    piece: Piece,
-    occupied: BitBoard,
-    pieces: &[BitBoard; 6],
-) -> BitBoard {
-    match piece {
-        Piece::Pawn => get_pawn_attacks(target, !side) & pieces[Piece::Pawn as usize],
-        Piece::Knight => get_knight_moves(target) & pieces[Piece::Knight as usize],
-        Piece::Bishop => {
-            get_bishop_moves(target, occupied) & pieces[Piece::Bishop as usize]
-        }
-        Piece::Rook => get_rook_moves(target, occupied) & pieces[Piece::Rook as usize],
-        Piece::Queen => {
-            (get_bishop_moves(target, occupied) | get_rook_moves(target, occupied))
-                & pieces[Piece::Queen as usize]
-        }
-        Piece::King => get_king_moves(target) & pieces[Piece::King as usize],
-    }
-}
-
-pub(in crate::search) fn remove_piece(
-    colors: &mut [BitBoard; 2],
-    pieces: &mut [BitBoard; 6],
-    occupied: &mut BitBoard,
-    color: Color,
-    piece: Piece,
-    square: Square,
-) {
-    let square = square.bitboard();
-    colors[color as usize] -= square;
-    pieces[piece as usize] -= square;
-    *occupied -= square;
-}
-
-pub(in crate::search) fn add_piece(
-    colors: &mut [BitBoard; 2],
-    pieces: &mut [BitBoard; 6],
-    occupied: &mut BitBoard,
-    color: Color,
-    piece: Piece,
-    square: Square,
-) {
-    let square = square.bitboard();
-    colors[color as usize] |= square;
-    pieces[piece as usize] |= square;
-    *occupied |= square;
 }

@@ -53,7 +53,7 @@ fn piece_map(board: &Board) -> [Option<VerboseEvalSquare>; 64] {
     let mut squares = [None; 64];
     for piece in ALL_PIECES {
         for color in [Color::White, Color::Black] {
-            for sq in crate::chess::pieces(board, piece) & crate::chess::colors(board, color) {
+            for sq in crate::chess::colored_pieces(board, color, piece) {
                 squares[sq as usize] = Some(VerboseEvalSquare { piece, color });
             }
         }
@@ -62,7 +62,7 @@ fn piece_map(board: &Board) -> [Option<VerboseEvalSquare>; 64] {
 }
 
 fn king_square(board: &Board, color: Color, fallback: u8) -> u8 {
-    (crate::chess::pieces(board, Piece::King) & crate::chess::colors(board, color))
+    crate::chess::colored_pieces(board, color, Piece::King)
         .into_iter()
         .next()
         .map(|sq| sq as u8)

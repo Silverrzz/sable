@@ -1,8 +1,10 @@
 use std::fmt;
 
+use crate::pieces::ALL_PIECES;
+
 use super::{
     BitBoard, Color, File, GameStatus, Move, Piece, Rank, Square, between_squares,
-    get_bishop_moves, get_king_moves, get_knight_moves, get_pawn_attacks, get_rook_moves,
+    get_bishop_moves, get_king_moves, get_knight_moves, get_pawn_attacks, get_queen_moves, get_rook_moves,
     line_squares,
 };
 
@@ -273,6 +275,109 @@ pub struct CastleRights {
     pub long: Option<File>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct BoardParts {
+    pieces: [BitBoard; 6],
+    colors: [BitBoard; 2],
+    occupied: BitBoard,
+}
+
+impl BoardParts {
+    #[inline]
+    pub(crate) fn from_board(board: &Board) -> Self {
+        let white = board.colors[Color::White as usize];
+        let black = board.colors[Color::Black as usize];
+        Self {
+            pieces: board.pieces,
+            colors: board.colors,
+            occupied: white | black,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn color(&self, color: Color) -> BitBoard {
+        self.colors[color as usize]
+    }
+
+    #[inline]
+    pub(crate) fn piece(&self, piece: Piece) -> BitBoard {
+        self.pieces[piece as usize]
+    }
+
+    #[inline]
+    pub(crate) fn remove_piece(&mut self, color: Color, piece: Piece, square: Square) {
+        let bit = square.bitboard();
+        self.pieces[piece as usize] -= bit;
+        self.colors[color as usize] -= bit;
+        self.occupied -= bit;
+    }
+
+    #[inline]
+    pub(crate) fn add_piece(&mut self, color: Color, piece: Piece, square: Square) {
+        let bit = square.bitboard();
+        self.pieces[piece as usize] |= bit;
+        self.colors[color as usize] |= bit;
+        self.occupied |= bit;
+    }
+
+    #[inline]
+    pub(crate) fn attackers_for_piece(
+        &self,
+        target: Square,
+        side: Color,
+        piece: Piece,
+    ) -> BitBoard {
+        match piece {
+            Piece::Pawn => get_pawn_attacks(target, !side) & self.piece(Piece::Pawn),
+            Piece::Knight => get_knight_moves(target) & self.piece(Piece::Knight),
+            Piece::Bishop => get_bishop_moves(target, self.occupied) & self.piece(Piece::Bishop),
+            Piece::Rook => get_rook_moves(target, self.occupied) & self.piece(Piece::Rook),
+            Piece::Queen => get_queen_moves(target, self.occupied) & self.piece(Piece::Queen),
+            Piece::King => get_king_moves(target) & self.piece(Piece::King),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn attackers_to(&self, square: Square, attacker: Color) -> BitBoard {
+        let attacker_pieces = self.color(attacker);
+        let pawns = get_pawn_attacks(square, !attacker) & self.piece(Piece::Pawn) & attacker_pieces;
+        let knights = get_knight_moves(square) & self.piece(Piece::Knight) & attacker_pieces;
+        let kings = get_king_moves(square) & self.piece(Piece::King) & attacker_pieces;
+        let bishops = get_bishop_moves(square, self.occupied)
+            & (self.piece(Piece::Bishop) | self.piece(Piece::Queen))
+            & attacker_pieces;
+        let rooks = get_rook_moves(square, self.occupied)
+            & (self.piece(Piece::Rook) | self.piece(Piece::Queen))
+            & attacker_pieces;
+        pawns | knights | kings | bishops | rooks
+    }
+
+    #[inline]
+    pub(crate) fn is_square_attacked(&self, square: Square, attacker: Color) -> bool {
+        let attacker_pieces = self.color(attacker);
+        if !(get_pawn_attacks(square, !attacker) & self.piece(Piece::Pawn) & attacker_pieces).is_empty() {
+            return true;
+        }
+        if !(get_knight_moves(square) & self.piece(Piece::Knight) & attacker_pieces).is_empty() {
+            return true;
+        }
+        if !(get_king_moves(square) & self.piece(Piece::King) & attacker_pieces).is_empty() {
+            return true;
+        }
+        if !(get_bishop_moves(square, self.occupied)
+            & (self.piece(Piece::Bishop) | self.piece(Piece::Queen))
+            & attacker_pieces)
+            .is_empty()
+        {
+            return true;
+        }
+        !(get_rook_moves(square, self.occupied)
+            & (self.piece(Piece::Rook) | self.piece(Piece::Queen))
+            & attacker_pieces)
+            .is_empty()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct PieceMoves {
     pub piece: Piece,
@@ -381,14 +486,7 @@ pub(crate) fn status(board: &Board) -> GameStatus {
 #[inline]
 pub(crate) fn piece_on(board: &Board, square: Square) -> Option<Piece> {
     let square = square.bitboard();
-    for piece in [
-        Piece::Pawn,
-        Piece::Knight,
-        Piece::Bishop,
-        Piece::Rook,
-        Piece::Queen,
-        Piece::King,
-    ] {
+    for piece in ALL_PIECES {
         if !(board.pieces[piece as usize] & square).is_empty() {
             return Some(piece);
         }
@@ -646,14 +744,7 @@ where
 {
     let side = board.side_to_move;
     let state = MoveGenState::new(board);
-    for piece in [
-        Piece::Pawn,
-        Piece::Knight,
-        Piece::Bishop,
-        Piece::Rook,
-        Piece::Queen,
-        Piece::King,
-    ] {
+    for piece in ALL_PIECES {
         for from in colored_pieces(board, side, piece) {
             let legal_targets =
                 legal_targets_for_piece(board, &state, side, piece, from, target_filter(piece, from));
@@ -786,16 +877,15 @@ fn legal_king_targets(board: &Board, side: Color, from: Square, target_filter: B
 }
 
 fn is_legal_king_step(board: &Board, side: Color, from: Square, to: Square) -> bool {
-    let mut pieces = board.pieces;
-    let mut colors = board.colors;
-    remove_piece_from_parts(&mut pieces, &mut colors, side, Piece::King, from);
+    let mut parts = BoardParts::from_board(board);
+    parts.remove_piece(side, Piece::King, from);
     if board.colors[(!side) as usize].has(to)
         && let Some(captured) = piece_on(board, to)
     {
-        remove_piece_from_parts(&mut pieces, &mut colors, !side, captured, to);
+        parts.remove_piece(!side, captured, to);
     }
-    add_piece_to_parts(&mut pieces, &mut colors, side, Piece::King, to);
-    !is_square_attacked_parts(&pieces, &colors, to, !side)
+    parts.add_piece(side, Piece::King, to);
+    !parts.is_square_attacked(to, !side)
 }
 
 fn en_passant_legal_targets(
@@ -908,9 +998,7 @@ fn pseudo_targets(
         Piece::Knight => get_knight_moves(from) - state.own,
         Piece::Bishop => get_bishop_moves(from, state.occupied) - state.own,
         Piece::Rook => get_rook_moves(from, state.occupied) - state.own,
-        Piece::Queen => {
-            (get_bishop_moves(from, state.occupied) | get_rook_moves(from, state.occupied)) - state.own
-        }
+        Piece::Queen => get_queen_moves(from, state.occupied) - state.own,
         Piece::King => (get_king_moves(from) - state.own) | pseudo_castling_targets(board, side, from),
     }
 }
@@ -940,10 +1028,11 @@ fn pseudo_pawn_targets(board: &Board, state: &MoveGenState, side: Color, from: S
         }
     }
 
-    targets |= get_pawn_attacks(from, side) & state.enemy;
+    let attacks = get_pawn_attacks(from, side);
+    targets |= attacks & state.enemy;
     if let Some(ep_file) = board.en_passant {
         let ep = Square::new(ep_file, Rank::Sixth.relative_to(side));
-        if get_pawn_attacks(from, side).has(ep) && en_passant_capture_square(board, side, ep).is_some()
+        if attacks.has(ep) && en_passant_capture_square(board, side, ep).is_some()
         {
             targets |= ep.bitboard();
         }
@@ -974,20 +1063,11 @@ struct CastleMove {
 }
 
 fn attackers_to(board: &Board, square: Square, attacker: Color) -> BitBoard {
-    let occupied = board.colors[Color::White as usize] | board.colors[Color::Black as usize];
-    let attackers = board.colors[attacker as usize];
-    let pawns = get_pawn_attacks(square, !attacker) & (board.pieces[Piece::Pawn as usize] & attackers);
-    let knights = get_knight_moves(square) & (board.pieces[Piece::Knight as usize] & attackers);
-    let kings = get_king_moves(square) & (board.pieces[Piece::King as usize] & attackers);
-    let bishops = get_bishop_moves(square, occupied)
-        & ((board.pieces[Piece::Bishop as usize] | board.pieces[Piece::Queen as usize]) & attackers);
-    let rooks = get_rook_moves(square, occupied)
-        & ((board.pieces[Piece::Rook as usize] | board.pieces[Piece::Queen as usize]) & attackers);
-    pawns | knights | kings | bishops | rooks
+    BoardParts::from_board(board).attackers_to(square, attacker)
 }
 
 fn is_square_attacked(board: &Board, square: Square, attacker: Color) -> bool {
-    square_is_attacked_by_parts(&board.pieces, &board.colors, square, attacker)
+    BoardParts::from_board(board).is_square_attacked(square, attacker)
 }
 
 fn valid_promotion(piece: Piece, mv: Move) -> bool {
@@ -1017,9 +1097,7 @@ fn is_pseudo_legal(
         Piece::Knight => get_knight_moves(mv.from).has(mv.to),
         Piece::Bishop => get_bishop_moves(mv.from, occupied).has(mv.to),
         Piece::Rook => get_rook_moves(mv.from, occupied).has(mv.to),
-        Piece::Queen => {
-            (get_bishop_moves(mv.from, occupied) | get_rook_moves(mv.from, occupied)).has(mv.to)
-        }
+        Piece::Queen => get_queen_moves(mv.from, occupied).has(mv.to),
         Piece::King => get_king_moves(mv.from).has(mv.to),
     }
 }
@@ -1068,8 +1146,7 @@ fn leaves_king_attacked(
     moving_piece: Piece,
     castle: Option<CastleMove>,
 ) -> bool {
-    let mut pieces = board.pieces;
-    let mut colors = board.colors;
+    let mut parts = BoardParts::from_board(board);
 
     let king_square = if let Some(castle) = castle {
         let rank = Rank::First.relative_to(side);
@@ -1081,25 +1158,19 @@ fn leaves_king_attacked(
             },
             rank,
         );
-        remove_piece_from_parts(&mut pieces, &mut colors, side, Piece::King, mv.from);
-        remove_piece_from_parts(&mut pieces, &mut colors, side, Piece::Rook, mv.to);
-        add_piece_to_parts(&mut pieces, &mut colors, side, Piece::King, castle.king_to);
-        add_piece_to_parts(&mut pieces, &mut colors, side, Piece::Rook, rook_to);
+        parts.remove_piece(side, Piece::King, mv.from);
+        parts.remove_piece(side, Piece::Rook, mv.to);
+        parts.add_piece(side, Piece::King, castle.king_to);
+        parts.add_piece(side, Piece::Rook, rook_to);
         castle.king_to
     } else {
-        remove_piece_from_parts(&mut pieces, &mut colors, side, moving_piece, mv.from);
+        parts.remove_piece(side, moving_piece, mv.from);
         if let Some((captured_piece, captured_square)) =
             captured_piece_and_square(board, mv, side, moving_piece)
         {
-            remove_piece_from_parts(&mut pieces, &mut colors, !side, captured_piece, captured_square);
+            parts.remove_piece(!side, captured_piece, captured_square);
         }
-        add_piece_to_parts(
-            &mut pieces,
-            &mut colors,
-            side,
-            mv.promotion.unwrap_or(moving_piece),
-            mv.to,
-        );
+        parts.add_piece(side, mv.promotion.unwrap_or(moving_piece), mv.to);
         if moving_piece == Piece::King {
             mv.to
         } else {
@@ -1107,7 +1178,7 @@ fn leaves_king_attacked(
         }
     };
 
-    is_square_attacked_parts(&pieces, &colors, king_square, !side)
+    parts.is_square_attacked(king_square, !side)
 }
 
 fn captured_piece_and_square(
@@ -1128,71 +1199,6 @@ fn captured_piece_and_square(
     }
 
     piece_on(board, mv.to).map(|piece| (piece, mv.to))
-}
-
-fn remove_piece_from_parts(
-    pieces: &mut [BitBoard; 6],
-    colors: &mut [BitBoard; 2],
-    color: Color,
-    piece: Piece,
-    square: Square,
-) {
-    let bit = square.bitboard();
-    pieces[piece as usize] -= bit;
-    colors[color as usize] -= bit;
-}
-
-fn add_piece_to_parts(
-    pieces: &mut [BitBoard; 6],
-    colors: &mut [BitBoard; 2],
-    color: Color,
-    piece: Piece,
-    square: Square,
-) {
-    let bit = square.bitboard();
-    pieces[piece as usize] |= bit;
-    colors[color as usize] |= bit;
-}
-
-fn is_square_attacked_parts(
-    pieces: &[BitBoard; 6],
-    colors: &[BitBoard; 2],
-    square: Square,
-    attacker: Color,
-) -> bool {
-    square_is_attacked_by_parts(pieces, colors, square, attacker)
-}
-
-#[inline]
-fn square_is_attacked_by_parts(
-    pieces: &[BitBoard; 6],
-    colors: &[BitBoard; 2],
-    square: Square,
-    attacker: Color,
-) -> bool {
-    let attacker_pieces = colors[attacker as usize];
-    if !(get_pawn_attacks(square, !attacker) & pieces[Piece::Pawn as usize] & attacker_pieces).is_empty() {
-        return true;
-    }
-    if !(get_knight_moves(square) & pieces[Piece::Knight as usize] & attacker_pieces).is_empty() {
-        return true;
-    }
-    if !(get_king_moves(square) & pieces[Piece::King as usize] & attacker_pieces).is_empty() {
-        return true;
-    }
-
-    let occupied = colors[Color::White as usize] | colors[Color::Black as usize];
-    if !(get_bishop_moves(square, occupied)
-        & (pieces[Piece::Bishop as usize] | pieces[Piece::Queen as usize])
-        & attacker_pieces)
-        .is_empty()
-    {
-        return true;
-    }
-    !(get_rook_moves(square, occupied)
-        & (pieces[Piece::Rook as usize] | pieces[Piece::Queen as usize])
-        & attacker_pieces)
-        .is_empty()
 }
 
 fn en_passant_capture_square(board: &Board, side: Color, ep: Square) -> Option<Square> {
@@ -1492,14 +1498,7 @@ fn parse_fullmove_number(value: &str) -> Result<u16, FenParseError> {
 fn compute_hash(board: &Board) -> u64 {
     let mut hash = 0u64;
     for color in [Color::White, Color::Black] {
-        for piece in [
-            Piece::Pawn,
-            Piece::Knight,
-            Piece::Bishop,
-            Piece::Rook,
-            Piece::Queen,
-            Piece::King,
-        ] {
+        for piece in ALL_PIECES {
             for square in colored_pieces(board, color, piece) {
                 hash ^= piece_key(color, piece, square);
             }

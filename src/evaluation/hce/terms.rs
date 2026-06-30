@@ -1,5 +1,5 @@
 use crate::{Color, Piece};
-use crate::chess::{get_bishop_moves, get_knight_moves, get_rook_moves};
+use crate::chess::{get_bishop_moves, get_knight_moves, get_queen_moves, get_rook_moves};
 
 use super::{
     HCE_BISHOP_MOBILITY_EG, HCE_BISHOP_MOBILITY_MG, HCE_BISHOP_OUTPOST_EG,
@@ -151,8 +151,7 @@ fn activity_terms(info: &HceInfo, side: Color) -> HceScore {
     }
 
     for square in info.piece_color(side, Piece::Queen) {
-        let attacks =
-            get_bishop_moves(square, info.occupied) | get_rook_moves(square, info.occupied);
+        let attacks = get_queen_moves(square, info.occupied);
         let mobility = (attacks & mobility_area).len() as i32;
         score.add(
             mobility * HCE_QUEEN_MOBILITY_MG,

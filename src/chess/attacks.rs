@@ -54,6 +54,11 @@ pub(crate) fn get_rook_moves(square: Square, occupied: BitBoard) -> BitBoard {
 }
 
 #[inline]
+pub(crate) fn get_queen_moves(square: Square, occupied: BitBoard) -> BitBoard {
+    get_bishop_moves(square, occupied) | get_rook_moves(square, occupied)
+}
+
+#[inline]
 pub(crate) fn get_king_moves(square: Square) -> BitBoard {
     let bit = square.bitboard().0;
     BitBoard(
