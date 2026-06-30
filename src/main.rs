@@ -205,19 +205,45 @@ fn run_bench() -> Result<()> {
         ..Default::default()
     };
 
-    let start_all = Instant::now();
+    let mut engine = Engine::default();
+    let eval_mode = engine.eval_mode_option_value().as_uci();
+    let eval_arch = engine
+        .active_nnue_architecture_id()
+        .map(|id| id.as_str())
+        .unwrap_or("none");
+    let eval_file = engine.eval_file_option_value().unwrap_or("none").to_owned();
+
     let mut total_nodes = 0_u64;
+    let mut total_search_ms = 0_u64;
+    let start_setup = Instant::now();
     for position in positions {
-        let mut engine = Engine::default();
-        if position != "startpos" {
+        engine.reset();
+        if position == "startpos" {
+            engine.set_startpos_with_moves(&[])?;
+        } else {
             engine.set_fen_with_moves(position, &[])?;
         }
+        let start_search = Instant::now();
         let result = engine.search(&request)?;
+        let search_ms = start_search.elapsed().as_millis() as u64;
         let nodes = result.info.nodes.unwrap_or(0);
         total_nodes = total_nodes.saturating_add(nodes);
+        total_search_ms = total_search_ms.saturating_add(search_ms);
     }
-    let all_ms = start_all.elapsed().as_millis() as u64;
-    println!("{} nodes {} nps", total_nodes, nodes_per_second(total_nodes, all_ms));
+    let total_elapsed_ms = start_setup.elapsed().as_millis() as u64;
+    let setup_ms = total_elapsed_ms.saturating_sub(total_search_ms);
+    println!(
+        "bench depth={BENCH_DEPTH} positions={} simd_backend={} eval_mode={eval_mode} eval_arch={eval_arch} eval_file={eval_file}",
+        positions.len(),
+        runtime_simd_backend(),
+    );
+    println!(
+        "{} nodes {} nps search_ms={} setup_ms={}",
+        total_nodes,
+        nodes_per_second(total_nodes, total_search_ms),
+        total_search_ms,
+        setup_ms,
+    );
     Ok(())
 }
 
