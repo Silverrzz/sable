@@ -21,26 +21,78 @@ enum SimdBackend {
 static BACKEND: OnceLock<SimdBackend> = OnceLock::new();
 
 fn backend() -> SimdBackend {
-    *BACKEND.get_or_init(|| {
-        #[cfg(target_arch = "x86_64")]
-        {
-            if std::is_x86_feature_detected!("avx512f")
-                && std::is_x86_feature_detected!("avx512bw")
-                && std::is_x86_feature_detected!("avx512dq")
-                && std::is_x86_feature_detected!("avx2")
-            {
-                return SimdBackend::Avx512;
-            }
-            if std::is_x86_feature_detected!("avx2") {
-                return SimdBackend::Avx2;
-            }
-        }
-        #[cfg(target_arch = "aarch64")]
-        {
-            return SimdBackend::Neon;
-        }
-        SimdBackend::Scalar
-    })
+    *BACKEND.get_or_init(|| backend_override().unwrap_or_else(detect_backend))
+}
+
+fn backend_override() -> Option<SimdBackend> {
+    let requested = std::env::var("SABLE_SIMD_BACKEND")
+        .or_else(|_| std::env::var("SABLE_SIMD"))
+        .ok()?;
+    let requested = requested.trim().to_ascii_lowercase();
+    let candidate = match requested.as_str() {
+        "" | "auto" | "native" => return None,
+        "scalar" | "none" | "off" => SimdBackend::Scalar,
+        "avx512" | "avx-512" => SimdBackend::Avx512,
+        "avx2" | "avx-2" => SimdBackend::Avx2,
+        "neon" => SimdBackend::Neon,
+        _ => return None,
+    };
+    backend_supported(candidate).then_some(candidate)
+}
+
+fn detect_backend() -> SimdBackend {
+    if backend_supported(SimdBackend::Avx512) {
+        return SimdBackend::Avx512;
+    }
+    if backend_supported(SimdBackend::Avx2) {
+        return SimdBackend::Avx2;
+    }
+    if backend_supported(SimdBackend::Neon) {
+        return SimdBackend::Neon;
+    }
+    SimdBackend::Scalar
+}
+
+fn backend_supported(candidate: SimdBackend) -> bool {
+    match candidate {
+        SimdBackend::Scalar => true,
+        SimdBackend::Avx512 => avx512_supported(),
+        SimdBackend::Avx2 => avx2_supported(),
+        SimdBackend::Neon => neon_supported(),
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+fn avx512_supported() -> bool {
+    std::is_x86_feature_detected!("avx512f")
+        && std::is_x86_feature_detected!("avx512bw")
+        && std::is_x86_feature_detected!("avx512dq")
+        && std::is_x86_feature_detected!("avx2")
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn avx512_supported() -> bool {
+    false
+}
+
+#[cfg(target_arch = "x86_64")]
+fn avx2_supported() -> bool {
+    std::is_x86_feature_detected!("avx2")
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn avx2_supported() -> bool {
+    false
+}
+
+#[cfg(target_arch = "aarch64")]
+fn neon_supported() -> bool {
+    true
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+fn neon_supported() -> bool {
+    false
 }
 
 pub fn runtime_backend_name() -> &'static str {
@@ -131,7 +183,7 @@ pub fn screlu_dot_i16(accumulator: &[i16], weights: &[i16], qa: i16) -> i64 {
     debug_assert_eq!(accumulator.len(), weights.len());
     match backend() {
         #[cfg(target_arch = "x86_64")]
-        SimdBackend::Avx512 => unsafe { avx2::screlu_dot_i16(accumulator, weights, qa) },
+        SimdBackend::Avx512 => unsafe { avx512::screlu_dot_i16(accumulator, weights, qa) },
         #[cfg(not(target_arch = "x86_64"))]
         SimdBackend::Avx512 => unreachable!("AVX-512 backend is only selected on x86_64"),
         #[cfg(target_arch = "x86_64")]
@@ -190,7 +242,13 @@ pub fn activate_accumulator_i16(
         },
         #[cfg(not(target_arch = "x86_64"))]
         SimdBackend::Avx512 => unreachable!("AVX-512 backend is only selected on x86_64"),
-        SimdBackend::Avx2 | SimdBackend::Neon | SimdBackend::Scalar => {
+        #[cfg(target_arch = "x86_64")]
+        SimdBackend::Avx2 => unsafe {
+            avx2::activate_accumulator_i16(input, acc_mul, acc_shift, use_screlu, output)
+        },
+        #[cfg(not(target_arch = "x86_64"))]
+        SimdBackend::Avx2 => unreachable!("AVX2 backend is only selected on x86_64"),
+        SimdBackend::Neon | SimdBackend::Scalar => {
             scalar::activate_accumulator_i16(input, acc_mul, acc_shift, use_screlu, output)
         }
     }

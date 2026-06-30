@@ -243,6 +243,55 @@ pub(super) unsafe fn matrix_vector_i32(
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
+pub(super) unsafe fn activate_accumulator_i16(
+    input: &[i16],
+    acc_mul: i32,
+    acc_shift: u32,
+    use_screlu: bool,
+    output: &mut [i32],
+) {
+    unsafe {
+        let len = input.len();
+        let mut idx = 0_usize;
+        let input_ptr = input.as_ptr();
+        let output_ptr = output.as_mut_ptr();
+        let acc_mul_scalar = acc_mul;
+        let acc_shift_scalar = acc_shift;
+        let acc_mul = _mm256_set1_epi32(acc_mul_scalar);
+        let acc_shift = _mm256_set1_epi32(acc_shift_scalar as i32);
+        let zero = _mm256_setzero_si256();
+        let activation_q = _mm256_set1_epi32(1024);
+
+        while idx + 8 <= len {
+            let acc16 = _mm_loadu_si128(input_ptr.add(idx) as *const __m128i);
+            let acc32 = _mm256_cvtepi16_epi32(acc16);
+            let scaled = _mm256_srav_epi32(_mm256_mullo_epi32(acc32, acc_mul), acc_shift);
+            let clamped = _mm256_min_epi32(_mm256_max_epi32(scaled, zero), activation_q);
+            let activated = if use_screlu {
+                _mm256_srai_epi32::<10>(_mm256_mullo_epi32(clamped, clamped))
+            } else {
+                clamped
+            };
+            _mm256_storeu_si256(output_ptr.add(idx) as *mut __m256i, activated);
+            idx += 8;
+        }
+
+        while idx < len {
+            let scaled = ((i64::from(*input_ptr.add(idx)) * i64::from(acc_mul_scalar))
+                >> acc_shift_scalar) as i32;
+            let clamped = scaled.clamp(0, 1024);
+            *output_ptr.add(idx) = if use_screlu {
+                ((i64::from(clamped) * i64::from(clamped)) / 1024) as i32
+            } else {
+                clamped
+            };
+            idx += 1;
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
 unsafe fn horizontal_sum_i64(value: __m256i) -> i64 {
     unsafe {
         let mut lanes = [0_i64; 4];

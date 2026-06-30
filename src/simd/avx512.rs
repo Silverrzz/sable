@@ -89,6 +89,62 @@ pub(super) unsafe fn apply_feature_deltas(
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx512bw,avx512dq,avx2")]
+pub(super) unsafe fn screlu_dot_i16(accumulator: &[i16], weights: &[i16], qa: i16) -> i64 {
+    unsafe {
+        let len = accumulator.len();
+        let mut idx = 0_usize;
+        let acc_ptr = accumulator.as_ptr();
+        let weight_ptr = weights.as_ptr();
+        let zero = _mm512_setzero_si512();
+        let qa_vec = _mm512_set1_epi16(qa);
+        let mut sum_lo = _mm512_setzero_si512();
+        let mut sum_hi = _mm512_setzero_si512();
+
+        while idx + 32 <= len {
+            let acc = _mm512_loadu_si512(acc_ptr.add(idx) as *const __m512i);
+            let clamped = _mm512_min_epi16(_mm512_max_epi16(acc, zero), qa_vec);
+            let w = _mm512_loadu_si512(weight_ptr.add(idx) as *const __m512i);
+
+            let v0 = _mm512_cvtepi16_epi32(_mm512_castsi512_si256(clamped));
+            let w0 = _mm512_cvtepi16_epi32(_mm512_castsi512_si256(w));
+            let q0 = _mm512_mullo_epi32(_mm512_mullo_epi32(v0, w0), v0);
+            sum_lo = _mm512_add_epi64(
+                sum_lo,
+                _mm512_cvtepi32_epi64(_mm512_castsi512_si256(q0)),
+            );
+            sum_hi = _mm512_add_epi64(
+                sum_hi,
+                _mm512_cvtepi32_epi64(_mm512_extracti64x4_epi64::<1>(q0)),
+            );
+
+            let v1 = _mm512_cvtepi16_epi32(_mm512_extracti64x4_epi64::<1>(clamped));
+            let w1 = _mm512_cvtepi16_epi32(_mm512_extracti64x4_epi64::<1>(w));
+            let q1 = _mm512_mullo_epi32(_mm512_mullo_epi32(v1, w1), v1);
+            sum_lo = _mm512_add_epi64(
+                sum_lo,
+                _mm512_cvtepi32_epi64(_mm512_castsi512_si256(q1)),
+            );
+            sum_hi = _mm512_add_epi64(
+                sum_hi,
+                _mm512_cvtepi32_epi64(_mm512_extracti64x4_epi64::<1>(q1)),
+            );
+
+            idx += 32;
+        }
+
+        let mut result = _mm512_reduce_add_epi64(sum_lo) + _mm512_reduce_add_epi64(sum_hi);
+        let qa = i64::from(qa);
+        while idx < len {
+            let clamped = i64::from(*acc_ptr.add(idx)).clamp(0, qa);
+            result += clamped * clamped * i64::from(*weight_ptr.add(idx));
+            idx += 1;
+        }
+        result
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx2")]
 pub(super) unsafe fn dot_product_i32(left: &[i32], right: &[i32]) -> i64 {
     unsafe {
         let len = left.len();
