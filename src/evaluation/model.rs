@@ -130,7 +130,7 @@ impl NnueModel {
 
         for color in [Color::White, Color::Black] {
             for piece in ALL_PIECES {
-                for square in crate::chess::pieces(board, piece) & crate::chess::colors(board, color) {
+                for square in crate::chess::colored_pieces(board, color, piece) {
                     let feature = feature_index_for_perspective(
                         self.architecture,
                         perspective,
@@ -407,7 +407,7 @@ fn board_piece_bitboards(board: &Board) -> [u64; FINNY_PIECE_BITBOARDS] {
     for color in [Color::White, Color::Black] {
         for piece in ALL_PIECES {
             pieces[piece_bitboard_index(color, piece)] =
-                (crate::chess::pieces(board, piece) & crate::chess::colors(board, color)).0;
+                crate::chess::colored_pieces(board, color, piece).0;
         }
     }
     pieces

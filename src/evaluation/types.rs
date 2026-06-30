@@ -168,6 +168,15 @@ pub struct NnueAccumulators {
     pub(super) black_values: Option<Vec<i16>>,
 }
 
+impl NnueAccumulators {
+    pub(crate) fn empty_like(source: &Self) -> Self {
+        Self {
+            values: vec![0; source.values.len()],
+            black_values: source.black_values.as_ref().map(|values| vec![0; values.len()]),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct NnueFinnyTable {
     entries: Vec<NnueFinnyEntry>,

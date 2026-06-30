@@ -170,7 +170,7 @@ impl NnueModel {
             Piece::Queen,
         ] {
             for color in [Color::White, Color::Black] {
-                for sq in crate::chess::pieces(board, piece) & crate::chess::colors(board, color) {
+                for sq in crate::chess::colored_pieces(board, color, piece) {
                     let sq_idx = sq as usize;
                     let mut modified = accumulators.clone();
                     let feat = feature_index_for_perspective(

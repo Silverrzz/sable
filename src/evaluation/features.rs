@@ -255,7 +255,7 @@ pub(super) fn captured_piece_for_move(
 
 #[inline(always)]
 pub(super) fn oriented_king_square(board: &Board, perspective: Color) -> Option<usize> {
-    let king_square = (crate::chess::pieces(board, Piece::King) & crate::chess::colors(board, perspective))
+    let king_square = crate::chess::colored_pieces(board, perspective, Piece::King)
         .into_iter()
         .next()? as usize;
     Some(if perspective == Color::White {

@@ -308,7 +308,7 @@ pub(in crate::search) fn non_pawn_correction_key(board: &Board, color: Color) ->
 }
 
 pub(in crate::search) fn colored_piece_bits(board: &Board, color: Color, piece: Piece) -> u64 {
-    (crate::chess::pieces(board, piece) & crate::chess::colors(board, color)).0
+    crate::chess::colored_pieces(board, color, piece).0
 }
 
 pub(in crate::search) fn mix_correction_key(mut key: u64) -> u64 {

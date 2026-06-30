@@ -292,7 +292,6 @@ pub(in crate::search) struct MovePicker {
     previous_move: Option<Move>,
     ply: u16,
     filter: MoveFilter,
-    quiets_sorted: bool,
 }
 
 impl MovePicker {
@@ -310,7 +309,6 @@ impl MovePicker {
             previous_move: None,
             ply: 0,
             filter: MoveFilter::All,
-            quiets_sorted: false,
         }
     }
 
@@ -334,7 +332,6 @@ impl MovePicker {
         self.previous_move = previous_move;
         self.ply = ply;
         self.filter = filter;
-        self.quiets_sorted = false;
     }
 
     #[inline]
@@ -431,54 +428,31 @@ impl MovePicker {
     }
 
     pub(in crate::search) fn next_quiet(&mut self, ordering: &MoveOrdering) -> Option<(usize, i32)> {
-        self.sort_quiets_once(ordering);
-        let index = self.quiet_indices.pop()? as usize;
-        let score = self.get(index).score.unwrap_or(0);
-        Some((index, score))
+        let context = self.quiet_score_context(ordering);
+        let mut best = None;
+        for position in 0..self.quiet_indices.len() {
+            let index = self.quiet_indices[position] as usize;
+            let candidate = self.get(index);
+            let score = self.quiet_score(ordering, context, index);
+            best = pick_better_move(best, position, score, candidate.ordinal);
+        }
+        best.map(|(position, score, _)| (self.quiet_indices.swap_remove(position) as usize, score))
     }
 
-    fn sort_quiets_once(&mut self, ordering: &MoveOrdering) {
-        if self.quiets_sorted {
-            return;
+    #[inline]
+    fn quiet_score(
+        &mut self,
+        ordering: &MoveOrdering,
+        context: QuietScoreContext,
+        index: usize,
+    ) -> i32 {
+        if let Some(score) = self.get(index).score {
+            return score;
         }
-        if self.quiet_indices.len() <= 1 {
-            if let Some(&index) = self.quiet_indices.first() {
-                let index = index as usize;
-                let candidate = self.get(index);
-                if candidate.score.is_none() {
-                    let context = self.quiet_score_context(ordering);
-                    let score = Self::quiet_score_for_candidate(ordering, context, candidate);
-                    self.get_mut(index).score = Some(score);
-                }
-            }
-            self.quiets_sorted = true;
-            return;
-        }
-        let context = self.quiet_score_context(ordering);
-        let mut scored = ArrayVec::<(u16, i32, u16), MAX_CANDIDATE_MOVES>::new();
-        for position in 0..self.quiet_indices.len() {
-            let index = self.quiet_indices[position];
-            let index_usize = index as usize;
-            let candidate = self.get(index_usize);
-            let score = if let Some(score) = candidate.score {
-                score
-            } else {
-                let score = Self::quiet_score_for_candidate(ordering, context, candidate);
-                self.get_mut(index_usize).score = Some(score);
-                score
-            };
-            scored.push((index, score, candidate.ordinal));
-        }
-        scored.sort_unstable_by(|(_, left_score, left_ordinal), (_, right_score, right_ordinal)| {
-            left_score
-                .cmp(right_score)
-                .then_with(|| right_ordinal.cmp(left_ordinal))
-        });
-        self.quiet_indices.clear();
-        for (index, _, _) in scored {
-            self.quiet_indices.push(index);
-        }
-        self.quiets_sorted = true;
+        let candidate = self.get(index);
+        let score = Self::quiet_score_for_candidate(ordering, context, candidate);
+        self.get_mut(index).score = Some(score);
+        score
     }
 
     #[inline]
