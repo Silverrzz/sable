@@ -183,7 +183,7 @@ pub fn screlu_dot_i16(accumulator: &[i16], weights: &[i16], qa: i16) -> i64 {
     debug_assert_eq!(accumulator.len(), weights.len());
     match backend() {
         #[cfg(target_arch = "x86_64")]
-        SimdBackend::Avx512 => unsafe { avx2::screlu_dot_i16(accumulator, weights, qa) },
+        SimdBackend::Avx512 => unsafe { avx512::screlu_dot_i16(accumulator, weights, qa) },
         #[cfg(not(target_arch = "x86_64"))]
         SimdBackend::Avx512 => unreachable!("AVX-512 backend is only selected on x86_64"),
         #[cfg(target_arch = "x86_64")]
@@ -242,7 +242,13 @@ pub fn activate_accumulator_i16(
         },
         #[cfg(not(target_arch = "x86_64"))]
         SimdBackend::Avx512 => unreachable!("AVX-512 backend is only selected on x86_64"),
-        SimdBackend::Avx2 | SimdBackend::Neon | SimdBackend::Scalar => {
+        #[cfg(target_arch = "x86_64")]
+        SimdBackend::Avx2 => unsafe {
+            avx2::activate_accumulator_i16(input, acc_mul, acc_shift, use_screlu, output)
+        },
+        #[cfg(not(target_arch = "x86_64"))]
+        SimdBackend::Avx2 => unreachable!("AVX2 backend is only selected on x86_64"),
+        SimdBackend::Neon | SimdBackend::Scalar => {
             scalar::activate_accumulator_i16(input, acc_mul, acc_shift, use_screlu, output)
         }
     }
