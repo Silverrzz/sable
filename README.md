@@ -70,11 +70,11 @@ An in-development personal project written in Rust designed to play Chess better
 |Eval File|string|embedded if compiled in, otherwise blank||Loads an NNUE file from disk, or `embedded` for the compiled-in net.|
 
 ## Strength
-|Version|My Estimate|
-|-|-|
-|2.0|3300|
-|1.1|2900|
-|1.0|2800|
+|Version|My Estimate|CCRL FRC 40/2|
+|-|-|-|
+|2.0|3300|3323|
+|1.1|2900|-|
+|1.0|2800|-|
 
 ## Project Details
 My primary goal with Sable is to learn more about low-level programming and also training cool networks
