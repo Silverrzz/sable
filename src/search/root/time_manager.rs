@@ -142,19 +142,19 @@ impl IterativeTimeManager {
 
     pub(in crate::search) fn soft_multiplier_per_mille(&self) -> u64 {
         let move_factor: u64 = match self.best_move_stability {
-            0 => 1_250,
-            1 => 1_100,
-            2 => 1_000,
-            3 => 900,
-            _ => 800,
+            0 => 1_300,
+            1 => 1_150,
+            2 => 1_050,
+            3 => 1_000,
+            _ => 940,
         };
         let score_factor: u64 = match (self.last_score_delta, self.score_stability) {
             (Some(delta), _) if delta >= 250 => 1_350,
             (Some(delta), _) if delta >= 120 => 1_200,
             (Some(delta), _) if delta >= 60 => 1_100,
-            (Some(delta), stability) if delta <= 12 && stability >= 3 => 850,
+            (Some(delta), stability) if delta <= 12 && stability >= 3 => 920,
             (Some(delta), stability) if delta <= TIME_MANAGER_STABLE_SCORE_CP && stability >= 2 => {
-                925
+                960
             }
             _ => 1_000,
         };
