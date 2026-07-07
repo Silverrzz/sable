@@ -844,8 +844,9 @@ fn legal_targets_for_piece(
     }
 
     let mut targets = (pseudo_targets(board, state, side, piece, from) - state.enemy_king) & target_filter;
-    let ep_targets = en_passant_legal_targets(board, side, piece, from, targets);
-    targets -= ep_targets;
+    let ep_candidates = en_passant_candidates(board, side, piece) & targets;
+    targets -= ep_candidates;
+    let ep_targets = en_passant_legal_targets(board, from, ep_candidates);
     targets &= state.evasion_mask;
     let pin_mask = state.pin_masks.mask_for(from);
     if !pin_mask.is_empty() {
@@ -888,33 +889,29 @@ fn is_legal_king_step(board: &Board, side: Color, from: Square, to: Square) -> b
     !parts.is_square_attacked(to, !side)
 }
 
-fn en_passant_legal_targets(
-    board: &Board,
-    side: Color,
-    piece: Piece,
-    from: Square,
-    targets: BitBoard,
-) -> BitBoard {
+fn en_passant_candidates(board: &Board, side: Color, piece: Piece) -> BitBoard {
     if piece != Piece::Pawn {
         return BitBoard::EMPTY;
     }
-    let Some(ep_file) = board.en_passant else {
-        return BitBoard::EMPTY;
-    };
-    let ep = Square::new(ep_file, Rank::Sixth.relative_to(side));
-    if !targets.has(ep) {
-        return BitBoard::EMPTY;
+    match board.en_passant {
+        Some(ep_file) => Square::new(ep_file, Rank::Sixth.relative_to(side)).bitboard(),
+        None => BitBoard::EMPTY,
     }
-    let mv = Move {
-        from,
-        to: ep,
-        promotion: None,
-    };
-    if is_legal(board, mv) {
-        ep.bitboard()
-    } else {
-        BitBoard::EMPTY
+}
+
+fn en_passant_legal_targets(board: &Board, from: Square, ep_candidates: BitBoard) -> BitBoard {
+    let mut legal = BitBoard::EMPTY;
+    for ep in ep_candidates {
+        let mv = Move {
+            from,
+            to: ep,
+            promotion: None,
+        };
+        if is_legal(board, mv) {
+            legal |= ep.bitboard();
+        }
     }
+    legal
 }
 
 #[derive(Clone, Copy)]

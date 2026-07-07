@@ -118,7 +118,7 @@ fn generate_attack_tables(out_dir: &Path) {
 }
 
 fn write_u64_array(out: &mut String, name: &str, values: &[u64; 64]) {
-    writeln!(out, "const {name}: [u64; 64] = [").expect("writing to String cannot fail");
+    writeln!(out, "static {name}: [u64; 64] = [").expect("writing to String cannot fail");
     for value in values {
         writeln!(out, "    0x{value:016x},").expect("writing to String cannot fail");
     }
@@ -133,7 +133,7 @@ fn write_attack_table(
     masks: &[u64; 64],
     bishop: bool,
 ) {
-    writeln!(out, "const {name}: [[u64; {size_name}]; 64] = [")
+    writeln!(out, "static {name}: [[u64; {size_name}]; 64] = [")
         .expect("writing to String cannot fail");
     for (square, mask) in masks.iter().enumerate() {
         writeln!(out, "    [").expect("writing to String cannot fail");
