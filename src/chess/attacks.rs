@@ -11,7 +11,7 @@ const NOT_FILE_GH: u64 = !(FILE_G | FILE_H);
 
 const ROOK_TABLE_SIZE: usize = 4096;
 const BISHOP_TABLE_SIZE: usize = 512;
-const BETWEEN: [[u64; 64]; 64] = build_between();
+static BETWEEN: [[u64; 64]; 64] = build_between();
 
 include!(concat!(env!("OUT_DIR"), "/attack_tables.rs"));
 
