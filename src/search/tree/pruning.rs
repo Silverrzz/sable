@@ -60,6 +60,7 @@ pub(in crate::search) struct ChildSearchParams<'a> {
     pub(in crate::search) is_quiet: bool,
     pub(in crate::search) in_check: bool,
     pub(in crate::search) gives_check: bool,
+    pub(in crate::search) improving: bool,
     pub(in crate::search) move_score: i32,
     pub(in crate::search) allow_reduction: bool,
     pub(in crate::search) search_profile: SearchProfile,
@@ -87,6 +88,7 @@ pub(in crate::search) fn search_child_with_lmr(
         is_quiet,
         in_check,
         gives_check,
+        improving,
         move_score,
         allow_reduction,
         search_profile,
@@ -101,6 +103,7 @@ pub(in crate::search) fn search_child_with_lmr(
             is_quiet,
             in_check,
             gives_check,
+            improving,
             move_score,
             search_profile,
         )
@@ -171,6 +174,7 @@ pub(in crate::search) fn late_move_reduction(
     is_quiet: bool,
     in_check: bool,
     gives_check: bool,
+    improving: bool,
     move_score: i32,
     _search_profile: SearchProfile,
 ) -> u32 {
@@ -212,6 +216,9 @@ pub(in crate::search) fn late_move_reduction(
         reduction += 1;
     }
     if !is_pv_node && depth >= 12 && move_number >= 16 {
+        reduction += 1;
+    }
+    if !is_pv_node && !in_check && !improving {
         reduction += 1;
     }
 
