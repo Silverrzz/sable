@@ -199,6 +199,7 @@ pub(super) fn search_move_loop(
                 is_quiet: ordered.is_quiet,
                 in_check,
                 gives_check,
+                improving: static_eval.improving,
                 move_score: ordered.score,
                 allow_reduction: !needs_full_mate_search,
                 search_profile,
@@ -508,8 +509,6 @@ pub(super) fn finish_node(
     context: &mut SearchContext<'_>,
 ) -> Option<SearchOutcome> {
     if result.multicut {
-        // The cutoff bound came from a reduced-depth singular search, so a
-        // full-depth TT store or correction-history update would overstate it.
         return Some(result.best);
     }
     let bound = if result.best.score <= params.alpha_start {
