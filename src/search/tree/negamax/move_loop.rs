@@ -45,6 +45,7 @@ pub(super) struct MoveLoopParams<'a> {
 
 pub(super) struct MoveLoopResult {
     best: SearchOutcome,
+    multicut: bool,
 }
 
 pub(super) fn search_move_loop(
@@ -143,7 +144,7 @@ pub(super) fn search_move_loop(
         }) {
             continue;
         }
-        let extension = singular_extension(
+        let extension = match singular_extension(
             SingularExtensionParams {
                 board,
                 repetition,
@@ -152,6 +153,8 @@ pub(super) fn search_move_loop(
                 ordered,
                 depth,
                 root_depth,
+                beta,
+                is_pv_node,
                 in_check,
                 needs_full_mate_search,
                 ply,
@@ -160,7 +163,15 @@ pub(super) fn search_move_loop(
                 excluded_move,
             },
             context,
-        )?;
+        )? {
+            SingularVerdict::Extend(extension) => extension,
+            SingularVerdict::Multicut(score) => {
+                return Some(MoveLoopResult {
+                    best: terminal_outcome(score, false),
+                    multicut: true,
+                });
+            }
+        };
         let next_key = position_key(&next);
         let next_repetition = context.push_position(&next, next_key);
         context.push_eval_state(board, &next, ordered.mv);
@@ -223,7 +234,15 @@ pub(super) fn search_move_loop(
         best = terminal_outcome(alpha, false);
     }
 
-    Some(MoveLoopResult { best })
+    Some(MoveLoopResult {
+        best,
+        multicut: false,
+    })
+}
+
+enum SingularVerdict {
+    Extend(u32),
+    Multicut(i32),
 }
 
 struct SingularExtensionParams<'a> {
@@ -234,6 +253,8 @@ struct SingularExtensionParams<'a> {
     ordered: ScoredMove,
     depth: u32,
     root_depth: u32,
+    beta: i32,
+    is_pv_node: bool,
     in_check: bool,
     needs_full_mate_search: bool,
     ply: u16,
@@ -245,26 +266,26 @@ struct SingularExtensionParams<'a> {
 fn singular_extension(
     params: SingularExtensionParams<'_>,
     context: &mut SearchContext<'_>,
-) -> Option<u32> {
+) -> Option<SingularVerdict> {
     if params.excluded_move.is_some()
         || params.in_check
         || params.needs_full_mate_search
         || params.depth < SINGULAR_EXTENSION_MIN_DEPTH
         || Some(params.ordered.mv) != params.tt_move
     {
-        return Some(0);
+        return Some(SingularVerdict::Extend(0));
     }
     let Some(entry) = params.tt_entry else {
-        return Some(0);
+        return Some(SingularVerdict::Extend(0));
     };
     if !matches!(entry.bound, Bound::Lower | Bound::Exact)
         || u32::from(entry.depth).saturating_add(SINGULAR_EXTENSION_TT_DEPTH_MARGIN) < params.depth
     {
-        return Some(0);
+        return Some(SingularVerdict::Extend(0));
     }
     let tt_score = score_from_tt(entry.score, params.ply);
     if is_mate_score(tt_score) {
-        return Some(0);
+        return Some(SingularVerdict::Extend(0));
     }
 
     let singular_beta = tt_score.saturating_sub(singular_extension_margin(params.depth));
@@ -285,9 +306,11 @@ fn singular_extension(
     )?;
 
     if excluded.score < singular_beta {
-        Some(1)
+        Some(SingularVerdict::Extend(1))
+    } else if !params.is_pv_node && singular_beta >= params.beta {
+        Some(SingularVerdict::Multicut(singular_beta))
     } else {
-        Some(0)
+        Some(SingularVerdict::Extend(0))
     }
 }
 
@@ -484,6 +507,11 @@ pub(super) fn finish_node(
     result: MoveLoopResult,
     context: &mut SearchContext<'_>,
 ) -> Option<SearchOutcome> {
+    if result.multicut {
+        // The cutoff bound came from a reduced-depth singular search, so a
+        // full-depth TT store or correction-history update would overstate it.
+        return Some(result.best);
+    }
     let bound = if result.best.score <= params.alpha_start {
         Bound::Upper
     } else if result.best.score >= params.beta {
