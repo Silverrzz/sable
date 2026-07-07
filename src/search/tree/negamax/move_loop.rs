@@ -188,6 +188,7 @@ pub(super) fn search_move_loop(
                 is_quiet: ordered.is_quiet,
                 in_check,
                 gives_check,
+                improving: static_eval.improving,
                 move_score: ordered.score,
                 allow_reduction: !needs_full_mate_search,
                 search_profile,
