@@ -1,10 +1,6 @@
 [package]
 name = "sable-engine"
-<<<<<<< HEAD
-version = "2.0.29"
-=======
 version = "2.0.30"
->>>>>>> c20ed83 (version bump)
 edition = "2024"
 build = "build.rs"
 
