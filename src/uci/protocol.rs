@@ -151,24 +151,13 @@ fn piece_letter(piece: sable_engine::Piece, color: sable_engine::Color) -> char 
     }
 }
 
-fn piece_material_pawns(piece: sable_engine::Piece) -> f32 {
-    match piece {
-        sable_engine::Piece::Pawn => 1.00,
-        sable_engine::Piece::Knight => 3.20,
-        sable_engine::Piece::Bishop => 3.30,
-        sable_engine::Piece::Rook => 5.00,
-        sable_engine::Piece::Queen => 9.00,
-        sable_engine::Piece::King => 0.0,
-    }
-}
-
 pub(super) fn format_verbose_eval(veval: &sable_engine::VerboseEval) -> String {
     let mut out = String::new();
     let sep = "+-------+-------+-------+-------+-------+-------+-------+-------+\n";
     let header = if veval.piece_contributions.is_empty() {
-        " Piece values (material base):\n"
+        " NNUE remove-piece values unavailable:\n"
     } else {
-        " NNUE derived piece values:\n"
+        " NNUE piece values (current - without piece):\n"
     };
     out.push_str(&format!("\n{header}"));
 
@@ -198,15 +187,18 @@ fn push_piece_rank(out: &mut String, veval: &sable_engine::VerboseEval, rank: u8
 }
 
 fn push_value_rank(out: &mut String, veval: &sable_engine::VerboseEval, rank: u8) {
-    use sable_engine::{Color, Piece};
+    use sable_engine::Piece;
 
     out.push('|');
     for file in 0..8u8 {
         let sq_idx = (file + rank * 8) as usize;
         match &veval.squares[sq_idx] {
             Some(p) if p.piece != Piece::King => {
-                let value_pawns = verbose_piece_value_pawns(veval, sq_idx, p.piece, p.color);
-                out.push_str(&format!(" {value_pawns:+.2} |"));
+                if let Some(value_pawns) = verbose_piece_value_pawns(veval, sq_idx) {
+                    out.push_str(&format!(" {value_pawns:+.2} |"));
+                } else {
+                    out.push_str("       |");
+                }
             }
             _ => out.push_str("       |"),
         }
@@ -216,19 +208,12 @@ fn push_value_rank(out: &mut String, veval: &sable_engine::VerboseEval, rank: u8
     fn verbose_piece_value_pawns(
         veval: &sable_engine::VerboseEval,
         sq_idx: usize,
-        piece: Piece,
-        color: Color,
-    ) -> f32 {
-        if let Some(contrib) = veval
+    ) -> Option<f32> {
+        veval
             .piece_contributions
             .iter()
             .find(|c| c.square as usize == sq_idx)
-        {
-            contrib.score_white_cp as f32 / 100.0
-        } else {
-            let base = piece_material_pawns(piece);
-            if color == Color::White { base } else { -base }
-        }
+            .map(|contrib| contrib.score_white_cp as f32 / 100.0)
     }
 }
 

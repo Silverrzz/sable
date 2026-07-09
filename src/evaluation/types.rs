@@ -12,35 +12,37 @@ pub(super) const QUEEN_VALUE: i32 = 900;
 
 pub(super) const PIECE_SQUARE_FEATURES: usize = 768;
 pub(super) const KING_SQUARES: usize = 64;
-pub(super) const VEX_KING_BUCKETS: usize = 16;
-pub(super) const VEX_HIDDEN: usize = 256;
-pub(super) const VEX_OUTPUTS: usize = VEX_HIDDEN * 2;
-pub(super) const VEX_INPUT_FEATURES: usize = PIECE_SQUARE_FEATURES * VEX_KING_BUCKETS;
-pub(super) const VEX_FEATURE_WEIGHTS: usize = VEX_INPUT_FEATURES * VEX_HIDDEN;
-pub(super) const VEX_TENSOR_VALUES: usize =
-    VEX_FEATURE_WEIGHTS + VEX_HIDDEN + VEX_OUTPUTS + 1;
-pub(super) const VEX_TENSOR_BYTES: usize = VEX_TENSOR_VALUES * 2;
-pub(super) const VEX_FILE_MAX_BYTES: usize = VEX_TENSOR_BYTES + 63;
-pub(super) const VEX_QA: i16 = 255;
-pub(super) const VEX_QB: i16 = 64;
-pub(super) const VEX_OUTPUT_SCALE: i32 = 400;
+pub(super) const RUNESTONE_KING_BUCKETS: usize = 16;
+pub(super) const RUNESTONE_HIDDEN: usize = 512;
+pub(super) const RUNESTONE_OUTPUTS: usize = RUNESTONE_HIDDEN * 2;
+pub(super) const RUNESTONE_INPUT_FEATURES: usize =
+    PIECE_SQUARE_FEATURES * RUNESTONE_KING_BUCKETS;
+pub(super) const RUNESTONE_FEATURE_WEIGHTS: usize =
+    RUNESTONE_INPUT_FEATURES * RUNESTONE_HIDDEN;
+pub(super) const RUNESTONE_TENSOR_VALUES: usize =
+    RUNESTONE_FEATURE_WEIGHTS + RUNESTONE_HIDDEN + RUNESTONE_OUTPUTS + 1;
+pub(super) const RUNESTONE_TENSOR_BYTES: usize = RUNESTONE_TENSOR_VALUES * 2;
+pub(super) const RUNESTONE_FILE_MAX_BYTES: usize = RUNESTONE_TENSOR_BYTES + 63;
+pub(super) const RUNESTONE_QA: i16 = 255;
+pub(super) const RUNESTONE_QB: i16 = 64;
+pub(super) const RUNESTONE_OUTPUT_SCALE: i32 = 400;
 pub(super) const MAX_MOVE_FEATURE_UPDATES: usize = 3;
 pub(super) const FINNY_TABLE_ENTRIES: usize = KING_SQUARES * 2;
 pub(super) const FINNY_PIECE_BITBOARDS: usize = 12;
-pub(super) const VEX_BUCKET_LAYOUT: [usize; 32] = [
+pub(super) const RUNESTONE_BUCKET_LAYOUT: [usize; 32] = [
     0, 1, 2, 3, 0, 1, 2, 3, 4, 5, 6, 7, 4, 5, 6, 7, 8, 9, 10, 11, 8, 9, 10,
     11, 12, 13, 14, 15, 12, 13, 14, 15,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NnueArchitectureId {
-    Vex,
+    Runestone,
 }
 
 impl NnueArchitectureId {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Vex => "vex",
+            Self::Runestone => "runestone",
         }
     }
 }
@@ -48,23 +50,23 @@ impl NnueArchitectureId {
 #[derive(Debug)]
 pub struct NnueModel {
     pub(super) feature_weights: Box<[i16]>,
-    pub(super) bias: [i16; VEX_HIDDEN],
-    pub(super) output_weights: [i16; VEX_OUTPUTS],
+    pub(super) bias: [i16; RUNESTONE_HIDDEN],
+    pub(super) output_weights: [i16; RUNESTONE_OUTPUTS],
     pub(super) output_bias: i32,
 }
 
 #[derive(Clone, Debug)]
 pub struct NnueAccumulators {
-    pub(super) white: [i16; VEX_HIDDEN],
-    pub(super) black: [i16; VEX_HIDDEN],
+    pub(super) white: [i16; RUNESTONE_HIDDEN],
+    pub(super) black: [i16; RUNESTONE_HIDDEN],
 }
 
 impl NnueAccumulators {
     pub(crate) fn empty_like(source: &Self) -> Self {
         let _ = source;
         Self {
-            white: [0; VEX_HIDDEN],
-            black: [0; VEX_HIDDEN],
+            white: [0; RUNESTONE_HIDDEN],
+            black: [0; RUNESTONE_HIDDEN],
         }
     }
 }
@@ -76,7 +78,7 @@ pub(crate) struct NnueFinnyTable {
 
 #[derive(Clone, Debug)]
 pub(super) struct NnueFinnyEntry {
-    pub(super) values: [i16; VEX_HIDDEN],
+    pub(super) values: [i16; RUNESTONE_HIDDEN],
     pub(super) pieces: [u64; FINNY_PIECE_BITBOARDS],
     pub(super) valid: bool,
 }
@@ -86,7 +88,7 @@ impl NnueFinnyTable {
         Self {
             entries: (0..FINNY_TABLE_ENTRIES)
                 .map(|_| NnueFinnyEntry {
-                    values: [0; VEX_HIDDEN],
+                    values: [0; RUNESTONE_HIDDEN],
                     pieces: [0; FINNY_PIECE_BITBOARDS],
                     valid: false,
                 })
