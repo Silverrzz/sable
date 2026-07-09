@@ -36,15 +36,10 @@ An in-development personal project written in Rust designed to play Chess better
         - non-pawn
         - continuation
 - A hand crafted evaluation based on PeSTO's evaluation function
-- An efficiently updatable neural network
-    - Nightweave
-        - (768x64)>64>1 arch
-        - Trained on 3 iterations of selfplay, with ~70 million positions of data per iteration
-        - Trained using [Bullet](https://github.com/jw1912/bullet)
-    - Vex (Currently used net)
-        - (768x16hm>256)x2->1 arch
-        - Trained on 3 iterations of selfplay, with ~800 million positions of data per iteration
-        - Trained using [Bullet](https://github.com/jw1912/bullet)
+- An efficiently updatable neural network - Vex 4.4
+    - (768x16hm>256)x2->1 arch
+    - Trained on 4 iterations of selfplay, with ~1 billion positions of data per iteration
+    - Trained using [Bullet](https://github.com/jw1912/bullet)
 - A rewritten movegen/board layer, because the old cozy middle layer had to go eventually
 - A rebuilt movepicker, faster PV building, and a pile of small search speedups
 - Lazy SMP for efficient multi-thread usage
@@ -67,7 +62,7 @@ An in-development personal project written in Rust designed to play Chess better
 |Move Overhead|spin|100|0 / 10000|Milliseconds reserved from time controls to avoid flagging.|
 |Clear Hash|button|||Clears the transposition table.|
 |Eval|combo|build default|hce / nnue|Chooses between hand crafted evaluation and NNUE.|
-|Eval File|string|embedded if compiled in, otherwise blank||Loads an NNUE file from disk, or `embedded` for the compiled-in net.|
+|Eval File|string|embedded if compiled in, otherwise blank||Loads a native Vex NNUE file from disk, or `embedded` for the compiled-in net.|
 
 ## Strength
 |Version|My Estimate|CCRL FRC 40/2|
@@ -85,7 +80,7 @@ A coding agent never directly touched my codebase, though while developing the c
 You can create your own Sable build with cargo build --release.
 
 ## Release Builds
-The embedded NNUE is read from data/quantised.bin by default.
+The embedded Vex NNUE is read from data/quantised.bin by default.
 the source and identity with environment variables:
 
 ```text

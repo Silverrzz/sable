@@ -1,89 +1,50 @@
 use std::path::Path;
 
-use crate::{Board, Color, EngineError, Move, Piece, Square, chess::{Rank}};
+use crate::{Board, Color, EngineError, Move, Piece, Square, chess::Rank};
 
-use super::{io::invalid_eval_file, types::*};
-
-pub(super) fn build_first_layer_feature_weights(
-    path: &Path,
-    values: &[i16],
-    hidden: usize,
-    input_features: usize,
-) -> Result<Vec<i16>, EngineError> {
-    if hidden == 0 || values.len() != hidden * input_features {
-        return Err(invalid_eval_file(
-            path,
-            "bullet quantized first layer shape does not match the declared network layout",
-        ));
-    }
-    let mut by_feature = vec![0; input_features * hidden];
-    for feature in 0..input_features {
-        for neuron in 0..hidden {
-            by_feature[(feature * hidden) + neuron] =
-                values[(neuron * input_features) + feature];
-        }
-    }
-    Ok(by_feature)
-}
+use super::types::*;
 
 pub(super) fn validate_i16_accumulator_range(
     path: &Path,
-    architecture: NnueArchitecture,
-    first_layer: &QuantizedLayer,
+    bias: &[i16; VEX_HIDDEN],
     feature_weights: &[i16],
-    hidden: usize,
-    has_side_to_move_feature: bool,
 ) -> Result<(), EngineError> {
-    let required_features = if has_side_to_move_feature {
-        architecture.side_to_move_feature_index() + 1
-    } else {
-        architecture.input_features
-    };
-    if first_layer.bias.len() != hidden || feature_weights.len() < required_features * hidden {
+    if feature_weights.len() != VEX_FEATURE_WEIGHTS {
         return Err(invalid_eval_file(
             path,
-            "bullet quantized first layer shape does not match i16 accumulator validation",
+            "vex feature weight count does not match 768x16hm->256",
         ));
     }
 
-    for neuron in 0..hidden {
-        let Some(bias_abs) = first_layer.bias[neuron].checked_abs() else {
-            return Err(invalid_eval_file(
-                path,
-                "bullet quantized first layer bias is outside the i16 accumulator validation range",
-            ));
-        };
-        let side_to_move_abs = if has_side_to_move_feature {
-            i64::from(i32::from(
-                feature_weights[architecture.side_to_move_feature_index() * hidden + neuron],
-            ).abs())
-        } else {
-            0
-        };
-
-        for king_bucket in 0..architecture.bucket_count() {
+    for neuron in 0..VEX_HIDDEN {
+        let bias_abs = i64::from(i32::from(bias[neuron]).abs());
+        for king_bucket in 0..VEX_KING_BUCKETS {
             let mut top = [0_i32; 32];
             let bucket_start = king_bucket * PIECE_SQUARE_FEATURES;
             for piece_feature in 0..PIECE_SQUARE_FEATURES {
                 let feature = bucket_start + piece_feature;
-                let magnitude = i32::from(feature_weights[feature * hidden + neuron]).abs();
+                let magnitude = i32::from(feature_weights[feature * VEX_HIDDEN + neuron]).abs();
                 insert_top_magnitude(&mut top, magnitude);
             }
 
             let piece_sum = top.iter().map(|value| i64::from(*value)).sum::<i64>();
-            let bound = bias_abs
-                .saturating_add(side_to_move_abs)
-                .saturating_add(piece_sum);
-            if bound > i64::from(i16::MAX) {
+            if bias_abs.saturating_add(piece_sum) > i64::from(i16::MAX) {
                 return Err(invalid_eval_file(
                     path,
-                    "bullet quantized first layer can overflow i16 accumulators",
+                    "vex first layer can overflow i16 accumulators",
                 ));
             }
         }
     }
 
     Ok(())
+}
+
+fn invalid_eval_file(path: &Path, message: &str) -> EngineError {
+    EngineError::InvalidEvalFile {
+        path: path.display().to_string(),
+        message: message.to_owned(),
+    }
 }
 
 fn insert_top_magnitude(top: &mut [i32; 32], magnitude: i32) {
@@ -99,20 +60,18 @@ fn insert_top_magnitude(top: &mut [i32; 32], magnitude: i32) {
 }
 
 pub(super) fn apply_feature_delta(
-    accumulator: &mut [i16],
-    hidden_size: usize,
+    accumulator: &mut [i16; VEX_HIDDEN],
     feature_weights: &[i16],
     feature_index: usize,
     sign: i32,
 ) {
-    let start = feature_index * hidden_size;
-    let end = start + hidden_size;
+    let start = feature_index * VEX_HIDDEN;
+    let end = start + VEX_HIDDEN;
     crate::simd::apply_feature_delta(accumulator, &feature_weights[start..end], sign);
 }
 
 pub(super) fn apply_feature_deltas(
-    accumulator: &mut [i16],
-    hidden_size: usize,
+    accumulator: &mut [i16; VEX_HIDDEN],
     feature_weights: &[i16],
     updates: &FeatureUpdateList,
 ) {
@@ -126,7 +85,6 @@ pub(super) fn apply_feature_deltas(
     }
     apply_feature_delta_batch(
         accumulator,
-        hidden_size,
         feature_weights,
         &features[..len],
         &signs[..len],
@@ -134,8 +92,7 @@ pub(super) fn apply_feature_deltas(
 }
 
 pub(super) fn apply_feature_delta_batch(
-    accumulator: &mut [i16],
-    hidden_size: usize,
+    accumulator: &mut [i16; VEX_HIDDEN],
     feature_weights: &[i16],
     features: &[usize],
     signs: &[i32],
@@ -143,7 +100,7 @@ pub(super) fn apply_feature_delta_batch(
     crate::simd::apply_feature_deltas(
         accumulator,
         feature_weights,
-        hidden_size,
+        VEX_HIDDEN,
         features,
         signs,
     );
@@ -152,8 +109,6 @@ pub(super) fn apply_feature_delta_batch(
 pub(super) fn collect_move_feature_updates(
     before: &Board,
     mv: Move,
-    architecture: NnueArchitecture,
-    include_side_to_move: bool,
     perspective: Color,
 ) -> Option<FeatureUpdateList> {
     let side = crate::chess::side_to_move(before);
@@ -167,7 +122,6 @@ pub(super) fn collect_move_feature_updates(
     let mut updates = FeatureUpdateList::new();
     updates.push(feature_update(
         king_square,
-        architecture,
         perspective,
         side,
         moving_piece,
@@ -178,7 +132,6 @@ pub(super) fn collect_move_feature_updates(
     if let Some((captured_piece, captured_square)) = captured_piece_for_move(before, mv, moving_piece) {
         updates.push(feature_update(
             king_square,
-            architecture,
             perspective,
             !side,
             captured_piece,
@@ -189,27 +142,18 @@ pub(super) fn collect_move_feature_updates(
 
     updates.push(feature_update(
         king_square,
-        architecture,
         perspective,
         side,
         mv.promotion.unwrap_or(moving_piece),
         mv.to,
         1,
     ))?;
-    if include_side_to_move {
-        let sign = if side == Color::White { 1 } else { -1 };
-        updates.push(FeatureUpdate {
-            feature: architecture.side_to_move_feature_index(),
-            sign,
-        })?;
-    }
     Some(updates)
 }
 
 #[inline(always)]
 pub(super) fn feature_update(
     king_square: usize,
-    architecture: NnueArchitecture,
     perspective: Color,
     piece_color: Color,
     piece: Piece,
@@ -218,7 +162,6 @@ pub(super) fn feature_update(
 ) -> FeatureUpdate {
     FeatureUpdate {
         feature: feature_index_for_perspective(
-            architecture,
             perspective,
             king_square,
             piece_color,
@@ -267,7 +210,6 @@ pub(super) fn oriented_king_square(board: &Board, perspective: Color) -> Option<
 
 #[inline(always)]
 pub(super) fn feature_index_for_perspective(
-    architecture: NnueArchitecture,
     perspective: Color,
     king_square: usize,
     piece_color: Color,
@@ -279,31 +221,22 @@ pub(super) fn feature_index_for_perspective(
     } else {
         square_index ^ 56
     };
-    let mirrored_square = if matches!(
-        architecture.feature_layout,
-        NnueFeatureLayout::MirroredKingBuckets16
-    ) && king_square % 8 > 3
-    {
+    let mirrored_square = if king_square % 8 > 3 {
         oriented_square ^ 7
     } else {
         oriented_square
     };
     let color_offset = if piece_color == perspective { 0 } else { 384 };
     let piece_square_feature = color_offset + piece_plane_offset(piece) + mirrored_square;
-    king_bucket_index(architecture, king_square) * PIECE_SQUARE_FEATURES + piece_square_feature
+    king_bucket_index(king_square) * PIECE_SQUARE_FEATURES + piece_square_feature
 }
 
 #[inline(always)]
-fn king_bucket_index(architecture: NnueArchitecture, king_square: usize) -> usize {
-    match architecture.feature_layout {
-        NnueFeatureLayout::KingBuckets64 => king_square,
-        NnueFeatureLayout::MirroredKingBuckets16 => {
-            let rank = king_square / 8;
-            let file = king_square % 8;
-            let mirrored_file = if file > 3 { 7 - file } else { file };
-            VEX_BUCKET_LAYOUT[rank * 4 + mirrored_file]
-        }
-    }
+fn king_bucket_index(king_square: usize) -> usize {
+    let rank = king_square / 8;
+    let file = king_square % 8;
+    let mirrored_file = if file > 3 { 7 - file } else { file };
+    VEX_BUCKET_LAYOUT[rank * 4 + mirrored_file]
 }
 
 pub(super) fn piece_plane_offset(piece: Piece) -> usize {
