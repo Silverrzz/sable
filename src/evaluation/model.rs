@@ -24,31 +24,37 @@ impl NnueModel {
     }
 
     fn from_bytes(path: &Path, bytes: &[u8]) -> Result<Self, EngineError> {
-        if bytes.len() < VEX_TENSOR_BYTES || bytes.len() > VEX_FILE_MAX_BYTES {
+        if bytes.len() < RUNESTONE_TENSOR_BYTES || bytes.len() > RUNESTONE_FILE_MAX_BYTES {
             return Err(invalid_eval_file(
                 path,
-                "expected vex layout (768x16hm->256)x2->1",
+                "expected runestone layout (768x16hm->512)x2->1",
             ));
         }
 
-        let mut chunks = bytes[..VEX_TENSOR_BYTES]
+        let mut chunks = bytes[..RUNESTONE_TENSOR_BYTES]
             .chunks_exact(2)
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]));
-        let mut feature_weights = Vec::with_capacity(VEX_FEATURE_WEIGHTS);
-        for _ in 0..VEX_FEATURE_WEIGHTS {
-            feature_weights.push(chunks.next().expect("vex feature weights are present"));
+        let mut feature_weights = Vec::with_capacity(RUNESTONE_FEATURE_WEIGHTS);
+        for _ in 0..RUNESTONE_FEATURE_WEIGHTS {
+            feature_weights.push(
+                chunks
+                    .next()
+                    .expect("runestone feature weights are present"),
+            );
         }
 
-        let mut bias = [0; VEX_HIDDEN];
+        let mut bias = [0; RUNESTONE_HIDDEN];
         for value in &mut bias {
-            *value = chunks.next().expect("vex accumulator bias is present");
+            *value = chunks
+                .next()
+                .expect("runestone accumulator bias is present");
         }
 
-        let mut output_weights = [0; VEX_OUTPUTS];
+        let mut output_weights = [0; RUNESTONE_OUTPUTS];
         for value in &mut output_weights {
-            *value = chunks.next().expect("vex output weights are present");
+            *value = chunks.next().expect("runestone output weights are present");
         }
-        let output_bias = i32::from(chunks.next().expect("vex output bias is present"));
+        let output_bias = i32::from(chunks.next().expect("runestone output bias is present"));
         debug_assert!(chunks.next().is_none());
 
         validate_i16_accumulator_range(path, &bias, &feature_weights)?;
@@ -98,13 +104,13 @@ impl NnueModel {
     }
 
     pub fn architecture_id(&self) -> NnueArchitectureId {
-        NnueArchitectureId::Vex
+        NnueArchitectureId::Runestone
     }
 
     pub fn initial_accumulators(&self, board: &Board) -> Option<NnueAccumulators> {
         let mut accumulators = NnueAccumulators {
-            white: [0; VEX_HIDDEN],
-            black: [0; VEX_HIDDEN],
+            white: [0; RUNESTONE_HIDDEN],
+            black: [0; RUNESTONE_HIDDEN],
         };
         self.refresh_accumulators_into(&mut accumulators, board)
             .then_some(accumulators)
@@ -155,7 +161,7 @@ impl NnueModel {
 
     fn refresh_accumulator_values_into(
         &self,
-        values: &mut [i16; VEX_HIDDEN],
+        values: &mut [i16; RUNESTONE_HIDDEN],
         board: &Board,
         perspective: Color,
         finny: Option<&mut NnueFinnyTable>,
@@ -168,7 +174,7 @@ impl NnueModel {
 
     fn refresh_accumulator_values_full_into(
         &self,
-        values: &mut [i16; VEX_HIDDEN],
+        values: &mut [i16; RUNESTONE_HIDDEN],
         board: &Board,
         perspective: Color,
     ) -> bool {
@@ -196,7 +202,7 @@ impl NnueModel {
 
     fn refresh_accumulator_values_from_finny(
         &self,
-        values: &mut [i16; VEX_HIDDEN],
+        values: &mut [i16; RUNESTONE_HIDDEN],
         board: &Board,
         perspective: Color,
         table: &mut NnueFinnyTable,
@@ -255,7 +261,7 @@ impl NnueModel {
         table: &mut NnueFinnyTable,
         board: &Board,
         perspective: Color,
-        values: &[i16; VEX_HIDDEN],
+        values: &[i16; RUNESTONE_HIDDEN],
     ) -> bool {
         let Some(king_square) = oriented_king_square(board, perspective) else {
             return false;
@@ -271,7 +277,7 @@ impl NnueModel {
 
     fn apply_piece_bitboard_diff(
         &self,
-        values: &mut [i16; VEX_HIDDEN],
+        values: &mut [i16; RUNESTONE_HIDDEN],
         perspective: Color,
         king_square: usize,
         color: Color,
@@ -326,7 +332,7 @@ impl NnueModel {
 
     fn update_accumulator_after_move_for_perspective(
         &self,
-        values: &mut [i16; VEX_HIDDEN],
+        values: &mut [i16; RUNESTONE_HIDDEN],
         before: &Board,
         after: &Board,
         mv: Move,
@@ -341,7 +347,7 @@ impl NnueModel {
 
     fn apply_move_delta_for_perspective(
         &self,
-        values: &mut [i16; VEX_HIDDEN],
+        values: &mut [i16; RUNESTONE_HIDDEN],
         before: &Board,
         mv: Move,
         perspective: Color,
@@ -356,7 +362,7 @@ impl NnueModel {
     pub fn evaluate(&self, board: &Board) -> i32 {
         let accumulators = self
             .initial_accumulators(board)
-            .expect("valid vex NNUE model should produce accumulators");
+            .expect("valid runestone NNUE model should produce accumulators");
         self.evaluate_with_accumulators(board, &accumulators)
     }
 
@@ -371,16 +377,16 @@ impl NnueModel {
         };
         let mut output = crate::simd::screlu_dot_i16_dual(
             stm,
-            &self.output_weights[..VEX_HIDDEN],
+            &self.output_weights[..RUNESTONE_HIDDEN],
             ntm,
-            &self.output_weights[VEX_HIDDEN..],
-            VEX_QA,
+            &self.output_weights[RUNESTONE_HIDDEN..],
+            RUNESTONE_QA,
         );
-        let qa = i64::from(VEX_QA);
+        let qa = i64::from(RUNESTONE_QA);
         output /= qa;
         output += i64::from(self.output_bias);
-        output *= i64::from(VEX_OUTPUT_SCALE);
-        output /= qa * i64::from(VEX_QB);
+        output *= i64::from(RUNESTONE_OUTPUT_SCALE);
+        output /= qa * i64::from(RUNESTONE_QB);
         output.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
     }
 
@@ -397,8 +403,77 @@ impl NnueModel {
     }
 
     pub fn piece_contributions_white(&self, board: &Board) -> Vec<PieceContribution> {
-        let _ = board;
-        Vec::new()
+        let Some(accumulators) = self.initial_accumulators(board) else {
+            return Vec::new();
+        };
+        let Some(white_king_square) = oriented_king_square(board, Color::White) else {
+            return Vec::new();
+        };
+        let Some(black_king_square) = oriented_king_square(board, Color::Black) else {
+            return Vec::new();
+        };
+
+        let base_score_white = self.evaluate_white_with_accumulators(board, &accumulators);
+        let mut contributions = Vec::new();
+        for color in [Color::White, Color::Black] {
+            for piece in ALL_PIECES {
+                if piece == Piece::King {
+                    continue;
+                }
+                for square in crate::chess::colored_pieces(board, color, piece) {
+                    let mut removed = accumulators.clone();
+                    self.apply_removed_piece_delta(
+                        &mut removed.white,
+                        Color::White,
+                        white_king_square,
+                        color,
+                        piece,
+                        square as usize,
+                    );
+                    self.apply_removed_piece_delta(
+                        &mut removed.black,
+                        Color::Black,
+                        black_king_square,
+                        color,
+                        piece,
+                        square as usize,
+                    );
+                    let removed_score_white = self.evaluate_white_with_accumulators(board, &removed);
+                    contributions.push(PieceContribution {
+                        square,
+                        piece,
+                        color,
+                        score_white_cp: base_score_white - removed_score_white,
+                    });
+                }
+            }
+        }
+        contributions
+    }
+
+    fn evaluate_white_with_accumulators(
+        &self,
+        board: &Board,
+        accumulators: &NnueAccumulators,
+    ) -> i32 {
+        let score = self.evaluate_with_accumulators(board, accumulators);
+        match crate::chess::side_to_move(board) {
+            Color::White => score,
+            Color::Black => -score,
+        }
+    }
+
+    fn apply_removed_piece_delta(
+        &self,
+        values: &mut [i16; RUNESTONE_HIDDEN],
+        perspective: Color,
+        king_square: usize,
+        color: Color,
+        piece: Piece,
+        square: usize,
+    ) {
+        let feature = feature_index_for_perspective(perspective, king_square, color, piece, square);
+        apply_feature_delta(values, &self.feature_weights, feature, -1);
     }
 }
 

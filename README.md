@@ -35,9 +35,9 @@ An in-development personal project written in Rust designed to play Chess better
         - minor
         - non-pawn
         - continuation
-- An efficiently updatable neural network - Vex 4.4
-    - (768x16hm>256)x2->1 arch
-    - Trained on 4 iterations of selfplay, with ~1 billion positions of data per iteration
+- An efficiently updatable neural network - Runestone 1.4
+    - (768x16hm>512)x2->1 arch
+    - Trained on a single iteration of selfplay, with ~1 billion positions of data
     - Trained using [Bullet](https://github.com/jw1912/bullet)
 - A rewritten movegen/board layer, because the old cozy middle layer had to go eventually
 - A rebuilt movepicker, faster PV building, and a pile of small search speedups
@@ -60,7 +60,7 @@ An in-development personal project written in Rust designed to play Chess better
 |UCI_ShowWDL|check|false||Adds WDL values to UCI info lines.|
 |Move Overhead|spin|100|0 / 10000|Milliseconds reserved from time controls to avoid flagging.|
 |Clear Hash|button|||Clears the transposition table.|
-|Eval File|string|embedded if compiled in, otherwise blank||Loads a native Vex NNUE file from disk, or `embedded` for the compiled-in net.|
+|Eval File|string|embedded if compiled in, otherwise blank||Loads a native Runestone NNUE file from disk, or `embedded` for the compiled-in net.|
 
 ## Strength
 |Version|My Estimate|CCRL 40/15|CCRL FRC 40/2|
@@ -78,7 +78,7 @@ A coding agent never directly touched my codebase, though while developing the c
 You can create your own Sable build with cargo build --release.
 
 ## Release Builds
-The embedded Vex NNUE is read from data/quantised.bin when that file exists.
+The embedded Runestone NNUE is read from data/quantised.bin when that file exists.
 Builds without an embedded net still compile, but search requires `Eval File` to be loaded before use.
 
 ## Thanks :D
