@@ -183,9 +183,13 @@ pub(super) fn bullet_screlu_output_forward_dual(
     let qa_i64 = i64::from(qa);
     let qb_i64 = i64::from(qb);
     let mut output = if let Some(weights) = layer.screlu_weights_i16.as_deref() {
-        let stm = crate::simd::screlu_dot_i16(stm_accumulator, &weights[..hidden], qa as i16);
-        let ntm = crate::simd::screlu_dot_i16(ntm_accumulator, &weights[hidden..], qa as i16);
-        stm + ntm
+        crate::simd::screlu_dot_i16_dual(
+            stm_accumulator,
+            &weights[..hidden],
+            ntm_accumulator,
+            &weights[hidden..],
+            qa as i16,
+        )
     } else {
         let mut output = 0_i64;
         for (&acc, &weight) in stm_accumulator.iter().zip(layer.weights[..hidden].iter()) {

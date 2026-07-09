@@ -198,6 +198,57 @@ pub fn screlu_dot_i16(accumulator: &[i16], weights: &[i16], qa: i16) -> i64 {
     }
 }
 
+pub fn screlu_dot_i16_dual(
+    left_accumulator: &[i16],
+    left_weights: &[i16],
+    right_accumulator: &[i16],
+    right_weights: &[i16],
+    qa: i16,
+) -> i64 {
+    debug_assert_eq!(left_accumulator.len(), left_weights.len());
+    debug_assert_eq!(right_accumulator.len(), right_weights.len());
+    match backend() {
+        #[cfg(target_arch = "x86_64")]
+        SimdBackend::Avx512 => unsafe {
+            avx512::screlu_dot_i16_dual(
+                left_accumulator,
+                left_weights,
+                right_accumulator,
+                right_weights,
+                qa,
+            )
+        },
+        #[cfg(not(target_arch = "x86_64"))]
+        SimdBackend::Avx512 => unreachable!("AVX-512 backend is only selected on x86_64"),
+        #[cfg(target_arch = "x86_64")]
+        SimdBackend::Avx2 => unsafe {
+            avx2::screlu_dot_i16_dual(
+                left_accumulator,
+                left_weights,
+                right_accumulator,
+                right_weights,
+                qa,
+            )
+        },
+        #[cfg(not(target_arch = "x86_64"))]
+        SimdBackend::Avx2 => unreachable!("AVX2 backend is only selected on x86_64"),
+        #[cfg(target_arch = "aarch64")]
+        SimdBackend::Neon => unsafe {
+            neon::screlu_dot_i16(left_accumulator, left_weights, qa)
+                + neon::screlu_dot_i16(right_accumulator, right_weights, qa)
+        },
+        #[cfg(not(target_arch = "aarch64"))]
+        SimdBackend::Neon => unreachable!("NEON backend is only selected on aarch64"),
+        SimdBackend::Scalar => scalar::screlu_dot_i16_dual(
+            left_accumulator,
+            left_weights,
+            right_accumulator,
+            right_weights,
+            qa,
+        ),
+    }
+}
+
 pub fn matrix_vector_i32(
     weights: &[i32],
     input: &[i32],
