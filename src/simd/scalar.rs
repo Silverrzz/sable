@@ -41,6 +41,17 @@ pub(super) fn screlu_dot_i16(accumulator: &[i16], weights: &[i16], qa: i16) -> i
     output
 }
 
+pub(super) fn screlu_dot_i16_dual(
+    left_accumulator: &[i16],
+    left_weights: &[i16],
+    right_accumulator: &[i16],
+    right_weights: &[i16],
+    qa: i16,
+) -> i64 {
+    screlu_dot_i16(left_accumulator, left_weights, qa)
+        + screlu_dot_i16(right_accumulator, right_weights, qa)
+}
+
 pub(super) fn dot_product_i32(left: &[i32], right: &[i32]) -> i64 {
     left.iter()
         .zip(right.iter())
