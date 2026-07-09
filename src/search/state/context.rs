@@ -119,9 +119,6 @@ impl<'a> SearchContext<'a> {
                 eval_pending.push(EvalPending::Root);
             }
         }
-        let eval_scratch = evaluator
-            .active_nnue_model()
-            .map(|nnue| nnue.eval_scratch());
         let mut eval_finny = evaluator
             .active_nnue_model()
             .and_then(|nnue| nnue.new_finny_table());
@@ -172,7 +169,6 @@ impl<'a> SearchContext<'a> {
                 boards: eval_boards,
                 pending: eval_pending,
                 materialized: 0,
-                scratch: eval_scratch,
                 finny: eval_finny,
             },
             repetition: RepetitionState {
@@ -299,17 +295,6 @@ impl<'a> SearchContext<'a> {
     pub(in crate::search) fn evaluate(&mut self, board: &Board) -> i32 {
         if !self.eval.stack.is_empty() {
             self.materialize_eval_stack();
-        }
-        if let (Some(model), Some(accumulators), Some(scratch)) = (
-            self.eval.evaluator.active_nnue_model(),
-            self.eval.stack.get(self.eval.ply),
-            self.eval.scratch.as_mut(),
-        ) {
-            return model.evaluate_for_side_to_move_with_accumulators_and_scratch(
-                board,
-                accumulators,
-                scratch,
-            );
         }
         if let (Some(model), Some(accumulators)) =
             (

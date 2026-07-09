@@ -142,7 +142,6 @@ fn print_version_info() {
     let git_commit = option_env!("SABLE_GIT_COMMIT").unwrap_or("unknown");
     let target = option_env!("TARGET").unwrap_or(std::env::consts::ARCH);
     let profile = option_env!("PROFILE").unwrap_or("unknown");
-    let default_eval_mode = option_env!("SABLE_ENGINE_DEFAULT_EVAL_MODE").unwrap_or("hce");
     let engine = Engine::default();
     let default_eval = if has_embedded_eval() {
         embedded_eval_label().unwrap_or("embedded")
@@ -163,7 +162,6 @@ fn print_version_info() {
     println!("embedded_eval={}", if has_embedded_eval() { "true" } else { "false" });
     println!("embedded_eval_hash={embedded_eval_hash}");
     println!("embedded_eval_arch={embedded_eval_arch}");
-    println!("default_eval_mode={default_eval_mode}");
     println!("default_eval_source={default_eval}");
     println!("simd_backend={}", runtime_simd_backend());
 }
@@ -206,7 +204,6 @@ fn run_bench() -> Result<()> {
     };
 
     let mut engine = Engine::default();
-    let eval_mode = engine.eval_mode_option_value().as_uci();
     let eval_arch = engine
         .active_nnue_architecture_id()
         .map(|id| id.as_str())
@@ -233,7 +230,7 @@ fn run_bench() -> Result<()> {
     let total_elapsed_ms = start_setup.elapsed().as_millis() as u64;
     let setup_ms = total_elapsed_ms.saturating_sub(total_search_ms);
     println!(
-        "bench depth={BENCH_DEPTH} positions={} simd_backend={} eval_mode={eval_mode} eval_arch={eval_arch} eval_file={eval_file}",
+        "bench depth={BENCH_DEPTH} positions={} simd_backend={} eval_arch={eval_arch} eval_file={eval_file}",
         positions.len(),
         runtime_simd_backend(),
     );

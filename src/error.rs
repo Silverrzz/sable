@@ -6,6 +6,7 @@ pub enum EngineError {
     InvalidOption(String),
     InvalidOptionValue { option: String, value: String },
     InvalidEvalFile { path: String, message: String },
+    MissingEvalFile,
 }
 
 impl std::fmt::Display for EngineError {
@@ -20,6 +21,9 @@ impl std::fmt::Display for EngineError {
             }
             Self::InvalidEvalFile { path, message } => {
                 write!(f, "invalid eval file {path}: {message}")
+            }
+            Self::MissingEvalFile => {
+                write!(f, "no Eval File loaded")
             }
         }
     }

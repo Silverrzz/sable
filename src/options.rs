@@ -1,4 +1,4 @@
-use crate::{EngineError, EvalMode};
+use crate::EngineError;
 
 #[derive(Clone, Debug)]
 pub struct EngineOptions {
@@ -10,7 +10,6 @@ pub struct EngineOptions {
     pub uci_chess960: bool,
     pub uci_show_wdl: bool,
     pub move_overhead_ms: u64,
-    pub eval_mode: EvalMode,
     pub eval_file: Option<String>,
 }
 
@@ -25,16 +24,9 @@ impl Default for EngineOptions {
             uci_chess960: false,
             uci_show_wdl: false,
             move_overhead_ms: 100,
-            eval_mode: compiled_default_eval_mode(),
             eval_file: None,
         }
     }
-}
-
-fn compiled_default_eval_mode() -> EvalMode {
-    option_env!("SABLE_ENGINE_DEFAULT_EVAL_MODE")
-        .and_then(EvalMode::from_uci)
-        .unwrap_or_default()
 }
 
 pub(crate) fn apply_engine_option(
@@ -53,7 +45,6 @@ pub(crate) fn apply_engine_option(
         EngineOption::MoveOverhead => {
             options.move_overhead_ms = u64::from(parse_u32_option(name, value, 0, 10_000)?);
         }
-        EngineOption::EvalMode => options.eval_mode = parse_eval_mode_option(name, value)?,
         EngineOption::EvalFile => {
             options.eval_file = Some(required_option_value(name, value)?.to_owned());
         }
@@ -71,7 +62,6 @@ enum EngineOption {
     UciChess960,
     UciShowWdl,
     MoveOverhead,
-    EvalMode,
     EvalFile,
 }
 
@@ -86,19 +76,10 @@ impl EngineOption {
             "uci_chess960" => Ok(Self::UciChess960),
             "uci_showwdl" => Ok(Self::UciShowWdl),
             "moveoverhead" => Ok(Self::MoveOverhead),
-            "eval" | "evaluation" => Ok(Self::EvalMode),
             "evalfile" => Ok(Self::EvalFile),
             _ => Err(EngineError::InvalidOption(name.to_owned())),
         }
     }
-}
-
-fn parse_eval_mode_option(name: &str, value: Option<&str>) -> Result<EvalMode, EngineError> {
-    let raw = required_option_value(name, value)?;
-    EvalMode::from_uci(raw).ok_or_else(|| EngineError::InvalidOptionValue {
-        option: name.to_owned(),
-        value: raw.to_owned(),
-    })
 }
 
 fn normalize_option_name(name: &str) -> String {

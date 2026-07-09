@@ -12,7 +12,6 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SABLE_GIT_COMMIT");
     println!("cargo:rerun-if-env-changed=SABLE_EVAL_FILE");
     println!("cargo:rerun-if-env-changed=SABLE_EVAL_LABEL");
-    println!("cargo:rerun-if-env-changed=SABLE_DEFAULT_EVAL");
 
     if let Ok(release_id) = env::var("SABLE_RELEASE_ID")
         && !release_id.trim().is_empty()
@@ -33,8 +32,6 @@ fn main() {
 
     let source = workspace_default_weights();
     let has_weights = source.exists();
-    let default_eval_mode = default_eval_mode(has_weights);
-    println!("cargo:rustc-env=SABLE_ENGINE_DEFAULT_EVAL_MODE={default_eval_mode}");
 
     if !has_weights {
         let embedded_path = out_dir.join("embedded-default-eval-empty.bin");
@@ -236,23 +233,6 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
         hash = hash.wrapping_mul(0x100000001b3);
     }
     hash
-}
-
-fn default_eval_mode(has_weights: bool) -> String {
-    let raw = env::var("SABLE_DEFAULT_EVAL").unwrap_or_else(|_| {
-        if has_weights {
-            "nnue".to_owned()
-        } else {
-            "hce".to_owned()
-        }
-    });
-    let mut key = raw.to_ascii_lowercase();
-    key.retain(|ch| ch != ' ' && ch != '-');
-    match key.as_str() {
-        "" | "hce" | "handcrafted" | "classical" | "material" => "hce".to_owned(),
-        "nnue" => "nnue".to_owned(),
-        _ => panic!("SABLE_DEFAULT_EVAL must be 'hce' or 'nnue', got '{raw}'"),
-    }
 }
 
 fn workspace_default_weights() -> PathBuf {

@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     Board,
-    evaluation::{Evaluator, NnueAccumulators, NnueEvalScratch, NnueFinnyTable},
+    evaluation::{Evaluator, NnueAccumulators, NnueFinnyTable},
 };
 
 use super::{EvalPending, SearchContext};
@@ -51,7 +51,6 @@ pub(super) struct EvalStackState {
     pub(super) boards: Vec<Board>,
     pub(super) pending: Vec<EvalPending>,
     pub(super) materialized: usize,
-    pub(super) scratch: Option<NnueEvalScratch>,
     pub(super) finny: Option<NnueFinnyTable>,
 }
 

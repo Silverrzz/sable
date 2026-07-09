@@ -199,7 +199,7 @@ fn handle_setoption(
     value: Option<String>,
 ) -> Result<()> {
     match engine.set_option(&name, value.as_deref()) {
-        Ok(()) => write_setoption_success(engine, stdout, debug_enabled, name, value)?,
+        Ok(()) => write_setoption_success(stdout, debug_enabled, name, value)?,
         Err(err) => {
             writeln!(stdout, "info string setoption error: {err}")?;
             stdout.flush()?;
@@ -209,7 +209,6 @@ fn handle_setoption(
 }
 
 fn write_setoption_success(
-    engine: &Engine,
     stdout: &mut io::Stdout,
     debug_enabled: bool,
     name: String,
@@ -221,14 +220,6 @@ fn write_setoption_success(
             stdout,
             "info string eval file loaded: {}",
             value.clone().unwrap_or_default()
-        )?;
-        stdout.flush()?;
-    }
-    if normalized_name == "eval" || normalized_name == "evaluation" {
-        writeln!(
-            stdout,
-            "info string eval mode set: {}",
-            engine.eval_mode_option_value().as_uci()
         )?;
         stdout.flush()?;
     }
@@ -265,18 +256,30 @@ fn handle_register(
 }
 
 fn write_static_eval(stdout: &mut io::Stdout, engine: &Engine) -> Result<()> {
-    let eval = engine.static_eval();
-    let score = format_static_eval_score(&eval);
-    writeln!(stdout, "info string eval {score}")?;
-    writeln!(stdout, "info string eval source {}", eval_source_label(eval.source))?;
+    match engine.static_eval() {
+        Ok(eval) => {
+            let score = format_static_eval_score(&eval);
+            writeln!(stdout, "info string eval {score}")?;
+            writeln!(stdout, "info string eval source {}", eval_source_label(eval.source))?;
+        }
+        Err(err) => {
+            writeln!(stdout, "info string eval error: {err}")?;
+        }
+    }
     stdout.flush()?;
     Ok(())
 }
 
 fn write_verbose_eval(stdout: &mut io::Stdout, engine: &Engine) -> Result<()> {
-    let veval = engine.verbose_eval();
-    let output = format_verbose_eval(&veval);
-    write!(stdout, "{output}")?;
+    match engine.verbose_eval() {
+        Ok(veval) => {
+            let output = format_verbose_eval(&veval);
+            write!(stdout, "{output}")?;
+        }
+        Err(err) => {
+            writeln!(stdout, "info string eval error: {err}")?;
+        }
+    }
     stdout.flush()?;
     Ok(())
 }
