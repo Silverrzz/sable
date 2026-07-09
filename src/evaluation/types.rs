@@ -33,37 +33,6 @@ pub(super) const VEX_BUCKET_LAYOUT: [usize; 32] = [
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EvalMode {
-    Hce,
-    Nnue,
-}
-
-impl EvalMode {
-    pub fn from_uci(value: &str) -> Option<Self> {
-        let mut key = value.to_ascii_lowercase();
-        key.retain(|ch| ch != ' ' && ch != '-');
-        match key.as_str() {
-            "hce" | "handcrafted" | "classical" | "material" => Some(Self::Hce),
-            "nnue" => Some(Self::Nnue),
-            _ => None,
-        }
-    }
-
-    pub fn as_uci(self) -> &'static str {
-        match self {
-            Self::Hce => "hce",
-            Self::Nnue => "nnue",
-        }
-    }
-}
-
-impl Default for EvalMode {
-    fn default() -> Self {
-        Self::Hce
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NnueArchitectureId {
     Vex,
 }

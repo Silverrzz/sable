@@ -60,7 +60,6 @@ pub struct SearchResult {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StaticEvalSource {
     Nnue,
-    Hce,
     Terminal,
 }
 

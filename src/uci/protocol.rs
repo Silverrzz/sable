@@ -22,11 +22,6 @@ pub(super) fn write_uci_identification(stdout: &mut io::Stdout, engine: &Engine)
         "option name Move Overhead type spin default 100 min 0 max 10000"
     )?;
     writeln!(stdout, "option name Clear Hash type button")?;
-    writeln!(
-        stdout,
-        "option name Eval type combo default {} var hce var nnue",
-        engine.eval_mode_option_value().as_uci()
-    )?;
     write_eval_file_option(stdout, engine)?;
     writeln!(
         stdout,
@@ -49,10 +44,9 @@ fn write_eval_identity(stdout: &mut io::Stdout, engine: &Engine) -> Result<()> {
         .loaded_nnue_architecture_id()
         .map(|id| id.as_str())
         .unwrap_or("none");
-    let default = engine.eval_mode_option_value().as_uci();
     writeln!(
         stdout,
-        "info string eval embedded {embedded} source {source} hash {hash} arch {arch} default {default}"
+        "info string eval embedded {embedded} source {source} hash {hash} arch {arch}"
     )?;
     Ok(())
 }
@@ -118,7 +112,6 @@ pub(super) fn format_static_eval_score(eval: &sable_engine::StaticEval) -> Strin
 pub(super) fn eval_source_label(source: sable_engine::StaticEvalSource) -> &'static str {
     match source {
         sable_engine::StaticEvalSource::Nnue => "nnue",
-        sable_engine::StaticEvalSource::Hce => "hce",
         sable_engine::StaticEvalSource::Terminal => "terminal",
     }
 }
@@ -275,7 +268,6 @@ fn push_verbose_eval_summary(out: &mut String, veval: &sable_engine::VerboseEval
     let final_pawns = final_white_cp as f32 / 100.0;
     let source_str = match veval.source {
         StaticEvalSource::Nnue => "with NNUE",
-        StaticEvalSource::Hce => "with HCE",
         StaticEvalSource::Terminal => "terminal",
     };
     out.push_str(&format!(

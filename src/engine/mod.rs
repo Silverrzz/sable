@@ -14,8 +14,7 @@ use crate::{
     Board, Color, EngineError, EngineOptions, GameStatus, Move,
     chess::{board_from_fen, generate_moves},
     evaluation::{
-        DRAW_SCORE, EvalMode, Evaluator, LOSS_SCORE, NnueArchitectureId, NnueModel,
-        is_board_drawn,
+        DRAW_SCORE, Evaluator, LOSS_SCORE, NnueArchitectureId, NnueModel, is_board_drawn,
     },
     options::apply_engine_option,
     perft::perft,
@@ -56,18 +55,12 @@ impl Default for Engine {
                 Some(model)
             }
             Some(Err(error)) => {
-                options.eval_mode = EvalMode::Hce;
-                startup_warnings.push(format!(
-                    "embedded eval model failed to load, falling back to hce: {error}"
-                ));
+                startup_warnings.push(format!("embedded eval model failed to load: {error}"));
                 None
             }
             None => None,
         };
-        if options.eval_mode == EvalMode::Nnue && nnue.is_none() {
-            options.eval_mode = EvalMode::Hce;
-        }
-        let evaluator = Evaluator::new(options.eval_mode, nnue);
+        let evaluator = Evaluator::new(nnue);
         let transposition_table = TranspositionTable::new(options.hash_mb);
         let search_state = Arc::new(SharedSearchState::default());
         Self {
@@ -119,8 +112,6 @@ impl Engine {
             return Ok(());
         } else if normalized == "evalfile" {
             self.set_eval_file_option(name, value)?;
-        } else if normalized == "eval" || normalized == "evaluation" {
-            self.set_eval_mode_option(name, value)?;
         }
         apply_engine_option(&mut self.options, name, value)?;
         if should_reset_transposition_table(&normalized, self.options.hash_mb, previous_hash_mb) {
@@ -156,29 +147,6 @@ impl Engine {
             let model = NnueModel::load_from_file(path)?;
             self.evaluator.set_nnue_model(Arc::new(model));
         }
-        Ok(())
-    }
-
-    fn set_eval_mode_option(
-        &mut self,
-        name: &str,
-        value: Option<&str>,
-    ) -> Result<(), EngineError> {
-        let raw = value.ok_or_else(|| EngineError::InvalidOptionValue {
-            option: name.to_owned(),
-            value: "<missing>".to_owned(),
-        })?;
-        let mode = EvalMode::from_uci(raw).ok_or_else(|| EngineError::InvalidOptionValue {
-            option: name.to_owned(),
-            value: raw.to_owned(),
-        })?;
-        if mode == EvalMode::Nnue && !self.evaluator.has_nnue_model() {
-            return Err(EngineError::InvalidOptionValue {
-                option: name.to_owned(),
-                value: raw.to_owned(),
-            });
-        }
-        self.evaluator.set_mode(mode);
         Ok(())
     }
 
@@ -253,6 +221,7 @@ impl Engine {
     where
         F: FnMut(&SearchInfo),
     {
+        self.require_eval_model()?;
         let request = self.search_request_with_option_defaults(request);
         let candidate_moves = select_candidate_moves(
             &self.board,
@@ -345,10 +314,6 @@ impl Engine {
         self.options.eval_file.as_deref()
     }
 
-    pub fn eval_mode_option_value(&self) -> EvalMode {
-        self.options.eval_mode
-    }
-
     pub fn show_wdl_option_value(&self) -> bool {
         self.options.uci_show_wdl
     }
@@ -357,32 +322,40 @@ impl Engine {
         &self.startup_warnings
     }
 
-    pub fn verbose_eval(&self) -> VerboseEval {
-        build_verbose_eval(&self.board, &self.evaluator, self.static_eval())
+    pub fn verbose_eval(&self) -> Result<VerboseEval, EngineError> {
+        Ok(build_verbose_eval(
+            &self.board,
+            &self.evaluator,
+            self.static_eval()?,
+        ))
     }
 
-    pub fn static_eval(&self) -> StaticEval {
+    pub fn static_eval(&self) -> Result<StaticEval, EngineError> {
+        self.require_eval_model()?;
         if is_claimable_repetition_draw(&self.board, &self.game_history)
             || is_board_drawn(&self.board)
         {
-            return terminal_static_eval(DRAW_SCORE);
+            return Ok(terminal_static_eval(DRAW_SCORE));
         }
         match crate::chess::status(&self.board) {
-            GameStatus::Drawn => return terminal_static_eval(DRAW_SCORE),
-            GameStatus::Won => return terminal_static_eval(LOSS_SCORE),
+            GameStatus::Drawn => return Ok(terminal_static_eval(DRAW_SCORE)),
+            GameStatus::Won => return Ok(terminal_static_eval(LOSS_SCORE)),
             GameStatus::Ongoing => {}
         }
 
         let score_cp = self.evaluator.evaluate_for_side_to_move(&self.board);
-        let source = if self.evaluator.active_nnue_model().is_some() {
-            StaticEvalSource::Nnue
-        } else {
-            StaticEvalSource::Hce
-        };
-        StaticEval {
+        Ok(StaticEval {
             score_cp,
             score_mate: mate_score_to_uci(score_cp),
-            source,
+            source: StaticEvalSource::Nnue,
+        })
+    }
+
+    fn require_eval_model(&self) -> Result<(), EngineError> {
+        if self.evaluator.has_nnue_model() {
+            Ok(())
+        } else {
+            Err(EngineError::MissingEvalFile)
         }
     }
 }
@@ -394,7 +367,7 @@ fn should_reset_transposition_table(
 ) -> bool {
     match normalized_option {
         "hash" => hash_mb != previous_hash_mb,
-        "eval" | "evaluation" | "evalfile" => true,
+        "evalfile" => true,
         _ => false,
     }
 }

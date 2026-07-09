@@ -35,7 +35,6 @@ An in-development personal project written in Rust designed to play Chess better
         - minor
         - non-pawn
         - continuation
-- A hand crafted evaluation based on PeSTO's evaluation function
 - An efficiently updatable neural network - Vex 4.4
     - (768x16hm>256)x2->1 arch
     - Trained on 4 iterations of selfplay, with ~1 billion positions of data per iteration
@@ -61,7 +60,6 @@ An in-development personal project written in Rust designed to play Chess better
 |UCI_ShowWDL|check|false||Adds WDL values to UCI info lines.|
 |Move Overhead|spin|100|0 / 10000|Milliseconds reserved from time controls to avoid flagging.|
 |Clear Hash|button|||Clears the transposition table.|
-|Eval|combo|build default|hce / nnue|Chooses between hand crafted evaluation and NNUE.|
 |Eval File|string|embedded if compiled in, otherwise blank||Loads a native Vex NNUE file from disk, or `embedded` for the compiled-in net.|
 
 ## Strength
@@ -80,15 +78,8 @@ A coding agent never directly touched my codebase, though while developing the c
 You can create your own Sable build with cargo build --release.
 
 ## Release Builds
-The embedded Vex NNUE is read from data/quantised.bin by default.
-the source and identity with environment variables:
-
-```text
-SABLE_RELEASE_ID=2.0.0
-SABLE_EVAL_LABEL=vex-1b
-SABLE_DEFAULT_EVAL=nnue
-SABLE_EVAL_FILE=<path to quantised net>
-```
+The embedded Vex NNUE is read from data/quantised.bin when that file exists.
+Builds without an embedded net still compile, but search requires `Eval File` to be loaded before use.
 
 ## Thanks :D
 - Many members in the Stockfish discord server for their help with my questions (no particular order)

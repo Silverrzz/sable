@@ -1,14 +1,13 @@
 mod api;
 mod evaluator;
 mod features;
-mod hce;
 mod material;
 mod model;
 mod types;
 
 pub use api::{embedded_eval_hash, embedded_eval_label, has_embedded_eval};
 pub use types::{
-    EvalMode, NnueAccumulators, NnueArchitectureId, NnueModel, PieceContribution,
+    NnueAccumulators, NnueArchitectureId, NnueModel, PieceContribution,
 };
 
 pub(crate) use evaluator::Evaluator;
