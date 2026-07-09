@@ -39,8 +39,6 @@ An in-development personal project written in Rust designed to play Chess better
     - (768x16hm>512)x2->1 arch
     - Trained on a single iteration of selfplay, with ~1 billion positions of data
     - Trained using [Bullet](https://github.com/jw1912/bullet)
-- A rewritten movegen/board layer, because the old cozy middle layer had to go eventually
-- A rebuilt movepicker, faster PV building, and a pile of small search speedups
 - Lazy SMP for efficient multi-thread usage
 - UCI protocol
 
