@@ -307,7 +307,14 @@ fn singular_extension(
     )?;
 
     if excluded.score < singular_beta {
-        Some(SingularVerdict::Extend(1))
+        let double_singular_beta =
+            tt_score.saturating_sub(double_singular_extension_margin(params.depth));
+        let extension = if !params.is_pv_node && excluded.score < double_singular_beta {
+            2
+        } else {
+            1
+        };
+        Some(SingularVerdict::Extend(extension))
     } else if !params.is_pv_node && singular_beta >= params.beta {
         Some(SingularVerdict::Multicut(singular_beta))
     } else {
@@ -319,6 +326,12 @@ fn singular_extension(
 fn singular_extension_margin(depth: u32) -> i32 {
     SINGULAR_EXTENSION_BASE_MARGIN
         + SINGULAR_EXTENSION_MARGIN_PER_DEPTH.saturating_mul(depth.min(32) as i32)
+}
+
+#[inline]
+fn double_singular_extension_margin(depth: u32) -> i32 {
+    DOUBLE_SINGULAR_EXTENSION_BASE_MARGIN
+        + DOUBLE_SINGULAR_EXTENSION_MARGIN_PER_DEPTH.saturating_mul(depth.min(32) as i32)
 }
 
 #[inline]
