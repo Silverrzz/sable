@@ -6,25 +6,25 @@ use super::types::*;
 
 pub(super) fn validate_i16_accumulator_range(
     path: &Path,
-    bias: &[i16; RUNESTONE_HIDDEN],
+    bias: &[i16; SHARD_HIDDEN],
     feature_weights: &[i16],
 ) -> Result<(), EngineError> {
-    if feature_weights.len() != RUNESTONE_FEATURE_WEIGHTS {
+    if feature_weights.len() != SHARD_FEATURE_WEIGHTS {
         return Err(invalid_eval_file(
             path,
-            "runestone feature weight count does not match 768x16hm->512",
+            "shard feature weight count does not match 768x16hm->512",
         ));
     }
 
-    for neuron in 0..RUNESTONE_HIDDEN {
+    for neuron in 0..SHARD_HIDDEN {
         let bias_abs = i64::from(i32::from(bias[neuron]).abs());
-        for king_bucket in 0..RUNESTONE_KING_BUCKETS {
+        for king_bucket in 0..SHARD_KING_BUCKETS {
             let mut top = [0_i32; 32];
             let bucket_start = king_bucket * PIECE_SQUARE_FEATURES;
             for piece_feature in 0..PIECE_SQUARE_FEATURES {
                 let feature = bucket_start + piece_feature;
                 let magnitude =
-                    i32::from(feature_weights[feature * RUNESTONE_HIDDEN + neuron]).abs();
+                    i32::from(feature_weights[feature * SHARD_HIDDEN + neuron]).abs();
                 insert_top_magnitude(&mut top, magnitude);
             }
 
@@ -32,7 +32,7 @@ pub(super) fn validate_i16_accumulator_range(
             if bias_abs.saturating_add(piece_sum) > i64::from(i16::MAX) {
                 return Err(invalid_eval_file(
                     path,
-                    "runestone first layer can overflow i16 accumulators",
+                    "shard first layer can overflow i16 accumulators",
                 ));
             }
         }
@@ -61,19 +61,19 @@ fn insert_top_magnitude(top: &mut [i32; 32], magnitude: i32) {
 }
 
 pub(super) fn apply_feature_delta(
-    accumulator: &mut [i16; RUNESTONE_HIDDEN],
+    accumulator: &mut [i16; SHARD_HIDDEN],
     feature_weights: &[i16],
     feature_index: usize,
     sign: i32,
 ) {
-    let start = feature_index * RUNESTONE_HIDDEN;
-    let end = start + RUNESTONE_HIDDEN;
+    let start = feature_index * SHARD_HIDDEN;
+    let end = start + SHARD_HIDDEN;
     crate::simd::apply_feature_delta(accumulator, &feature_weights[start..end], sign);
 }
 
 pub(super) fn apply_feature_deltas(
-    source: &[i16; RUNESTONE_HIDDEN],
-    target: &mut [i16; RUNESTONE_HIDDEN],
+    source: &[i16; SHARD_HIDDEN],
+    target: &mut [i16; SHARD_HIDDEN],
     feature_weights: &[i16],
     updates: &FeatureUpdateList,
 ) {
@@ -85,7 +85,7 @@ pub(super) fn apply_feature_deltas(
             source,
             target,
             feature_weights,
-            RUNESTONE_HIDDEN,
+            SHARD_HIDDEN,
             updates.updates[0].feature,
             updates.updates[1].feature,
         );
@@ -100,7 +100,7 @@ pub(super) fn apply_feature_deltas(
             source,
             target,
             feature_weights,
-            RUNESTONE_HIDDEN,
+            SHARD_HIDDEN,
             updates.updates[0].feature,
             updates.updates[1].feature,
             updates.updates[2].feature,
@@ -126,7 +126,7 @@ pub(super) fn apply_feature_deltas(
 }
 
 pub(super) fn apply_feature_delta_batch(
-    accumulator: &mut [i16; RUNESTONE_HIDDEN],
+    accumulator: &mut [i16; SHARD_HIDDEN],
     feature_weights: &[i16],
     features: &[usize],
     signs: &[i32],
@@ -134,7 +134,7 @@ pub(super) fn apply_feature_delta_batch(
     crate::simd::apply_feature_deltas(
         accumulator,
         feature_weights,
-        RUNESTONE_HIDDEN,
+        SHARD_HIDDEN,
         features,
         signs,
     );
@@ -246,7 +246,7 @@ fn king_bucket_index(king_square: usize) -> usize {
     let rank = king_square / 8;
     let file = king_square % 8;
     let mirrored_file = if file > 3 { 7 - file } else { file };
-    RUNESTONE_BUCKET_LAYOUT[rank * 4 + mirrored_file]
+    SHARD_BUCKET_LAYOUT[rank * 4 + mirrored_file]
 }
 
 pub(super) fn piece_plane_offset(piece: Piece) -> usize {

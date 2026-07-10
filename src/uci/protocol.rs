@@ -190,8 +190,30 @@ pub(super) fn format_verbose_eval(veval: &sable_engine::VerboseEval) -> String {
         push_value_rank(&mut out, veval, rank);
     }
     out.push_str(sep);
+    push_output_bucket_values(&mut out, veval);
     push_verbose_eval_summary(&mut out, veval);
     out
+}
+
+fn push_output_bucket_values(out: &mut String, veval: &sable_engine::VerboseEval) {
+    let Some(values) = veval.nnue_output_bucket_values_white_cp else {
+        return;
+    };
+    let piece_count = veval.squares.iter().flatten().count();
+    let active = (piece_count.saturating_sub(2) / 4).min(values.len() - 1);
+
+    out.push_str("\n NNUE output buckets (white side):\n");
+    out.push_str(" +--------+------------+--------+\n");
+    out.push_str(" | Bucket | Evaluation | Active |\n");
+    out.push_str(" +--------+------------+--------+\n");
+    for (bucket, value_cp) in values.into_iter().enumerate() {
+        let value_pawns = value_cp as f32 / 100.0;
+        let marker = if bucket == active { "yes" } else { "" };
+        out.push_str(&format!(
+            " | {bucket:>6} | {value_pawns:>+10.2} | {marker:^6} |\n"
+        ));
+    }
+    out.push_str(" +--------+------------+--------+\n");
 }
 
 fn push_piece_rank(out: &mut String, veval: &sable_engine::VerboseEval, rank: u8) {
