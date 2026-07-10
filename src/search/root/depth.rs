@@ -233,9 +233,7 @@ fn search_root_child(
     context.pop_eval_state(board, ordered.mv);
     context.pop_position(next_key);
     context.pop_position(root_key);
-    let child = child?;
-    context.note_searched_move(1);
-    Some(child)
+    Some(child?)
 }
 
 #[inline]

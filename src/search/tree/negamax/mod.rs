@@ -49,15 +49,8 @@ pub(in crate::search) fn negamax(
     allow_null_move: bool,
     excluded_move: Option<Move>,
 ) -> Option<SearchOutcome> {
-    context.clear_static_eval_at_ply(ply);
-    if context.should_stop().is_some() {
-        return None;
-    }
-    if let Some(score) = terminal_score(board, repetition, ply) {
-        return Some(terminal_outcome(score, repetition));
-    }
     if depth == 0 {
-        let result = quiescence(
+        return quiescence(
             board,
             repetition,
             alpha,
@@ -68,9 +61,16 @@ pub(in crate::search) fn negamax(
             context,
             ply,
         );
-        return result;
     }
 
+    context.enter_node(ply);
+    context.clear_static_eval_at_ply(ply);
+    if context.should_stop().is_some() {
+        return None;
+    }
+    if let Some(score) = terminal_score(board, repetition, ply) {
+        return Some(terminal_outcome(score, repetition));
+    }
     let alpha_start = alpha;
     let is_pv_node = beta > alpha.saturating_add(1);
     let key = position_key(board);
@@ -307,7 +307,6 @@ fn try_probcut(
             context,
             params.ply + 1,
         );
-        context.note_searched_move(params.ply + 1);
         let Some(qsearch) = qsearch else {
             context.pop_eval_state(params.board, ordered.mv);
             context.pop_position(next_key);

@@ -29,6 +29,7 @@ pub(in crate::search) fn quiescence(
     context: &mut SearchContext<'_>,
     ply: u16,
 ) -> Option<SearchOutcome> {
+    context.enter_node(ply);
     context.clear_static_eval_at_ply(ply);
     if context.should_stop().is_some() {
         return None;
@@ -182,7 +183,6 @@ pub(in crate::search) fn quiescence(
             interrupted = true;
             break;
         };
-        context.note_searched_move(ply + 1);
         searched_moves += 1;
         context.pop_eval_state(board, ordered.mv);
         context.pop_position(next_key);

@@ -211,7 +211,6 @@ pub(super) fn search_move_loop(
             context.pop_position(next_key);
             return None;
         };
-        context.note_searched_move(ply + 1);
         context.pop_eval_state(board, ordered.mv);
         context.pop_position(next_key);
         if ordered.captured_piece.is_some() {
