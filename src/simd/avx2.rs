@@ -88,6 +88,91 @@ pub(super) unsafe fn apply_feature_deltas(
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
+pub(super) unsafe fn apply_feature_delta_pair(
+    accumulator: &mut [i16],
+    feature_weights: &[i16],
+    hidden_size: usize,
+    remove: usize,
+    add: usize,
+) {
+    unsafe {
+        let len = accumulator.len();
+        let mut idx = 0_usize;
+        let acc_ptr = accumulator.as_mut_ptr();
+        let remove_ptr = feature_weights.as_ptr().add(remove * hidden_size);
+        let add_ptr = feature_weights.as_ptr().add(add * hidden_size);
+
+        while idx + 16 <= len {
+            let acc = _mm256_loadu_si256(acc_ptr.add(idx) as *const __m256i);
+            let removed = _mm256_sub_epi16(
+                acc,
+                _mm256_loadu_si256(remove_ptr.add(idx) as *const __m256i),
+            );
+            let updated = _mm256_add_epi16(
+                removed,
+                _mm256_loadu_si256(add_ptr.add(idx) as *const __m256i),
+            );
+            _mm256_storeu_si256(acc_ptr.add(idx) as *mut __m256i, updated);
+            idx += 16;
+        }
+
+        while idx < len {
+            *acc_ptr.add(idx) = (*acc_ptr.add(idx))
+                .wrapping_sub(*remove_ptr.add(idx))
+                .wrapping_add(*add_ptr.add(idx));
+            idx += 1;
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+pub(super) unsafe fn apply_feature_delta_triplet(
+    accumulator: &mut [i16],
+    feature_weights: &[i16],
+    hidden_size: usize,
+    remove_first: usize,
+    remove_second: usize,
+    add: usize,
+) {
+    unsafe {
+        let len = accumulator.len();
+        let mut idx = 0_usize;
+        let acc_ptr = accumulator.as_mut_ptr();
+        let remove_first_ptr = feature_weights.as_ptr().add(remove_first * hidden_size);
+        let remove_second_ptr = feature_weights.as_ptr().add(remove_second * hidden_size);
+        let add_ptr = feature_weights.as_ptr().add(add * hidden_size);
+
+        while idx + 16 <= len {
+            let acc = _mm256_loadu_si256(acc_ptr.add(idx) as *const __m256i);
+            let removed_first = _mm256_sub_epi16(
+                acc,
+                _mm256_loadu_si256(remove_first_ptr.add(idx) as *const __m256i),
+            );
+            let removed_second = _mm256_sub_epi16(
+                removed_first,
+                _mm256_loadu_si256(remove_second_ptr.add(idx) as *const __m256i),
+            );
+            let updated = _mm256_add_epi16(
+                removed_second,
+                _mm256_loadu_si256(add_ptr.add(idx) as *const __m256i),
+            );
+            _mm256_storeu_si256(acc_ptr.add(idx) as *mut __m256i, updated);
+            idx += 16;
+        }
+
+        while idx < len {
+            *acc_ptr.add(idx) = (*acc_ptr.add(idx))
+                .wrapping_sub(*remove_first_ptr.add(idx))
+                .wrapping_sub(*remove_second_ptr.add(idx))
+                .wrapping_add(*add_ptr.add(idx));
+            idx += 1;
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
 pub(super) unsafe fn screlu_dot_i16_dual(
     left_accumulator: &[i16],
     left_weights: &[i16],

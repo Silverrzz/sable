@@ -160,6 +160,110 @@ pub fn apply_feature_deltas(
     }
 }
 
+pub fn apply_feature_delta_pair(
+    accumulator: &mut [i16],
+    feature_weights: &[i16],
+    hidden_size: usize,
+    remove: usize,
+    add: usize,
+) {
+    debug_assert_eq!(accumulator.len(), hidden_size);
+    debug_assert!(feature_weights.len() >= remove.saturating_add(1).saturating_mul(hidden_size));
+    debug_assert!(feature_weights.len() >= add.saturating_add(1).saturating_mul(hidden_size));
+    match backend() {
+        #[cfg(target_arch = "x86_64")]
+        SimdBackend::Avx512 => unsafe {
+            avx512::apply_feature_delta_pair(
+                accumulator,
+                feature_weights,
+                hidden_size,
+                remove,
+                add,
+            )
+        },
+        #[cfg(not(target_arch = "x86_64"))]
+        SimdBackend::Avx512 => unreachable!("AVX-512 backend is only selected on x86_64"),
+        #[cfg(target_arch = "x86_64")]
+        SimdBackend::Avx2 => unsafe {
+            avx2::apply_feature_delta_pair(
+                accumulator,
+                feature_weights,
+                hidden_size,
+                remove,
+                add,
+            )
+        },
+        #[cfg(not(target_arch = "x86_64"))]
+        SimdBackend::Avx2 => unreachable!("AVX2 backend is only selected on x86_64"),
+        SimdBackend::Neon | SimdBackend::Scalar => scalar::apply_feature_deltas(
+            accumulator,
+            feature_weights,
+            hidden_size,
+            &[remove, add],
+            &[-1, 1],
+        ),
+    }
+}
+
+pub fn apply_feature_delta_triplet(
+    accumulator: &mut [i16],
+    feature_weights: &[i16],
+    hidden_size: usize,
+    remove_first: usize,
+    remove_second: usize,
+    add: usize,
+) {
+    debug_assert_eq!(accumulator.len(), hidden_size);
+    debug_assert!(
+        feature_weights.len()
+            >= remove_first
+                .saturating_add(1)
+                .saturating_mul(hidden_size)
+    );
+    debug_assert!(
+        feature_weights.len()
+            >= remove_second
+                .saturating_add(1)
+                .saturating_mul(hidden_size)
+    );
+    debug_assert!(feature_weights.len() >= add.saturating_add(1).saturating_mul(hidden_size));
+    match backend() {
+        #[cfg(target_arch = "x86_64")]
+        SimdBackend::Avx512 => unsafe {
+            avx512::apply_feature_delta_triplet(
+                accumulator,
+                feature_weights,
+                hidden_size,
+                remove_first,
+                remove_second,
+                add,
+            )
+        },
+        #[cfg(not(target_arch = "x86_64"))]
+        SimdBackend::Avx512 => unreachable!("AVX-512 backend is only selected on x86_64"),
+        #[cfg(target_arch = "x86_64")]
+        SimdBackend::Avx2 => unsafe {
+            avx2::apply_feature_delta_triplet(
+                accumulator,
+                feature_weights,
+                hidden_size,
+                remove_first,
+                remove_second,
+                add,
+            )
+        },
+        #[cfg(not(target_arch = "x86_64"))]
+        SimdBackend::Avx2 => unreachable!("AVX2 backend is only selected on x86_64"),
+        SimdBackend::Neon | SimdBackend::Scalar => scalar::apply_feature_deltas(
+            accumulator,
+            feature_weights,
+            hidden_size,
+            &[remove_first, remove_second, add],
+            &[-1, -1, 1],
+        ),
+    }
+}
+
 pub fn screlu_dot_i16_dual(
     left_accumulator: &[i16],
     left_weights: &[i16],

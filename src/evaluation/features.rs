@@ -76,6 +76,35 @@ pub(super) fn apply_feature_deltas(
     feature_weights: &[i16],
     updates: &FeatureUpdateList,
 ) {
+    if updates.len == 2
+        && updates.updates[0].sign == -1
+        && updates.updates[1].sign == 1
+    {
+        crate::simd::apply_feature_delta_pair(
+            accumulator,
+            feature_weights,
+            RUNESTONE_HIDDEN,
+            updates.updates[0].feature,
+            updates.updates[1].feature,
+        );
+        return;
+    }
+    if updates.len == 3
+        && updates.updates[0].sign == -1
+        && updates.updates[1].sign == -1
+        && updates.updates[2].sign == 1
+    {
+        crate::simd::apply_feature_delta_triplet(
+            accumulator,
+            feature_weights,
+            RUNESTONE_HIDDEN,
+            updates.updates[0].feature,
+            updates.updates[1].feature,
+            updates.updates[2].feature,
+        );
+        return;
+    }
+
     let mut features = [0_usize; MAX_MOVE_FEATURE_UPDATES];
     let mut signs = [0_i32; MAX_MOVE_FEATURE_UPDATES];
     let mut len = 0_usize;
