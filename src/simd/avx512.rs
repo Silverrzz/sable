@@ -89,6 +89,91 @@ pub(super) unsafe fn apply_feature_deltas(
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx512bw,avx512dq,avx2")]
+pub(super) unsafe fn apply_feature_delta_pair(
+    accumulator: &mut [i16],
+    feature_weights: &[i16],
+    hidden_size: usize,
+    remove: usize,
+    add: usize,
+) {
+    unsafe {
+        let len = accumulator.len();
+        let mut idx = 0_usize;
+        let acc_ptr = accumulator.as_mut_ptr();
+        let remove_ptr = feature_weights.as_ptr().add(remove * hidden_size);
+        let add_ptr = feature_weights.as_ptr().add(add * hidden_size);
+
+        while idx + 32 <= len {
+            let acc = _mm512_loadu_si512(acc_ptr.add(idx) as *const __m512i);
+            let removed = _mm512_sub_epi16(
+                acc,
+                _mm512_loadu_si512(remove_ptr.add(idx) as *const __m512i),
+            );
+            let updated = _mm512_add_epi16(
+                removed,
+                _mm512_loadu_si512(add_ptr.add(idx) as *const __m512i),
+            );
+            _mm512_storeu_si512(acc_ptr.add(idx) as *mut __m512i, updated);
+            idx += 32;
+        }
+
+        while idx < len {
+            *acc_ptr.add(idx) = (*acc_ptr.add(idx))
+                .wrapping_sub(*remove_ptr.add(idx))
+                .wrapping_add(*add_ptr.add(idx));
+            idx += 1;
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx2")]
+pub(super) unsafe fn apply_feature_delta_triplet(
+    accumulator: &mut [i16],
+    feature_weights: &[i16],
+    hidden_size: usize,
+    remove_first: usize,
+    remove_second: usize,
+    add: usize,
+) {
+    unsafe {
+        let len = accumulator.len();
+        let mut idx = 0_usize;
+        let acc_ptr = accumulator.as_mut_ptr();
+        let remove_first_ptr = feature_weights.as_ptr().add(remove_first * hidden_size);
+        let remove_second_ptr = feature_weights.as_ptr().add(remove_second * hidden_size);
+        let add_ptr = feature_weights.as_ptr().add(add * hidden_size);
+
+        while idx + 32 <= len {
+            let acc = _mm512_loadu_si512(acc_ptr.add(idx) as *const __m512i);
+            let removed_first = _mm512_sub_epi16(
+                acc,
+                _mm512_loadu_si512(remove_first_ptr.add(idx) as *const __m512i),
+            );
+            let removed_second = _mm512_sub_epi16(
+                removed_first,
+                _mm512_loadu_si512(remove_second_ptr.add(idx) as *const __m512i),
+            );
+            let updated = _mm512_add_epi16(
+                removed_second,
+                _mm512_loadu_si512(add_ptr.add(idx) as *const __m512i),
+            );
+            _mm512_storeu_si512(acc_ptr.add(idx) as *mut __m512i, updated);
+            idx += 32;
+        }
+
+        while idx < len {
+            *acc_ptr.add(idx) = (*acc_ptr.add(idx))
+                .wrapping_sub(*remove_first_ptr.add(idx))
+                .wrapping_sub(*remove_second_ptr.add(idx))
+                .wrapping_add(*add_ptr.add(idx));
+            idx += 1;
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx2")]
 pub(super) unsafe fn screlu_dot_i16_dual(
     left_accumulator: &[i16],
     left_weights: &[i16],

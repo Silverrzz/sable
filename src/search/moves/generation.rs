@@ -181,22 +181,6 @@ pub(in crate::search) fn priority_move_for_node(
     }
 }
 
-pub(in crate::search) fn pick_better_move(
-    current: Option<(usize, i32, u16)>,
-    index: usize,
-    score: i32,
-    ordinal: u16,
-) -> Option<(usize, i32, u16)> {
-    match current {
-        Some((_, best_score, best_ordinal))
-            if best_score > score || (best_score == score && best_ordinal < ordinal) =>
-        {
-            current
-        }
-        _ => Some((index, score, ordinal)),
-    }
-}
-
 pub(in crate::search) fn tactical_move_score(candidate: CandidateMove, see: i32) -> i32 {
     let promotion_value = candidate.mv.promotion.map(piece_value).unwrap_or(0);
     if candidate.captured_piece.is_some() {
