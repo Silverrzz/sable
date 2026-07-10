@@ -103,7 +103,7 @@ impl<'a> SearchContext<'a> {
         self.controls.was_pondering = pondering;
     }
 
-    pub(in crate::search) fn note_searched_move(&mut self, ply: u16) {
+    pub(in crate::search) fn enter_node(&mut self, ply: u16) {
         self.counters.nodes = self.counters.nodes.saturating_add(1);
         self.counters.seldepth = self.counters.seldepth.max(ply as u32);
     }
