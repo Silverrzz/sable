@@ -7,7 +7,9 @@ use crate::{
 use super::{
     board_moves::{captured_piece, en_passant_target, is_en_passant},
     constants::*,
-    move_ordering::{CandidateMove, MoveOrdering, MovePicker, ScoredMove, scaled_history_score},
+    move_ordering::{
+        CandidateMove, MoveOrdering, MovePicker, ScoredMove, UNCACHED_SEE, scaled_history_score,
+    },
     scoring::{move_score, piece_value},
     see::static_exchange_eval_for_move,
 };
@@ -90,7 +92,6 @@ fn collect_all_moves_into(
     ep_target: Option<Square>,
     moves: &mut MovePicker,
 ) {
-    let mut ordinal = 0;
     generate_moves(board, |piece_moves| {
         for mv in piece_moves {
             let captured_piece =
@@ -100,16 +101,13 @@ fn collect_all_moves_into(
                 mv,
                 moving_piece: piece_moves.piece,
                 captured_piece,
-                ordinal,
-                see: None,
-                score: None,
+                see: UNCACHED_SEE,
             };
             if is_tactical {
                 moves.push_tactical(candidate);
             } else {
                 moves.push_quiet(candidate);
             }
-            ordinal += 1;
         }
         false
     });
@@ -121,7 +119,6 @@ fn collect_tactical_moves_into(
     ep_target: Option<Square>,
     moves: &mut MovePicker,
 ) {
-    let mut ordinal = 0;
     generate_tactical_moves(board, |piece_moves| {
         for mv in piece_moves {
             let captured_piece =
@@ -130,11 +127,8 @@ fn collect_tactical_moves_into(
                 mv,
                 moving_piece: piece_moves.piece,
                 captured_piece,
-                ordinal,
-                see: None,
-                score: None,
+                see: UNCACHED_SEE,
             });
-            ordinal += 1;
         }
         false
     });

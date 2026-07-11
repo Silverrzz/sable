@@ -10,7 +10,7 @@ use crate::{
 use super::{
     constants::*,
     move_generation::tactical_move_score_with_history,
-    move_ordering::{CandidateMove, MoveOrdering},
+    move_ordering::{CandidateMove, MoveOrdering, compact_see},
 };
 
 pub(in crate::search) fn move_score(
@@ -42,9 +42,7 @@ pub(in crate::search) fn move_score(
                 mv,
                 moving_piece,
                 captured_piece,
-                ordinal: 0,
-                see: Some(see),
-                score: None,
+                see: compact_see(see),
             },
             see,
         );
