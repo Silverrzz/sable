@@ -80,29 +80,24 @@ fn main() {
     println!("cargo:rustc-env=SABLE_ENGINE_EMBEDDED_EVAL_HASH={embedded_hash:016x}");
 }
 
-const ROOK_TABLE_SIZE: usize = 4096;
-const BISHOP_TABLE_SIZE: usize = 512;
-
 fn generate_attack_tables(out_dir: &Path) {
     let path = out_dir.join("attack_tables.rs");
     let rook_masks = slider_masks(false);
     let bishop_masks = slider_masks(true);
-    let mut out = String::with_capacity(6_000_000);
+    let mut out = String::with_capacity(3_000_000);
     write_u64_array(&mut out, "ROOK_RELEVANT_MASKS", &rook_masks);
     write_u64_array(&mut out, "BISHOP_RELEVANT_MASKS", &bishop_masks);
     write_attack_table(
         &mut out,
+        "ROOK_ATTACK_OFFSETS",
         "ROOK_ATTACKS",
-        "ROOK_TABLE_SIZE",
-        ROOK_TABLE_SIZE,
         &rook_masks,
         false,
     );
     write_attack_table(
         &mut out,
+        "BISHOP_ATTACK_OFFSETS",
         "BISHOP_ATTACKS",
-        "BISHOP_TABLE_SIZE",
-        BISHOP_TABLE_SIZE,
         &bishop_masks,
         true,
     );
@@ -124,22 +119,34 @@ fn write_u64_array(out: &mut String, name: &str, values: &[u64; 64]) {
 
 fn write_attack_table(
     out: &mut String,
+    offsets_name: &str,
     name: &str,
-    size_name: &str,
-    size: usize,
     masks: &[u64; 64],
     bishop: bool,
 ) {
-    writeln!(out, "static {name}: [[u64; {size_name}]; 64] = [")
+    let mut offsets = [0_usize; 64];
+    let mut total_size = 0_usize;
+    for (square, mask) in masks.iter().enumerate() {
+        offsets[square] = total_size;
+        total_size += 1_usize << mask.count_ones();
+    }
+
+    writeln!(out, "static {offsets_name}: [u32; 64] = [")
+        .expect("writing to String cannot fail");
+    for offset in offsets {
+        writeln!(out, "    {offset},").expect("writing to String cannot fail");
+    }
+    writeln!(out, "];").expect("writing to String cannot fail");
+
+    writeln!(out, "static {name}: [u64; {total_size}] = [")
         .expect("writing to String cannot fail");
     for (square, mask) in masks.iter().enumerate() {
-        writeln!(out, "    [").expect("writing to String cannot fail");
-        for index in 0..size {
+        let square_size = 1_usize << mask.count_ones();
+        for index in 0..square_size {
             let occupied = occupancy_from_index(index, *mask);
             let attacks = slider_attacks_from(square, occupied, bishop);
-            writeln!(out, "        0x{attacks:016x},").expect("writing to String cannot fail");
+            writeln!(out, "    0x{attacks:016x},").expect("writing to String cannot fail");
         }
-        writeln!(out, "    ],").expect("writing to String cannot fail");
     }
     writeln!(out, "];").expect("writing to String cannot fail");
 }
