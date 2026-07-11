@@ -71,7 +71,7 @@ An in-development personal project written in Rust designed to play Chess better
 My primary goal with Sable is to learn more about low-level programming and also training cool networks
 
 With only a moderate proficiency in Rust, in-line completions were frequently used to assist with writing Rust syntax.
-A coding agent never directly touched my codebase, though while developing the code for NNUE, Mr GPT was consulted for explanations and snippets.
+While developing the code for NNUE, Mr GPT was consulted for explanations and snippets.
 
 You can create your own Sable build with cargo build --release.
 
