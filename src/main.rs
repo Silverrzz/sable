@@ -8,7 +8,18 @@ use sable_engine::{
     has_embedded_eval, runtime_simd_backend,
 };
 use std::env;
+use std::io::{self, Write};
 use std::time::Instant;
+
+const BENCH_DEPTH: u32 = 15;
+const BENCH_POSITIONS: [&str; 6] = [
+    "startpos",
+    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+    "4rrk1/p1pb1ppp/1p1p1n2/8/2PP4/2N1P1P1/PP3PBP/R2R2K1 w - - 0 1",
+    "2r2rk1/pp3ppp/2n1bn2/q2p4/3P4/2P1PN2/PP1NBPPP/R2Q1RK1 w - - 0 10",
+    "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+    "2k4r/8/5p2/p2p1P2/P2P4/P7/8/4K1R1 w - - 0 1",
+];
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Sable chess engine")]
@@ -27,6 +38,12 @@ enum Command {
         fen: Option<String>,
     },
     Bench,
+    /// Run bench repeatedly with an inline progress display
+    Vbench {
+        /// Number of benchmark runs
+        #[arg(long, default_value_t = 15)]
+        count: usize,
+    },
     Bmt5k,
     Version,
 }
@@ -41,6 +58,7 @@ fn main() -> Result<()> {
         Command::Uci => uci::run_uci_loop(),
         Command::Perft { depth, fen } => run_perft(depth, fen),
         Command::Bench => run_bench(),
+        Command::Vbench { count } => run_verbose_bench(count),
         Command::Bmt5k => run_bmt5k(),
         Command::Version => {
             print_version_info();
@@ -131,6 +149,7 @@ fn command_from_env() -> Command {
             fen: None,
         },
         "bench" => Command::Bench,
+        "vbench" => Command::Vbench { count: 15 },
         "bmt5k" => Command::Bmt5k,
         "version" => Command::Version,
         _ => Command::Uci,
@@ -184,16 +203,39 @@ fn run_perft(depth: u32, fen: Option<String>) -> Result<()> {
 }
 
 fn run_bench() -> Result<()> {
-    const BENCH_DEPTH: u32 = 15;
+    let result = run_bench_once()?;
+    println!(
+        "bench depth={BENCH_DEPTH} positions={} simd_backend={} eval_arch={} eval_file={}",
+        BENCH_POSITIONS.len(),
+        runtime_simd_backend(),
+        result.eval_arch,
+        result.eval_file,
+    );
+    println!(
+        "{} nodes {} nps search_ms={} setup_ms={}",
+        result.nodes,
+        result.nps(),
+        result.search_ms,
+        result.setup_ms,
+    );
+    Ok(())
+}
 
-    let positions = [
-        "startpos",
-        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-        "4rrk1/p1pb1ppp/1p1p1n2/8/2PP4/2N1P1P1/PP3PBP/R2R2K1 w - - 0 1",
-        "2r2rk1/pp3ppp/2n1bn2/q2p4/3P4/2P1PN2/PP1NBPPP/R2Q1RK1 w - - 0 10",
-        "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
-        "2k4r/8/5p2/p2p1P2/P2P4/P7/8/4K1R1 w - - 0 1"
-    ];
+struct BenchResult {
+    nodes: u64,
+    search_ms: u64,
+    setup_ms: u64,
+    eval_arch: String,
+    eval_file: String,
+}
+
+impl BenchResult {
+    fn nps(&self) -> u64 {
+        nodes_per_second(self.nodes, self.search_ms)
+    }
+}
+
+fn run_bench_once() -> Result<BenchResult> {
 
     let request = SearchRequest {
         limits: SearchLimits {
@@ -213,7 +255,7 @@ fn run_bench() -> Result<()> {
     let mut total_nodes = 0_u64;
     let mut total_search_ms = 0_u64;
     let start_setup = Instant::now();
-    for position in positions {
+    for position in BENCH_POSITIONS {
         engine.reset();
         if position == "startpos" {
             engine.set_startpos_with_moves(&[])?;
@@ -229,19 +271,103 @@ fn run_bench() -> Result<()> {
     }
     let total_elapsed_ms = start_setup.elapsed().as_millis() as u64;
     let setup_ms = total_elapsed_ms.saturating_sub(total_search_ms);
-    println!(
-        "bench depth={BENCH_DEPTH} positions={} simd_backend={} eval_arch={eval_arch} eval_file={eval_file}",
-        positions.len(),
-        runtime_simd_backend(),
-    );
-    println!(
-        "{} nodes {} nps search_ms={} setup_ms={}",
-        total_nodes,
-        nodes_per_second(total_nodes, total_search_ms),
-        total_search_ms,
+    Ok(BenchResult {
+        nodes: total_nodes,
+        search_ms: total_search_ms,
         setup_ms,
+        eval_arch: eval_arch.to_owned(),
+        eval_file,
+    })
+}
+
+fn run_verbose_bench(runs: usize) -> Result<()> {
+    const BAR_WIDTH: usize = 15;
+
+    if runs == 0 {
+        bail!("vbench count must be greater than zero");
+    }
+
+    println!(
+        "Sable verbose bench | {runs} runs | depth {BENCH_DEPTH} | {} positions",
+        BENCH_POSITIONS.len()
+    );
+
+    let started = Instant::now();
+    let mut nps_values = Vec::with_capacity(runs);
+    draw_bench_progress(0, runs, BAR_WIDTH, 0, 0, 0, None)?;
+
+    for completed in 1..=runs {
+        let result = run_bench_once()?;
+        let current_nps = result.nps();
+        nps_values.push(current_nps);
+        let average_nps = nps_values.iter().map(|&nps| u128::from(nps)).sum::<u128>()
+            / nps_values.len() as u128;
+        let elapsed_secs = started.elapsed().as_secs();
+        let eta_secs = elapsed_secs
+            .saturating_mul((runs - completed) as u64)
+            .checked_div(completed as u64)
+            .unwrap_or(0);
+        draw_bench_progress(
+            completed,
+            runs,
+            BAR_WIDTH,
+            current_nps,
+            average_nps as u64,
+            elapsed_secs,
+            Some(eta_secs),
+        )?;
+    }
+
+    println!();
+    let average_nps = nps_values.iter().map(|&nps| u128::from(nps)).sum::<u128>()
+        / nps_values.len() as u128;
+    let min_nps = nps_values.iter().copied().min().unwrap_or(0);
+    let max_nps = nps_values.iter().copied().max().unwrap_or(0);
+    println!(
+        "Average: {} nps | Min: {} | Max: {} | Total time: {}",
+        format_number(average_nps as u64),
+        format_number(min_nps),
+        format_number(max_nps),
+        format_duration(started.elapsed().as_secs()),
     );
     Ok(())
+}
+
+fn draw_bench_progress(
+    completed: usize,
+    runs: usize,
+    bar_width: usize,
+    current_nps: u64,
+    average_nps: u64,
+    elapsed_secs: u64,
+    eta_secs: Option<u64>,
+) -> Result<()> {
+    let filled = completed.saturating_mul(bar_width) / runs;
+    let bar = format!("{}{}", "#".repeat(filled), "-".repeat(bar_width - filled));
+    let eta = eta_secs.map(format_duration).unwrap_or_else(|| "--:--".to_owned());
+    print!(
+        "\r\x1b[2K[{bar}] {completed:>2}/{runs} | Current: {:>13} nps | Average: {:>13} nps | Elapsed: {} | ETA: {eta}",
+        format_number(current_nps),
+        format_number(average_nps),
+        format_duration(elapsed_secs),
+    );
+    io::stdout().flush().context("failed to update bench display")
+}
+
+fn format_number(value: u64) -> String {
+    let digits = value.to_string();
+    let mut formatted = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, character) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            formatted.push(',');
+        }
+        formatted.push(character);
+    }
+    formatted
+}
+
+fn format_duration(seconds: u64) -> String {
+    format!("{:02}:{:02}", seconds / 60, seconds % 60)
 }
 
 fn run_bmt5k() -> Result<()> {
