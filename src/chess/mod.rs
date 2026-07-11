@@ -15,9 +15,10 @@ pub use mv::Move;
 pub use piece::{Color, GameStatus, Piece};
 
 pub(crate) use board::{
-    BoardParts, board_from_fen, castle_rights, checkers, color_on, colored_pieces, colors, en_passant,
-    generate_moves, generate_tactical_moves, halfmove_clock, hash, hash_without_ep, is_legal,
-    king, null_move, piece_on, pieces, play, play_unchecked, play_unchecked_with_piece,
-    side_to_move, status,
+    BoardParts, MoveGenState, board_from_fen, castle_rights, checkers, color_on, colored_pieces,
+    colors, en_passant, generate_moves, generate_moves_with_state, generate_tactical_moves,
+    generate_tactical_moves_with_state, halfmove_clock, hash, hash_without_ep, is_legal, king,
+    null_move, piece_on, pieces, play, play_generated_move_unchecked, play_unchecked,
+    play_unchecked_with_piece, side_to_move, status, status_with_movegen,
 };
 pub(crate) use coords::{File, Rank, Square};
