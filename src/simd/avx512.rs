@@ -89,22 +89,24 @@ pub(super) unsafe fn apply_feature_deltas(
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx512bw,avx512dq,avx2")]
-pub(super) unsafe fn apply_feature_delta_pair(
-    accumulator: &mut [i16],
+pub(super) unsafe fn copy_feature_delta_pair(
+    source: &[i16],
+    target: &mut [i16],
     feature_weights: &[i16],
     hidden_size: usize,
     remove: usize,
     add: usize,
 ) {
     unsafe {
-        let len = accumulator.len();
+        let len = source.len();
         let mut idx = 0_usize;
-        let acc_ptr = accumulator.as_mut_ptr();
+        let source_ptr = source.as_ptr();
+        let target_ptr = target.as_mut_ptr();
         let remove_ptr = feature_weights.as_ptr().add(remove * hidden_size);
         let add_ptr = feature_weights.as_ptr().add(add * hidden_size);
 
         while idx + 32 <= len {
-            let acc = _mm512_loadu_si512(acc_ptr.add(idx) as *const __m512i);
+            let acc = _mm512_loadu_si512(source_ptr.add(idx) as *const __m512i);
             let removed = _mm512_sub_epi16(
                 acc,
                 _mm512_loadu_si512(remove_ptr.add(idx) as *const __m512i),
@@ -113,12 +115,12 @@ pub(super) unsafe fn apply_feature_delta_pair(
                 removed,
                 _mm512_loadu_si512(add_ptr.add(idx) as *const __m512i),
             );
-            _mm512_storeu_si512(acc_ptr.add(idx) as *mut __m512i, updated);
+            _mm512_storeu_si512(target_ptr.add(idx) as *mut __m512i, updated);
             idx += 32;
         }
 
         while idx < len {
-            *acc_ptr.add(idx) = (*acc_ptr.add(idx))
+            *target_ptr.add(idx) = (*source_ptr.add(idx))
                 .wrapping_sub(*remove_ptr.add(idx))
                 .wrapping_add(*add_ptr.add(idx));
             idx += 1;
@@ -128,8 +130,9 @@ pub(super) unsafe fn apply_feature_delta_pair(
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx512bw,avx512dq,avx2")]
-pub(super) unsafe fn apply_feature_delta_triplet(
-    accumulator: &mut [i16],
+pub(super) unsafe fn copy_feature_delta_triplet(
+    source: &[i16],
+    target: &mut [i16],
     feature_weights: &[i16],
     hidden_size: usize,
     remove_first: usize,
@@ -137,15 +140,16 @@ pub(super) unsafe fn apply_feature_delta_triplet(
     add: usize,
 ) {
     unsafe {
-        let len = accumulator.len();
+        let len = source.len();
         let mut idx = 0_usize;
-        let acc_ptr = accumulator.as_mut_ptr();
+        let source_ptr = source.as_ptr();
+        let target_ptr = target.as_mut_ptr();
         let remove_first_ptr = feature_weights.as_ptr().add(remove_first * hidden_size);
         let remove_second_ptr = feature_weights.as_ptr().add(remove_second * hidden_size);
         let add_ptr = feature_weights.as_ptr().add(add * hidden_size);
 
         while idx + 32 <= len {
-            let acc = _mm512_loadu_si512(acc_ptr.add(idx) as *const __m512i);
+            let acc = _mm512_loadu_si512(source_ptr.add(idx) as *const __m512i);
             let removed_first = _mm512_sub_epi16(
                 acc,
                 _mm512_loadu_si512(remove_first_ptr.add(idx) as *const __m512i),
@@ -158,12 +162,12 @@ pub(super) unsafe fn apply_feature_delta_triplet(
                 removed_second,
                 _mm512_loadu_si512(add_ptr.add(idx) as *const __m512i),
             );
-            _mm512_storeu_si512(acc_ptr.add(idx) as *mut __m512i, updated);
+            _mm512_storeu_si512(target_ptr.add(idx) as *mut __m512i, updated);
             idx += 32;
         }
 
         while idx < len {
-            *acc_ptr.add(idx) = (*acc_ptr.add(idx))
+            *target_ptr.add(idx) = (*source_ptr.add(idx))
                 .wrapping_sub(*remove_first_ptr.add(idx))
                 .wrapping_sub(*remove_second_ptr.add(idx))
                 .wrapping_add(*add_ptr.add(idx));
@@ -180,14 +184,75 @@ pub(super) unsafe fn screlu_dot_i16_dual(
     right_accumulator: &[i16],
     right_weights: &[i16],
     qa: i16,
+    narrow_weights: bool,
 ) -> i64 {
     unsafe {
+        if qa <= 255 && narrow_weights {
+            return screlu_dot_i16_narrow_dual(
+                left_accumulator,
+                left_weights,
+                right_accumulator,
+                right_weights,
+                qa,
+            );
+        }
         if qa <= 255 {
             return screlu_dot_i16_u8(left_accumulator, left_weights, qa)
                 + screlu_dot_i16_u8(right_accumulator, right_weights, qa);
         }
         screlu_dot_i16_wide(left_accumulator, left_weights, qa)
             + screlu_dot_i16_wide(right_accumulator, right_weights, qa)
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx2")]
+unsafe fn screlu_dot_i16_narrow_dual(
+    left_accumulator: &[i16],
+    left_weights: &[i16],
+    right_accumulator: &[i16],
+    right_weights: &[i16],
+    qa: i16,
+) -> i64 {
+    unsafe {
+        let zero = _mm512_setzero_si512();
+        let qa_vec = _mm512_set1_epi16(qa);
+        let mut sum = _mm512_setzero_si512();
+        let mut tail = 0_i64;
+
+        let mut idx = 0_usize;
+        while idx + 32 <= left_accumulator.len() {
+            let acc = _mm512_loadu_si512(left_accumulator.as_ptr().add(idx) as *const __m512i);
+            let clamped = _mm512_min_epi16(_mm512_max_epi16(acc, zero), qa_vec);
+            let weights = _mm512_loadu_si512(left_weights.as_ptr().add(idx) as *const __m512i);
+            let weighted = _mm512_mullo_epi16(clamped, weights);
+            sum = _mm512_add_epi32(sum, _mm512_madd_epi16(weighted, clamped));
+            idx += 32;
+        }
+        while idx < left_accumulator.len() {
+            let value = i64::from(*left_accumulator.get_unchecked(idx)).clamp(0, i64::from(qa));
+            tail += value * value * i64::from(*left_weights.get_unchecked(idx));
+            idx += 1;
+        }
+
+        idx = 0;
+        while idx + 32 <= right_accumulator.len() {
+            let acc = _mm512_loadu_si512(right_accumulator.as_ptr().add(idx) as *const __m512i);
+            let clamped = _mm512_min_epi16(_mm512_max_epi16(acc, zero), qa_vec);
+            let weights = _mm512_loadu_si512(right_weights.as_ptr().add(idx) as *const __m512i);
+            let weighted = _mm512_mullo_epi16(clamped, weights);
+            sum = _mm512_add_epi32(sum, _mm512_madd_epi16(weighted, clamped));
+            idx += 32;
+        }
+        while idx < right_accumulator.len() {
+            let value = i64::from(*right_accumulator.get_unchecked(idx)).clamp(0, i64::from(qa));
+            tail += value * value * i64::from(*right_weights.get_unchecked(idx));
+            idx += 1;
+        }
+
+        let low = _mm512_cvtepi32_epi64(_mm512_castsi512_si256(sum));
+        let high = _mm512_cvtepi32_epi64(_mm512_extracti64x4_epi64::<1>(sum));
+        tail + _mm512_reduce_add_epi64(low) + _mm512_reduce_add_epi64(high)
     }
 }
 

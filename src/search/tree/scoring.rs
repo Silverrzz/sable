@@ -1,6 +1,7 @@
 
 use crate::{
     Board, Color, GameStatus, Move, Piece,
+    chess::MoveGenState,
     evaluation::{
         DRAW_SCORE, LOSS_SCORE,
         is_board_drawn,
@@ -10,7 +11,7 @@ use crate::{
 use super::{
     constants::*,
     move_generation::tactical_move_score_with_history,
-    move_ordering::{CandidateMove, MoveOrdering},
+    move_ordering::{CandidateMove, MoveOrdering, compact_see},
 };
 
 pub(in crate::search) fn move_score(
@@ -42,9 +43,7 @@ pub(in crate::search) fn move_score(
                 mv,
                 moving_piece,
                 captured_piece,
-                ordinal: 0,
-                see: Some(see),
-                score: None,
+                see: compact_see(see),
             },
             see,
         );
@@ -68,11 +67,16 @@ pub(in crate::search) fn piece_value(piece: Piece) -> i32 {
     }
 }
 
-pub(in crate::search) fn terminal_score(board: &Board, repetition: bool, ply: u16) -> Option<i32> {
+pub(in crate::search) fn terminal_score(
+    board: &Board,
+    movegen: &MoveGenState,
+    repetition: bool,
+    ply: u16,
+) -> Option<i32> {
     if repetition || is_board_drawn(board) {
         return Some(DRAW_SCORE);
     }
-    match crate::chess::status(board) {
+    match crate::chess::status_with_movegen(board, movegen) {
         GameStatus::Ongoing => None,
         GameStatus::Drawn => Some(DRAW_SCORE),
         GameStatus::Won => Some(LOSS_SCORE.saturating_add(ply as i32)),

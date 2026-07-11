@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::{Board, Color, EngineError, Move, Piece, Square, chess::Rank};
+use crate::{Board, Color, EngineError, Move, Piece, Square};
 
 use super::types::*;
 
@@ -72,7 +72,8 @@ pub(super) fn apply_feature_delta(
 }
 
 pub(super) fn apply_feature_deltas(
-    accumulator: &mut [i16; RUNESTONE_HIDDEN],
+    source: &[i16; RUNESTONE_HIDDEN],
+    target: &mut [i16; RUNESTONE_HIDDEN],
     feature_weights: &[i16],
     updates: &FeatureUpdateList,
 ) {
@@ -80,8 +81,9 @@ pub(super) fn apply_feature_deltas(
         && updates.updates[0].sign == -1
         && updates.updates[1].sign == 1
     {
-        crate::simd::apply_feature_delta_pair(
-            accumulator,
+        crate::simd::copy_feature_delta_pair(
+            source,
+            target,
             feature_weights,
             RUNESTONE_HIDDEN,
             updates.updates[0].feature,
@@ -94,8 +96,9 @@ pub(super) fn apply_feature_deltas(
         && updates.updates[1].sign == -1
         && updates.updates[2].sign == 1
     {
-        crate::simd::apply_feature_delta_triplet(
-            accumulator,
+        crate::simd::copy_feature_delta_triplet(
+            source,
+            target,
             feature_weights,
             RUNESTONE_HIDDEN,
             updates.updates[0].feature,
@@ -113,8 +116,9 @@ pub(super) fn apply_feature_deltas(
         signs[len] = update.sign;
         len += 1;
     }
+    target.copy_from_slice(source);
     apply_feature_delta_batch(
-        accumulator,
+        target,
         feature_weights,
         &features[..len],
         &signs[..len],
@@ -139,13 +143,13 @@ pub(super) fn apply_feature_delta_batch(
 pub(super) fn collect_move_feature_updates(
     before: &Board,
     mv: Move,
+    side: Color,
+    moving_piece: Piece,
+    captured: Option<(Piece, Square)>,
+    is_castle: bool,
     perspective: Color,
 ) -> Option<FeatureUpdateList> {
-    let side = crate::chess::side_to_move(before);
-    let moving_piece = crate::chess::piece_on(before, mv.from)?;
-    if moving_piece == Piece::King
-        && (side == perspective || crate::chess::color_on(before, mv.to) == Some(side))
-    {
+    if moving_piece == Piece::King && (side == perspective || is_castle) {
         return None;
     }
     let king_square = oriented_king_square(before, perspective)?;
@@ -159,7 +163,7 @@ pub(super) fn collect_move_feature_updates(
         -1,
     ))?;
 
-    if let Some((captured_piece, captured_square)) = captured_piece_for_move(before, mv, moving_piece) {
+    if let Some((captured_piece, captured_square)) = captured {
         updates.push(feature_update(
             king_square,
             perspective,
@@ -199,30 +203,6 @@ pub(super) fn feature_update(
             square as usize,
         ),
         sign,
-    }
-}
-
-pub(super) fn captured_piece_for_move(
-    before: &Board,
-    mv: Move,
-    moving_piece: Piece,
-) -> Option<(Piece, Square)> {
-    let side = crate::chess::side_to_move(before);
-    let is_en_passant = moving_piece == Piece::Pawn
-        && mv.from.file() != mv.to.file()
-        && crate::chess::en_passant(before) == Some(mv.to.file())
-        && crate::chess::piece_on(before, mv.to).is_none();
-    if is_en_passant {
-        return Some((
-            Piece::Pawn,
-            Square::new(mv.to.file(), Rank::Fifth.relative_to(side)),
-        ));
-    }
-    let piece = crate::chess::piece_on(before, mv.to)?;
-    if crate::chess::color_on(before, mv.to) == Some(!side) {
-        Some((piece, mv.to))
-    } else {
-        None
     }
 }
 

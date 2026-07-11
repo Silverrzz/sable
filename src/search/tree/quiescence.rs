@@ -1,6 +1,7 @@
 
 use crate::{
     Board, Move,
+    chess::MoveGenState,
     evaluation::LOSS_SCORE,
 };
 
@@ -34,10 +35,11 @@ pub(in crate::search) fn quiescence(
     if context.should_stop().is_some() {
         return None;
     }
-    if let Some(score) = terminal_score(board, repetition, ply) {
+    let movegen = MoveGenState::new(board);
+    if let Some(score) = terminal_score(board, &movegen, repetition, ply) {
         return Some(terminal_outcome(score, repetition));
     }
-    let in_check = !crate::chess::checkers(board).is_empty();
+    let in_check = movegen.in_check();
     if let Some(score) = apply_mate_distance_pruning(&mut alpha, &mut beta, ply) {
         return Some(terminal_outcome(score, false));
     }
@@ -112,6 +114,7 @@ pub(in crate::search) fn quiescence(
     let mut moves = MovePicker::new();
     collect_moves_into(
         board,
+        &movegen,
         filter,
         priority_move,
         previous_move,
@@ -128,10 +131,6 @@ pub(in crate::search) fn quiescence(
     let mut searched_moves = 0_u32;
 
     while let Some(ordered) = moves.next(board, context.ordering()) {
-        if context.should_stop().is_some() {
-            interrupted = true;
-            break;
-        }
         found_move = true;
         if in_check
             && searched_moves >= QSEARCH_MAX_EVASION_MOVES
@@ -156,10 +155,22 @@ pub(in crate::search) fn quiescence(
         }
 
         let mut next = board.clone();
-        crate::chess::play_unchecked(&mut next, ordered.mv);
+        crate::chess::play_generated_move_unchecked(
+            &mut next,
+            ordered.mv,
+            ordered.moving_piece,
+            ordered.captured_piece,
+        );
         let next_key = position_key(&next);
+        context.transposition_table().prefetch(next_key);
         let next_repetition = context.push_position(&next, next_key);
-        context.push_eval_state(board, &next, ordered.mv);
+        context.push_eval_state(
+            board,
+            &next,
+            ordered.mv,
+            ordered.moving_piece,
+            ordered.captured_piece,
+        );
         let child_correction_context =
             correction_context.after_move(ordered.mv, ordered.moving_piece);
         let child_pv = if Some(ordered.mv) == pv_move && !previous_pv.is_empty() {

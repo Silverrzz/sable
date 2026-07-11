@@ -133,6 +133,23 @@ impl TranspositionTable {
         None
     }
 
+    #[inline]
+    pub(in crate::search) fn prefetch(&self, key: PositionKey) {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            let cluster = self
+                .inner
+                .clusters
+                .get_unchecked(self.cluster_index(key));
+            core::arch::x86_64::_mm_prefetch(
+                (cluster as *const Cluster).cast::<i8>(),
+                core::arch::x86_64::_MM_HINT_T0,
+            );
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        let _ = key;
+    }
+
     pub(in crate::search) fn store(
         &self,
         key: PositionKey,

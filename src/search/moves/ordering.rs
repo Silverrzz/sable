@@ -246,10 +246,18 @@ pub(in crate::search) struct CandidateMove {
     pub(in crate::search) mv: Move,
     pub(in crate::search) moving_piece: Piece,
     pub(in crate::search) captured_piece: Option<Piece>,
-    pub(in crate::search) ordinal: u16,
-    pub(in crate::search) see: Option<i32>,
-    pub(in crate::search) score: Option<i32>,
+    pub(in crate::search) see: i16,
 }
+
+pub(in crate::search) const UNCACHED_SEE: i16 = i16::MIN;
+
+#[inline]
+pub(in crate::search) fn compact_see(see: i32) -> i16 {
+    see.clamp(i32::from(i16::MIN) + 1, i32::from(i16::MAX)) as i16
+}
+
+const _: () = assert!(MAX_CANDIDATE_MOVES <= u8::MAX as usize + 1);
+const _: () = assert!(std::mem::size_of::<CandidateMove>() == 8);
 
 #[derive(Clone, Copy, Debug)]
 struct QuietScoreContext {
@@ -281,11 +289,12 @@ pub(in crate::search) enum MovePickerStage {
 
 pub(in crate::search) struct MovePicker {
     moves: ArrayVec<CandidateMove, MAX_CANDIDATE_MOVES>,
-    tactical_indices: ArrayVec<u16, MAX_CANDIDATE_MOVES>,
-    quiet_indices: ArrayVec<u16, MAX_CANDIDATE_MOVES>,
-    bad_tactical_indices: ArrayVec<u16, MAX_CANDIDATE_MOVES>,
-    searched_indices: ArrayVec<u16, MAX_CANDIDATE_MOVES>,
-    priority_index: Option<u16>,
+    score_heap: ArrayVec<u64, MAX_CANDIDATE_MOVES>,
+    tactical_indices: ArrayVec<u8, MAX_CANDIDATE_MOVES>,
+    quiet_indices: ArrayVec<u8, MAX_CANDIDATE_MOVES>,
+    bad_tactical_indices: ArrayVec<u8, MAX_CANDIDATE_MOVES>,
+    searched_indices: ArrayVec<u8, MAX_CANDIDATE_MOVES>,
+    priority_index: Option<u8>,
     stage: MovePickerStage,
     priority_move: Option<Move>,
     side: Color,
@@ -301,6 +310,7 @@ impl MovePicker {
     pub(in crate::search) fn new() -> Self {
         Self {
             moves: ArrayVec::new(),
+            score_heap: ArrayVec::new(),
             tactical_indices: ArrayVec::new(),
             quiet_indices: ArrayVec::new(),
             bad_tactical_indices: ArrayVec::new(),
@@ -327,6 +337,7 @@ impl MovePicker {
         filter: MoveFilter,
     ) {
         self.moves.clear();
+        self.score_heap.clear();
         self.tactical_indices.clear();
         self.quiet_indices.clear();
         self.bad_tactical_indices.clear();
@@ -358,7 +369,7 @@ impl MovePicker {
         assert!(self.moves.len() < MAX_CANDIDATE_MOVES, "move picker capacity exceeded");
         let index = self.moves.len();
         self.moves.push(candidate);
-        let index = index as u16;
+        let index = index as u8;
         if Some(candidate.mv) == self.priority_move && self.priority_index.is_none() {
             self.priority_index = Some(index);
         } else if is_tactical {
@@ -423,46 +434,34 @@ impl MovePicker {
     }
 
     pub(in crate::search) fn take_scored(&mut self, index: usize, score: i32) -> ScoredMove {
-        self.searched_indices.push(index as u16);
+        self.searched_indices.push(index as u8);
         let candidate = self.get(index);
         ScoredMove {
             mv: candidate.mv,
             score,
-            ordinal: candidate.ordinal as usize,
+            ordinal: index,
             is_quiet: candidate.is_quiet(),
             moving_piece: candidate.moving_piece,
             captured_piece: candidate.captured_piece,
-            see: candidate.see,
+            see: (candidate.see != UNCACHED_SEE).then_some(i32::from(candidate.see)),
         }
     }
 
     pub(in crate::search) fn next_quiet(&mut self, ordering: &MoveOrdering) -> Option<(usize, i32)> {
         if !self.quiets_heapified {
+            self.score_heap.clear();
             let context = self.quiet_score_context(ordering);
             for position in 0..self.quiet_indices.len() {
                 let index = self.quiet_indices[position] as usize;
-                self.quiet_score(ordering, context, index);
+                let candidate = self.get(index);
+                let score = Self::quiet_score_for_candidate(ordering, context, candidate);
+                self.score_heap.push(score_heap_entry(index as u8, score));
             }
-            heapify_cached_scores(&self.moves, &mut self.quiet_indices);
+            self.quiet_indices.clear();
+            heapify_score_entries(&mut self.score_heap);
             self.quiets_heapified = true;
         }
-        pop_cached_score(&self.moves, &mut self.quiet_indices)
-    }
-
-    #[inline]
-    fn quiet_score(
-        &mut self,
-        ordering: &MoveOrdering,
-        context: QuietScoreContext,
-        index: usize,
-    ) -> i32 {
-        if let Some(score) = self.get(index).score {
-            return score;
-        }
-        let candidate = self.get(index);
-        let score = Self::quiet_score_for_candidate(ordering, context, candidate);
-        self.get_mut(index).score = Some(score);
-        score
+        pop_score_entry(&mut self.score_heap)
     }
 
     #[inline]
@@ -525,6 +524,7 @@ impl MovePicker {
             return self.best_bad_tactical(board, ordering);
         }
         if !self.good_tacticals_heapified {
+            self.score_heap.clear();
             let mut position = 0;
             while position < self.tactical_indices.len() {
                 let index = self.tactical_indices[position] as usize;
@@ -534,13 +534,20 @@ impl MovePicker {
                     self.bad_tactical_indices.push(index);
                     continue;
                 }
-                self.tactical_score(board, index, ordering);
+                let score = tactical_move_score_with_history(
+                    ordering,
+                    self.side,
+                    self.get(index),
+                    see,
+                );
+                self.score_heap.push(score_heap_entry(index as u8, score));
                 position += 1;
             }
-            heapify_cached_scores(&self.moves, &mut self.tactical_indices);
+            self.tactical_indices.clear();
+            heapify_score_entries(&mut self.score_heap);
             self.good_tacticals_heapified = true;
         }
-        pop_cached_score(&self.moves, &mut self.tactical_indices)
+        pop_score_entry(&mut self.score_heap)
     }
 
     pub(in crate::search) fn best_bad_tactical(
@@ -549,20 +556,29 @@ impl MovePicker {
         ordering: &MoveOrdering,
     ) -> Option<(usize, i32)> {
         if !self.bad_tacticals_heapified {
+            self.score_heap.clear();
             for position in 0..self.bad_tactical_indices.len() {
                 let index = self.bad_tactical_indices[position] as usize;
-                self.tactical_score(board, index, ordering);
+                let see = self.tactical_see(board, index);
+                let score = tactical_move_score_with_history(
+                    ordering,
+                    self.side,
+                    self.get(index),
+                    see,
+                );
+                self.score_heap.push(score_heap_entry(index as u8, score));
             }
-            heapify_cached_scores(&self.moves, &mut self.bad_tactical_indices);
+            self.bad_tactical_indices.clear();
+            heapify_score_entries(&mut self.score_heap);
             self.bad_tacticals_heapified = true;
         }
-        pop_cached_score(&self.moves, &mut self.bad_tactical_indices)
+        pop_score_entry(&mut self.score_heap)
     }
 
     pub(in crate::search) fn tactical_see(&mut self, board: &Board, index: usize) -> i32 {
         let candidate = self.get(index);
-        if let Some(see) = candidate.see {
-            return see;
+        if candidate.see != UNCACHED_SEE {
+            return i32::from(candidate.see);
         }
         let see = static_exchange_eval_for_move(
             board,
@@ -570,84 +586,66 @@ impl MovePicker {
             candidate.moving_piece,
             candidate.captured_piece,
         );
-        self.get_mut(index).see = Some(see);
+        self.get_mut(index).see = compact_see(see);
         see
     }
 
-    pub(in crate::search) fn tactical_score(&mut self, board: &Board, index: usize, ordering: &MoveOrdering) -> i32 {
-        if let Some(score) = self.get(index).score {
-            return score;
-        }
-        let see = self.tactical_see(board, index);
-        let score = tactical_move_score_with_history(ordering, self.side, self.get(index), see);
-        self.get_mut(index).score = Some(score);
-        score
+}
+
+fn heapify_score_entries(entries: &mut [u64]) {
+    for root in (0..entries.len() / 2).rev() {
+        sift_score_entries_down(entries, root);
     }
 }
 
-fn heapify_cached_scores(
-    moves: &[CandidateMove],
-    indices: &mut ArrayVec<u16, MAX_CANDIDATE_MOVES>,
-) {
-    for root in (0..indices.len() / 2).rev() {
-        sift_cached_scores_down(moves, indices, root);
-    }
-}
-
-fn pop_cached_score(
-    moves: &[CandidateMove],
-    indices: &mut ArrayVec<u16, MAX_CANDIDATE_MOVES>,
+fn pop_score_entry(
+    entries: &mut ArrayVec<u64, MAX_CANDIDATE_MOVES>,
 ) -> Option<(usize, i32)> {
-    let index = *indices.first()? as usize;
-    let replacement = indices.pop().expect("non-empty move heap must pop");
-    if !indices.is_empty() {
-        indices[0] = replacement;
-        sift_cached_scores_down(moves, indices, 0);
+    let entry = *entries.first()?;
+    let replacement = entries.pop().expect("non-empty move heap must pop");
+    if !entries.is_empty() {
+        entries[0] = replacement;
+        sift_score_entries_down(entries, 0);
     }
-    Some((
-        index,
-        moves[index]
-            .score
-            .expect("ordered move must have a cached score"),
-    ))
+    Some((score_heap_index(entry) as usize, score_heap_score(entry)))
 }
 
-fn sift_cached_scores_down(
-    moves: &[CandidateMove],
-    indices: &mut [u16],
-    mut root: usize,
-) {
+fn sift_score_entries_down(entries: &mut [u64], mut root: usize) {
+    let entry = entries[root];
     loop {
         let left = root * 2 + 1;
-        if left >= indices.len() {
-            return;
+        if left >= entries.len() {
+            break;
         }
         let right = left + 1;
-        let better_child = if right < indices.len()
-            && cached_score_is_better(moves, indices[right], indices[left])
-        {
+        let better_child = if right < entries.len() && entries[right] > entries[left] {
             right
         } else {
             left
         };
-        if !cached_score_is_better(moves, indices[better_child], indices[root]) {
-            return;
+        if entries[better_child] <= entry {
+            break;
         }
-        indices.swap(root, better_child);
+        entries[root] = entries[better_child];
         root = better_child;
     }
+    entries[root] = entry;
 }
 
-fn cached_score_is_better(moves: &[CandidateMove], left: u16, right: u16) -> bool {
-    let left = moves[left as usize];
-    let right = moves[right as usize];
-    let left_score = left
-        .score
-        .expect("ordered move must have a cached score");
-    let right_score = right
-        .score
-        .expect("ordered move must have a cached score");
-    left_score > right_score || (left_score == right_score && left.ordinal < right.ordinal)
+#[inline]
+fn score_heap_entry(index: u8, score: i32) -> u64 {
+    let ordered_score = (score as u32) ^ 0x8000_0000;
+    (u64::from(ordered_score) << 8) | u64::from(u8::MAX - index)
+}
+
+#[inline]
+fn score_heap_index(entry: u64) -> u8 {
+    u8::MAX - entry as u8
+}
+
+#[inline]
+fn score_heap_score(entry: u64) -> i32 {
+    (((entry >> 8) as u32) ^ 0x8000_0000) as i32
 }
 
 pub(in crate::search) fn history_bonus(depth: u32) -> i32 {

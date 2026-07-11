@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use crate::{Board, Color, EngineError, Move, Piece, pieces::ALL_PIECES};
+use crate::{Board, Color, EngineError, Move, Piece, chess::Rank, pieces::ALL_PIECES};
 
 use super::{
     features::{
@@ -34,13 +34,15 @@ impl NnueModel {
         let mut chunks = bytes[..RUNESTONE_TENSOR_BYTES]
             .chunks_exact(2)
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]));
-        let mut feature_weights = Vec::with_capacity(RUNESTONE_FEATURE_WEIGHTS);
-        for _ in 0..RUNESTONE_FEATURE_WEIGHTS {
-            feature_weights.push(
-                chunks
+        let mut feature_weights = Vec::with_capacity(RUNESTONE_INPUT_FEATURES);
+        for _ in 0..RUNESTONE_INPUT_FEATURES {
+            let mut block = [0; RUNESTONE_HIDDEN];
+            for value in &mut block {
+                *value = chunks
                     .next()
-                    .expect("runestone feature weights are present"),
-            );
+                    .expect("runestone feature weights are present");
+            }
+            feature_weights.push(AlignedFeatureBlock(block));
         }
 
         let mut bias = [0; RUNESTONE_HIDDEN];
@@ -56,12 +58,16 @@ impl NnueModel {
         }
         let output_bias = i32::from(chunks.next().expect("runestone output bias is present"));
         debug_assert!(chunks.next().is_none());
+        let narrow_output_weights = output_weights.iter().all(|&weight| {
+            i32::from(weight).abs() * i32::from(RUNESTONE_QA) <= i32::from(i16::MAX)
+        });
 
-        validate_i16_accumulator_range(path, &bias, &feature_weights)?;
+        validate_i16_accumulator_range(path, &bias, feature_weight_slice(&feature_weights))?;
         Ok(Self {
             feature_weights: feature_weights.into_boxed_slice(),
             bias,
-            output_weights,
+            output_weights: AlignedOutputWeights(output_weights),
+            narrow_output_weights,
             output_bias,
         })
     }
@@ -193,7 +199,7 @@ impl NnueModel {
                         piece,
                         square as usize,
                     );
-                    apply_feature_delta(values, &self.feature_weights, feature, 1);
+                    apply_feature_delta(values, self.feature_weights(), feature, 1);
                 }
             }
         }
@@ -290,7 +296,7 @@ impl NnueModel {
             bits &= bits - 1;
             let feature =
                 feature_index_for_perspective(perspective, king_square, color, piece, square);
-            apply_feature_delta(values, &self.feature_weights, feature, sign);
+            apply_feature_delta(values, self.feature_weights(), feature, sign);
         }
     }
 
@@ -305,25 +311,50 @@ impl NnueModel {
 
     pub(crate) fn update_accumulators_after_move(
         &self,
-        accumulators: &mut NnueAccumulators,
+        source: &NnueAccumulators,
+        target: &mut NnueAccumulators,
         before: &Board,
         after: &Board,
         mv: Move,
+        moving_piece: Piece,
+        captured_piece: Option<Piece>,
         mut finny: Option<&mut NnueFinnyTable>,
     ) -> bool {
+        let side = crate::chess::side_to_move(before);
+        let is_castle = moving_piece == Piece::King && crate::chess::colors(before, side).has(mv.to);
+        let captured = captured_piece.map(|piece| {
+            let square = if moving_piece == Piece::Pawn
+                && !crate::chess::colors(before, !side).has(mv.to)
+            {
+                crate::Square::new(mv.to.file(), Rank::Fifth.relative_to(side))
+            } else {
+                mv.to
+            };
+            (piece, square)
+        });
         let white = self.update_accumulator_after_move_for_perspective(
-            &mut accumulators.white,
+            &source.white,
+            &mut target.white,
             before,
             after,
             mv,
+            side,
+            moving_piece,
+            captured,
+            is_castle,
             Color::White,
             finny.as_mut().map(|table| &mut **table),
         );
         let black = self.update_accumulator_after_move_for_perspective(
-            &mut accumulators.black,
+            &source.black,
+            &mut target.black,
             before,
             after,
             mv,
+            side,
+            moving_piece,
+            captured,
+            is_castle,
             Color::Black,
             finny.as_mut().map(|table| &mut **table),
         );
@@ -332,30 +363,58 @@ impl NnueModel {
 
     fn update_accumulator_after_move_for_perspective(
         &self,
-        values: &mut [i16; RUNESTONE_HIDDEN],
+        source: &[i16; RUNESTONE_HIDDEN],
+        target: &mut [i16; RUNESTONE_HIDDEN],
         before: &Board,
         after: &Board,
         mv: Move,
+        side: Color,
+        moving_piece: Piece,
+        captured: Option<(Piece, crate::Square)>,
+        is_castle: bool,
         perspective: Color,
         finny: Option<&mut NnueFinnyTable>,
     ) -> bool {
-        if self.apply_move_delta_for_perspective(values, before, mv, perspective) {
+        if self.apply_move_delta_for_perspective(
+            source,
+            target,
+            before,
+            mv,
+            side,
+            moving_piece,
+            captured,
+            is_castle,
+            perspective,
+        ) {
             return true;
         }
-        self.refresh_accumulator_values_into(values, after, perspective, finny)
+        self.refresh_accumulator_values_into(target, after, perspective, finny)
     }
 
     fn apply_move_delta_for_perspective(
         &self,
-        values: &mut [i16; RUNESTONE_HIDDEN],
+        source: &[i16; RUNESTONE_HIDDEN],
+        target: &mut [i16; RUNESTONE_HIDDEN],
         before: &Board,
         mv: Move,
+        side: Color,
+        moving_piece: Piece,
+        captured: Option<(Piece, crate::Square)>,
+        is_castle: bool,
         perspective: Color,
     ) -> bool {
-        let Some(updates) = collect_move_feature_updates(before, mv, perspective) else {
+        let Some(updates) = collect_move_feature_updates(
+            before,
+            mv,
+            side,
+            moving_piece,
+            captured,
+            is_castle,
+            perspective,
+        ) else {
             return false;
         };
-        apply_feature_deltas(values, &self.feature_weights, &updates);
+        apply_feature_deltas(source, target, self.feature_weights(), &updates);
         true
     }
 
@@ -377,10 +436,11 @@ impl NnueModel {
         };
         let mut output = crate::simd::screlu_dot_i16_dual(
             stm,
-            &self.output_weights[..RUNESTONE_HIDDEN],
+            &self.output_weights.0[..RUNESTONE_HIDDEN],
             ntm,
-            &self.output_weights[RUNESTONE_HIDDEN..],
+            &self.output_weights.0[RUNESTONE_HIDDEN..],
             RUNESTONE_QA,
+            self.narrow_output_weights,
         );
         let qa = i64::from(RUNESTONE_QA);
         output /= qa;
@@ -473,7 +533,21 @@ impl NnueModel {
         square: usize,
     ) {
         let feature = feature_index_for_perspective(perspective, king_square, color, piece, square);
-        apply_feature_delta(values, &self.feature_weights, feature, -1);
+        apply_feature_delta(values, self.feature_weights(), feature, -1);
+    }
+
+    fn feature_weights(&self) -> &[i16] {
+        feature_weight_slice(&self.feature_weights)
+    }
+}
+
+fn feature_weight_slice(blocks: &[AlignedFeatureBlock]) -> &[i16] {
+    debug_assert_eq!(std::mem::size_of::<AlignedFeatureBlock>(), RUNESTONE_HIDDEN * 2);
+    unsafe {
+        std::slice::from_raw_parts(
+            blocks.as_ptr().cast::<i16>(),
+            blocks.len() * RUNESTONE_HIDDEN,
+        )
     }
 }
 

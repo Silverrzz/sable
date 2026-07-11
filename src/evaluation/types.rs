@@ -49,12 +49,24 @@ impl NnueArchitectureId {
 
 #[derive(Debug)]
 pub struct NnueModel {
-    pub(super) feature_weights: Box<[i16]>,
+    pub(super) feature_weights: Box<[AlignedFeatureBlock]>,
     pub(super) bias: [i16; RUNESTONE_HIDDEN],
-    pub(super) output_weights: [i16; RUNESTONE_OUTPUTS],
+    pub(super) output_weights: AlignedOutputWeights,
+    pub(super) narrow_output_weights: bool,
     pub(super) output_bias: i32,
 }
 
+#[repr(C, align(64))]
+#[derive(Debug)]
+pub(super) struct AlignedFeatureBlock(pub(super) [i16; RUNESTONE_HIDDEN]);
+
+const _: () = assert!(std::mem::size_of::<AlignedFeatureBlock>() == RUNESTONE_HIDDEN * 2);
+
+#[repr(align(64))]
+#[derive(Debug)]
+pub(super) struct AlignedOutputWeights(pub(super) [i16; RUNESTONE_OUTPUTS]);
+
+#[repr(align(64))]
 #[derive(Clone, Debug)]
 pub struct NnueAccumulators {
     pub(super) white: [i16; RUNESTONE_HIDDEN],

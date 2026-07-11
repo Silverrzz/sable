@@ -240,7 +240,8 @@ impl RootSearchState {
         budget: &SearchBudget,
         context: &mut SearchContext<'_>,
     ) -> Self {
-        let terminal = terminal_score(board, false, 0);
+        let movegen = crate::chess::MoveGenState::new(board);
+        let terminal = terminal_score(board, &movegen, false, 0);
         let best_score = terminal.unwrap_or_else(|| context.evaluate(board));
         Self {
             best_move: candidate_moves.first().copied(),

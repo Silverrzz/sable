@@ -1,13 +1,17 @@
 
 use crate::{
     Board, Color, Move, Piece, Square,
-    chess::{BitBoard, generate_moves, generate_tactical_moves},
+    chess::{
+        BitBoard, MoveGenState, generate_moves_with_state, generate_tactical_moves_with_state,
+    },
 };
 
 use super::{
     board_moves::{captured_piece, en_passant_target, is_en_passant},
     constants::*,
-    move_ordering::{CandidateMove, MoveOrdering, MovePicker, ScoredMove, scaled_history_score},
+    move_ordering::{
+        CandidateMove, MoveOrdering, MovePicker, ScoredMove, UNCACHED_SEE, scaled_history_score,
+    },
     scoring::{move_score, piece_value},
     see::static_exchange_eval_for_move,
 };
@@ -66,6 +70,7 @@ pub(in crate::search) fn ordered_root_moves(
 
 pub(in crate::search) fn collect_moves_into(
     board: &Board,
+    movegen: &MoveGenState,
     filter: MoveFilter,
     pv_move: Option<Move>,
     previous_move: Option<Move>,
@@ -77,21 +82,23 @@ pub(in crate::search) fn collect_moves_into(
     let ep_target = en_passant_target(board, side);
     moves.reset(pv_move, side, previous_move, ply, filter);
     match filter {
-        MoveFilter::All => collect_all_moves_into(board, enemy_occupancy, ep_target, moves),
+        MoveFilter::All => {
+            collect_all_moves_into(board, movegen, enemy_occupancy, ep_target, moves)
+        }
         MoveFilter::Tactical => {
-            collect_tactical_moves_into(board, enemy_occupancy, ep_target, moves);
+            collect_tactical_moves_into(board, movegen, enemy_occupancy, ep_target, moves);
         }
     }
 }
 
 fn collect_all_moves_into(
     board: &Board,
+    movegen: &MoveGenState,
     enemy_occupancy: BitBoard,
     ep_target: Option<Square>,
     moves: &mut MovePicker,
 ) {
-    let mut ordinal = 0;
-    generate_moves(board, |piece_moves| {
+    generate_moves_with_state(board, movegen, |piece_moves| {
         for mv in piece_moves {
             let captured_piece =
                 captured_piece_for_generated_move(board, piece_moves.piece, mv, enemy_occupancy, ep_target);
@@ -100,16 +107,13 @@ fn collect_all_moves_into(
                 mv,
                 moving_piece: piece_moves.piece,
                 captured_piece,
-                ordinal,
-                see: None,
-                score: None,
+                see: UNCACHED_SEE,
             };
             if is_tactical {
                 moves.push_tactical(candidate);
             } else {
                 moves.push_quiet(candidate);
             }
-            ordinal += 1;
         }
         false
     });
@@ -117,12 +121,12 @@ fn collect_all_moves_into(
 
 fn collect_tactical_moves_into(
     board: &Board,
+    movegen: &MoveGenState,
     enemy_occupancy: BitBoard,
     ep_target: Option<Square>,
     moves: &mut MovePicker,
 ) {
-    let mut ordinal = 0;
-    generate_tactical_moves(board, |piece_moves| {
+    generate_tactical_moves_with_state(board, movegen, |piece_moves| {
         for mv in piece_moves {
             let captured_piece =
                 captured_piece_for_generated_move(board, piece_moves.piece, mv, enemy_occupancy, ep_target);
@@ -130,11 +134,8 @@ fn collect_tactical_moves_into(
                 mv,
                 moving_piece: piece_moves.piece,
                 captured_piece,
-                ordinal,
-                see: None,
-                score: None,
+                see: UNCACHED_SEE,
             });
-            ordinal += 1;
         }
         false
     });

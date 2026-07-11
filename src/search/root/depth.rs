@@ -206,10 +206,22 @@ fn search_root_child(
     let root_key = position_key(board);
     context.push_repetition_key(root_key);
     let mut next = board.clone();
-    crate::chess::play_unchecked(&mut next, ordered.mv);
+    crate::chess::play_generated_move_unchecked(
+        &mut next,
+        ordered.mv,
+        ordered.moving_piece,
+        ordered.captured_piece,
+    );
     let next_key = position_key(&next);
+    context.transposition_table().prefetch(next_key);
     let next_repetition = context.push_position(&next, next_key);
-    context.push_eval_state(board, &next, ordered.mv);
+    context.push_eval_state(
+        board,
+        &next,
+        ordered.mv,
+        ordered.moving_piece,
+        ordered.captured_piece,
+    );
     let child_pv = if Some(ordered.mv) == pv_move && !previous_pv.is_empty() {
         &previous_pv[..previous_pv.len() - 1]
     } else {

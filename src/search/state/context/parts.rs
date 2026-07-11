@@ -144,11 +144,17 @@ impl<'a> SearchContext<'a> {
         if self
             .controls
             .stop_flag
-            .map(|flag| flag.load(Ordering::Relaxed))
-            .unwrap_or(false)
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
         {
             return Some(StopReason::ExternalStop);
         }
+        if self.counters.nodes < self.counters.next_stop_check_node {
+            return None;
+        }
+        self.counters.next_stop_check_node = self
+            .counters
+            .nodes
+            .saturating_add(STOP_CHECK_NODE_INTERVAL);
         if self.is_pondering() {
             return None;
         }
@@ -157,14 +163,7 @@ impl<'a> SearchContext<'a> {
             if self.controls.lazy_stop_flag.is_none() {
                 return None;
             }
-            if self.counters.nodes < self.counters.next_stop_check_node {
-                return None;
-            }
             self.flush_shared_node_counts();
-            self.counters.next_stop_check_node = self
-                .counters
-                .nodes
-                .saturating_add(STOP_CHECK_NODE_INTERVAL);
             return self
                 .controls
                 .lazy_stop_flag
@@ -172,14 +171,7 @@ impl<'a> SearchContext<'a> {
                 .then_some(StopReason::ExternalStop);
         };
 
-        if self.counters.nodes < self.counters.next_stop_check_node {
-            return None;
-        }
         self.flush_shared_node_counts();
-        self.counters.next_stop_check_node = self
-            .counters
-            .nodes
-            .saturating_add(STOP_CHECK_NODE_INTERVAL);
         if self
             .controls
             .lazy_stop_flag

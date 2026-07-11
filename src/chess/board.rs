@@ -22,6 +22,7 @@ pub struct Board {
     fullmove_number: u16,
     king_squares: [Square; 2],
     hash: u64,
+    checkers: BitBoard,
 }
 
 impl Default for Board {
@@ -43,6 +44,7 @@ impl Board {
             fullmove_number: 1,
             king_squares: [Square::E1, Square::E8],
             hash: 0,
+            checkers: BitBoard::EMPTY,
         }
     }
 
@@ -66,6 +68,11 @@ impl Board {
         board.halfmove_clock = parse_halfmove_clock(halfmove_clock)?;
         board.fullmove_number = parse_fullmove_number(fullmove_number)?;
         board.hash = compute_hash(&board);
+        board.checkers = attackers_to(
+            &board,
+            board.king_squares[board.side_to_move as usize],
+            !board.side_to_move,
+        );
         Ok(board)
     }
 
@@ -76,7 +83,6 @@ impl Board {
 
     fn apply_move_unchecked_with_piece(&mut self, mv: Move, moving_piece: Piece) {
         let side = self.side_to_move;
-        let enemy = !side;
         let ep_target = self
             .en_passant
             .map(|file| Square::new(file, Rank::Sixth.relative_to(side)));
@@ -91,6 +97,39 @@ impl Board {
         } else {
             piece_on(self, mv.to).map(|piece| (piece, mv.to))
         };
+        self.apply_move_unchecked_with_metadata(mv, moving_piece, is_castle, captured);
+    }
+
+    fn apply_generated_move_unchecked(
+        &mut self,
+        mv: Move,
+        moving_piece: Piece,
+        captured_piece: Option<Piece>,
+    ) {
+        let side = self.side_to_move;
+        let is_castle = moving_piece == Piece::King && self.colors[side as usize].has(mv.to);
+        let captured = captured_piece.map(|piece| {
+            let square = if moving_piece == Piece::Pawn
+                && !self.colors[(!side) as usize].has(mv.to)
+            {
+                Square::new(mv.to.file(), Rank::Fifth.relative_to(side))
+            } else {
+                mv.to
+            };
+            (piece, square)
+        });
+        self.apply_move_unchecked_with_metadata(mv, moving_piece, is_castle, captured);
+    }
+
+    fn apply_move_unchecked_with_metadata(
+        &mut self,
+        mv: Move,
+        moving_piece: Piece,
+        is_castle: bool,
+        captured: Option<(Piece, Square)>,
+    ) {
+        let side = self.side_to_move;
+        let enemy = !side;
 
         self.advance_clocks(side, moving_piece, captured.is_some());
         self.set_en_passant(None);
@@ -109,6 +148,11 @@ impl Board {
         }
 
         self.toggle_side_to_move();
+        self.checkers = attackers_to(
+            self,
+            self.king_squares[self.side_to_move as usize],
+            !self.side_to_move,
+        );
     }
 
     fn advance_clocks(&mut self, side: Color, moving_piece: Piece, capture: bool) {
@@ -469,11 +513,17 @@ pub(crate) fn side_to_move(board: &Board) -> Color {
 
 #[inline]
 pub(crate) fn status(board: &Board) -> GameStatus {
-    if !has_legal_move(board) {
-        return if checkers(board).is_empty() {
-            GameStatus::Drawn
-        } else {
+    let movegen = MoveGenState::new(board);
+    status_with_movegen(board, &movegen)
+}
+
+#[inline]
+pub(crate) fn status_with_movegen(board: &Board, movegen: &MoveGenState) -> GameStatus {
+    if !has_legal_move_with_state(board, movegen) {
+        return if movegen.in_check() {
             GameStatus::Won
+        } else {
+            GameStatus::Drawn
         };
     }
     if board.halfmove_clock >= 100 {
@@ -543,7 +593,7 @@ pub(crate) fn king(board: &Board, color: Color) -> Square {
 
 #[inline]
 pub(crate) fn checkers(board: &Board) -> BitBoard {
-    attackers_to(board, king(board, board.side_to_move), !board.side_to_move)
+    board.checkers
 }
 
 #[inline]
@@ -613,6 +663,16 @@ pub(crate) fn play_unchecked_with_piece(board: &mut Board, mv: Move, piece: Piec
 }
 
 #[inline]
+pub(crate) fn play_generated_move_unchecked(
+    board: &mut Board,
+    mv: Move,
+    moving_piece: Piece,
+    captured_piece: Option<Piece>,
+) {
+    board.apply_generated_move_unchecked(mv, moving_piece, captured_piece);
+}
+
+#[inline]
 pub(crate) fn null_move(board: &Board) -> Option<Board> {
     if !checkers(board).is_empty() {
         return None;
@@ -624,6 +684,11 @@ pub(crate) fn null_move(board: &Board) -> Option<Board> {
     }
     next.set_en_passant(None);
     next.toggle_side_to_move();
+    next.checkers = attackers_to(
+        &next,
+        next.king_squares[next.side_to_move as usize],
+        !next.side_to_move,
+    );
     Some(next)
 }
 
@@ -637,11 +702,33 @@ pub(crate) fn generate_moves<F>(board: &Board, mut listener: F)
 where
     F: FnMut(PieceMoves) -> bool,
 {
-    generate_legal_moves_filtered(board, |_, _| BitBoard::FULL, |moves| listener(moves))
+    let movegen = MoveGenState::new(board);
+    generate_moves_with_state(board, &movegen, |moves| listener(moves));
 }
 
 #[inline]
-pub(crate) fn generate_tactical_moves<F>(board: &Board, mut listener: F)
+pub(crate) fn generate_moves_with_state<F>(
+    board: &Board,
+    movegen: &MoveGenState,
+    mut listener: F,
+)
+where
+    F: FnMut(PieceMoves) -> bool,
+{
+    generate_legal_moves_filtered_with_state(
+        board,
+        movegen,
+        |_, _| BitBoard::FULL,
+        |moves| listener(moves),
+    );
+}
+
+#[inline]
+pub(crate) fn generate_tactical_moves_with_state<F>(
+    board: &Board,
+    movegen: &MoveGenState,
+    mut listener: F,
+)
 where
     F: FnMut(PieceMoves) -> bool,
 {
@@ -653,8 +740,9 @@ where
         .map(|file| Square::new(file, Rank::Sixth.relative_to(side)).bitboard())
         .unwrap_or(BitBoard::EMPTY);
     let pawn_targets = enemy | promotion_rank | ep;
-    generate_legal_moves_filtered(
+    generate_legal_moves_filtered_with_state(
         board,
+        movegen,
         |piece, _| {
             if piece == Piece::Pawn {
                 pawn_targets
@@ -728,26 +816,35 @@ fn en_passant_fen(board: &Board) -> String {
     }
 }
 
-fn has_legal_move(board: &Board) -> bool {
+fn has_legal_move_with_state(board: &Board, movegen: &MoveGenState) -> bool {
     let mut found = false;
-    generate_legal_moves_filtered(board, |_, _| BitBoard::FULL, |_| {
-        found = true;
-        true
-    });
+    generate_legal_moves_filtered_with_state(
+        board,
+        movegen,
+        |_, _| BitBoard::FULL,
+        |_| {
+            found = true;
+            true
+        },
+    );
     found
 }
 
-fn generate_legal_moves_filtered<F, T>(board: &Board, target_filter: T, mut listener: F)
+fn generate_legal_moves_filtered_with_state<F, T>(
+    board: &Board,
+    movegen: &MoveGenState,
+    target_filter: T,
+    mut listener: F,
+)
 where
     F: FnMut(PieceMoves) -> bool,
     T: Fn(Piece, Square) -> BitBoard,
 {
     let side = board.side_to_move;
-    let state = MoveGenState::new(board);
     for piece in ALL_PIECES {
         for from in colored_pieces(board, side, piece) {
             let legal_targets =
-                legal_targets_for_piece(board, &state, side, piece, from, target_filter(piece, from));
+                legal_targets_for_piece(board, movegen, side, piece, from, target_filter(piece, from));
             if !legal_targets.is_empty()
                 && listener(PieceMoves {
                     piece,
@@ -761,7 +858,7 @@ where
     }
 }
 
-struct MoveGenState {
+pub(crate) struct MoveGenState {
     occupied: BitBoard,
     own: BitBoard,
     enemy: BitBoard,
@@ -772,13 +869,13 @@ struct MoveGenState {
 }
 
 impl MoveGenState {
-    fn new(board: &Board) -> Self {
+    pub(crate) fn new(board: &Board) -> Self {
         let side = board.side_to_move;
         let own = colors(board, side);
         let enemy = colors(board, !side);
         let occupied = own | enemy;
         let king_square = king(board, side);
-        let king_state = KingSafetyState::new(board, side, king_square, occupied, own, enemy);
+        let king_state = KingSafetyState::new(board, king_square, occupied, own, enemy);
         Self {
             occupied,
             own,
@@ -788,6 +885,11 @@ impl MoveGenState {
             evasion_mask: king_state.evasion_mask,
             pin_masks: king_state.pin_masks,
         }
+    }
+
+    #[inline]
+    pub(crate) fn in_check(&self) -> bool {
+        self.checker_count != 0
     }
 }
 
@@ -801,13 +903,12 @@ impl KingSafetyState {
     #[inline]
     fn new(
         board: &Board,
-        side: Color,
         king_square: Square,
         occupied: BitBoard,
         own: BitBoard,
         enemy: BitBoard,
     ) -> Self {
-        let checkers = attackers_to(board, king_square, !side);
+        let checkers = checkers(board);
         let checker_count = checkers.len();
         let evasion_mask = if checker_count == 1 {
             let checker = checkers.next_square().expect("single checker exists");
@@ -859,8 +960,10 @@ fn legal_king_targets(board: &Board, side: Color, from: Square, target_filter: B
     let mut legal = BitBoard::EMPTY;
     let own = colors(board, side);
     let enemy_king = colored_pieces(board, !side, Piece::King);
+    let mut parts = BoardParts::from_board(board);
+    parts.remove_piece(side, Piece::King, from);
     for to in ((get_king_moves(from) - own) - enemy_king) & target_filter {
-        if is_legal_king_step(board, side, from, to) {
+        if !parts.is_square_attacked(to, !side) {
             legal |= to.bitboard();
         }
     }
@@ -875,18 +978,6 @@ fn legal_king_targets(board: &Board, side: Color, from: Square, target_filter: B
         }
     }
     legal
-}
-
-fn is_legal_king_step(board: &Board, side: Color, from: Square, to: Square) -> bool {
-    let mut parts = BoardParts::from_board(board);
-    parts.remove_piece(side, Piece::King, from);
-    if board.colors[(!side) as usize].has(to)
-        && let Some(captured) = piece_on(board, to)
-    {
-        parts.remove_piece(!side, captured, to);
-    }
-    parts.add_piece(side, Piece::King, to);
-    !parts.is_square_attacked(to, !side)
 }
 
 fn en_passant_candidates(board: &Board, side: Color, piece: Piece) -> BitBoard {
@@ -1060,11 +1151,55 @@ struct CastleMove {
 }
 
 fn attackers_to(board: &Board, square: Square, attacker: Color) -> BitBoard {
-    BoardParts::from_board(board).attackers_to(square, attacker)
+    let attacker_pieces = board.colors[attacker as usize];
+    let occupied = board.colors[Color::White as usize] | board.colors[Color::Black as usize];
+    let pawns = get_pawn_attacks(square, !attacker)
+        & board.pieces[Piece::Pawn as usize]
+        & attacker_pieces;
+    let knights = get_knight_moves(square)
+        & board.pieces[Piece::Knight as usize]
+        & attacker_pieces;
+    let kings = get_king_moves(square)
+        & board.pieces[Piece::King as usize]
+        & attacker_pieces;
+    let bishops = get_bishop_moves(square, occupied)
+        & (board.pieces[Piece::Bishop as usize] | board.pieces[Piece::Queen as usize])
+        & attacker_pieces;
+    let rooks = get_rook_moves(square, occupied)
+        & (board.pieces[Piece::Rook as usize] | board.pieces[Piece::Queen as usize])
+        & attacker_pieces;
+    pawns | knights | kings | bishops | rooks
 }
 
 fn is_square_attacked(board: &Board, square: Square, attacker: Color) -> bool {
-    BoardParts::from_board(board).is_square_attacked(square, attacker)
+    let attacker_pieces = board.colors[attacker as usize];
+    if !(get_pawn_attacks(square, !attacker)
+        & board.pieces[Piece::Pawn as usize]
+        & attacker_pieces)
+        .is_empty()
+    {
+        return true;
+    }
+    if !(get_knight_moves(square) & board.pieces[Piece::Knight as usize] & attacker_pieces)
+        .is_empty()
+    {
+        return true;
+    }
+    if !(get_king_moves(square) & board.pieces[Piece::King as usize] & attacker_pieces).is_empty() {
+        return true;
+    }
+    let occupied = board.colors[Color::White as usize] | board.colors[Color::Black as usize];
+    if !(get_bishop_moves(square, occupied)
+        & (board.pieces[Piece::Bishop as usize] | board.pieces[Piece::Queen as usize])
+        & attacker_pieces)
+        .is_empty()
+    {
+        return true;
+    }
+    !(get_rook_moves(square, occupied)
+        & (board.pieces[Piece::Rook as usize] | board.pieces[Piece::Queen as usize])
+        & attacker_pieces)
+        .is_empty()
 }
 
 fn valid_promotion(piece: Piece, mv: Move) -> bool {
@@ -1541,11 +1676,23 @@ fn side_key() -> u64 {
 
 #[inline]
 fn zobrist_key(index: u64) -> u64 {
-    splitmix64(index.wrapping_add(0x9e37_79b9_7f4a_7c15))
+    ZOBRIST_KEYS[index as usize]
 }
 
-#[inline]
-fn splitmix64(mut value: u64) -> u64 {
+const ZOBRIST_KEY_COUNT: usize = 809;
+const ZOBRIST_KEYS: [u64; ZOBRIST_KEY_COUNT] = build_zobrist_keys();
+
+const fn build_zobrist_keys() -> [u64; ZOBRIST_KEY_COUNT] {
+    let mut keys = [0; ZOBRIST_KEY_COUNT];
+    let mut index = 0;
+    while index < ZOBRIST_KEY_COUNT {
+        keys[index] = splitmix64((index as u64).wrapping_add(0x9e37_79b9_7f4a_7c15));
+        index += 1;
+    }
+    keys
+}
+
+const fn splitmix64(mut value: u64) -> u64 {
     value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
     let mut z = value;
     z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);

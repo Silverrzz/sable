@@ -9,48 +9,37 @@ const NOT_FILE_H: u64 = !FILE_H;
 const NOT_FILE_AB: u64 = !(FILE_A | FILE_B);
 const NOT_FILE_GH: u64 = !(FILE_G | FILE_H);
 
-const ROOK_TABLE_SIZE: usize = 4096;
-const BISHOP_TABLE_SIZE: usize = 512;
+const PAWN_ATTACKS: [[u64; 64]; 2] = build_pawn_attacks();
+const KNIGHT_ATTACKS: [u64; 64] = build_knight_attacks();
+const KING_ATTACKS: [u64; 64] = build_king_attacks();
 static BETWEEN: [[u64; 64]; 64] = build_between();
 
 include!(concat!(env!("OUT_DIR"), "/attack_tables.rs"));
 
 #[inline]
 pub(crate) fn get_pawn_attacks(square: Square, color: Color) -> BitBoard {
-    let bit = square.bitboard().0;
-    match color {
-        Color::White => BitBoard(((bit & NOT_FILE_A) << 7) | ((bit & NOT_FILE_H) << 9)),
-        Color::Black => BitBoard(((bit & NOT_FILE_A) >> 9) | ((bit & NOT_FILE_H) >> 7)),
-    }
+    BitBoard(PAWN_ATTACKS[color as usize][square as usize])
 }
 
 #[inline]
 pub(crate) fn get_knight_moves(square: Square) -> BitBoard {
-    let bit = square.bitboard().0;
-    BitBoard(
-        ((bit & NOT_FILE_A) << 15)
-            | ((bit & NOT_FILE_H) << 17)
-            | ((bit & NOT_FILE_AB) << 6)
-            | ((bit & NOT_FILE_GH) << 10)
-            | ((bit & NOT_FILE_A) >> 17)
-            | ((bit & NOT_FILE_H) >> 15)
-            | ((bit & NOT_FILE_AB) >> 10)
-            | ((bit & NOT_FILE_GH) >> 6),
-    )
+    BitBoard(KNIGHT_ATTACKS[square as usize])
 }
 
 #[inline]
 pub(crate) fn get_bishop_moves(square: Square, occupied: BitBoard) -> BitBoard {
     let square = square as usize;
     let mask = BISHOP_RELEVANT_MASKS[square];
-    BitBoard(BISHOP_ATTACKS[square][slider_index(occupied.0, mask)])
+    let index = BISHOP_ATTACK_OFFSETS[square] as usize + slider_index(occupied.0, mask);
+    BitBoard(BISHOP_ATTACKS[index])
 }
 
 #[inline]
 pub(crate) fn get_rook_moves(square: Square, occupied: BitBoard) -> BitBoard {
     let square = square as usize;
     let mask = ROOK_RELEVANT_MASKS[square];
-    BitBoard(ROOK_ATTACKS[square][slider_index(occupied.0, mask)])
+    let index = ROOK_ATTACK_OFFSETS[square] as usize + slider_index(occupied.0, mask);
+    BitBoard(ROOK_ATTACKS[index])
 }
 
 #[inline]
@@ -60,17 +49,7 @@ pub(crate) fn get_queen_moves(square: Square, occupied: BitBoard) -> BitBoard {
 
 #[inline]
 pub(crate) fn get_king_moves(square: Square) -> BitBoard {
-    let bit = square.bitboard().0;
-    BitBoard(
-        (bit << 8)
-            | (bit >> 8)
-            | ((bit & NOT_FILE_H) << 1)
-            | ((bit & NOT_FILE_A) >> 1)
-            | ((bit & NOT_FILE_H) << 9)
-            | ((bit & NOT_FILE_A) << 7)
-            | ((bit & NOT_FILE_H) >> 7)
-            | ((bit & NOT_FILE_A) >> 9),
-    )
+    BitBoard(KING_ATTACKS[square as usize])
 }
 
 #[inline]
@@ -131,6 +110,56 @@ fn compact_index(occupied: u64, mut mask: u64) -> usize {
         offset += 1;
     }
     index
+}
+
+const fn build_pawn_attacks() -> [[u64; 64]; 2] {
+    let mut attacks = [[0; 64]; 2];
+    let mut square = 0;
+    while square < 64 {
+        let bit = 1_u64 << square;
+        attacks[Color::White as usize][square] =
+            ((bit & NOT_FILE_A) << 7) | ((bit & NOT_FILE_H) << 9);
+        attacks[Color::Black as usize][square] =
+            ((bit & NOT_FILE_A) >> 9) | ((bit & NOT_FILE_H) >> 7);
+        square += 1;
+    }
+    attacks
+}
+
+const fn build_knight_attacks() -> [u64; 64] {
+    let mut attacks = [0; 64];
+    let mut square = 0;
+    while square < 64 {
+        let bit = 1_u64 << square;
+        attacks[square] = ((bit & NOT_FILE_A) << 15)
+            | ((bit & NOT_FILE_H) << 17)
+            | ((bit & NOT_FILE_AB) << 6)
+            | ((bit & NOT_FILE_GH) << 10)
+            | ((bit & NOT_FILE_A) >> 17)
+            | ((bit & NOT_FILE_H) >> 15)
+            | ((bit & NOT_FILE_AB) >> 10)
+            | ((bit & NOT_FILE_GH) >> 6);
+        square += 1;
+    }
+    attacks
+}
+
+const fn build_king_attacks() -> [u64; 64] {
+    let mut attacks = [0; 64];
+    let mut square = 0;
+    while square < 64 {
+        let bit = 1_u64 << square;
+        attacks[square] = (bit << 8)
+            | (bit >> 8)
+            | ((bit & NOT_FILE_H) << 1)
+            | ((bit & NOT_FILE_A) >> 1)
+            | ((bit & NOT_FILE_H) << 9)
+            | ((bit & NOT_FILE_A) << 7)
+            | ((bit & NOT_FILE_H) >> 7)
+            | ((bit & NOT_FILE_A) >> 9);
+        square += 1;
+    }
+    attacks
 }
 
 const fn build_between() -> [[u64; 64]; 64] {
