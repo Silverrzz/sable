@@ -72,7 +72,8 @@ pub(super) fn apply_feature_delta(
 }
 
 pub(super) fn apply_feature_deltas(
-    accumulator: &mut [i16; RUNESTONE_HIDDEN],
+    source: &[i16; RUNESTONE_HIDDEN],
+    target: &mut [i16; RUNESTONE_HIDDEN],
     feature_weights: &[i16],
     updates: &FeatureUpdateList,
 ) {
@@ -80,8 +81,9 @@ pub(super) fn apply_feature_deltas(
         && updates.updates[0].sign == -1
         && updates.updates[1].sign == 1
     {
-        crate::simd::apply_feature_delta_pair(
-            accumulator,
+        crate::simd::copy_feature_delta_pair(
+            source,
+            target,
             feature_weights,
             RUNESTONE_HIDDEN,
             updates.updates[0].feature,
@@ -94,8 +96,9 @@ pub(super) fn apply_feature_deltas(
         && updates.updates[1].sign == -1
         && updates.updates[2].sign == 1
     {
-        crate::simd::apply_feature_delta_triplet(
-            accumulator,
+        crate::simd::copy_feature_delta_triplet(
+            source,
+            target,
             feature_weights,
             RUNESTONE_HIDDEN,
             updates.updates[0].feature,
@@ -113,8 +116,9 @@ pub(super) fn apply_feature_deltas(
         signs[len] = update.sign;
         len += 1;
     }
+    target.copy_from_slice(source);
     apply_feature_delta_batch(
-        accumulator,
+        target,
         feature_weights,
         &features[..len],
         &signs[..len],

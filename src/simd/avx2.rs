@@ -88,22 +88,24 @@ pub(super) unsafe fn apply_feature_deltas(
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
-pub(super) unsafe fn apply_feature_delta_pair(
-    accumulator: &mut [i16],
+pub(super) unsafe fn copy_feature_delta_pair(
+    source: &[i16],
+    target: &mut [i16],
     feature_weights: &[i16],
     hidden_size: usize,
     remove: usize,
     add: usize,
 ) {
     unsafe {
-        let len = accumulator.len();
+        let len = source.len();
         let mut idx = 0_usize;
-        let acc_ptr = accumulator.as_mut_ptr();
+        let source_ptr = source.as_ptr();
+        let target_ptr = target.as_mut_ptr();
         let remove_ptr = feature_weights.as_ptr().add(remove * hidden_size);
         let add_ptr = feature_weights.as_ptr().add(add * hidden_size);
 
         while idx + 16 <= len {
-            let acc = _mm256_loadu_si256(acc_ptr.add(idx) as *const __m256i);
+            let acc = _mm256_loadu_si256(source_ptr.add(idx) as *const __m256i);
             let removed = _mm256_sub_epi16(
                 acc,
                 _mm256_loadu_si256(remove_ptr.add(idx) as *const __m256i),
@@ -112,12 +114,12 @@ pub(super) unsafe fn apply_feature_delta_pair(
                 removed,
                 _mm256_loadu_si256(add_ptr.add(idx) as *const __m256i),
             );
-            _mm256_storeu_si256(acc_ptr.add(idx) as *mut __m256i, updated);
+            _mm256_storeu_si256(target_ptr.add(idx) as *mut __m256i, updated);
             idx += 16;
         }
 
         while idx < len {
-            *acc_ptr.add(idx) = (*acc_ptr.add(idx))
+            *target_ptr.add(idx) = (*source_ptr.add(idx))
                 .wrapping_sub(*remove_ptr.add(idx))
                 .wrapping_add(*add_ptr.add(idx));
             idx += 1;
@@ -127,8 +129,9 @@ pub(super) unsafe fn apply_feature_delta_pair(
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
-pub(super) unsafe fn apply_feature_delta_triplet(
-    accumulator: &mut [i16],
+pub(super) unsafe fn copy_feature_delta_triplet(
+    source: &[i16],
+    target: &mut [i16],
     feature_weights: &[i16],
     hidden_size: usize,
     remove_first: usize,
@@ -136,15 +139,16 @@ pub(super) unsafe fn apply_feature_delta_triplet(
     add: usize,
 ) {
     unsafe {
-        let len = accumulator.len();
+        let len = source.len();
         let mut idx = 0_usize;
-        let acc_ptr = accumulator.as_mut_ptr();
+        let source_ptr = source.as_ptr();
+        let target_ptr = target.as_mut_ptr();
         let remove_first_ptr = feature_weights.as_ptr().add(remove_first * hidden_size);
         let remove_second_ptr = feature_weights.as_ptr().add(remove_second * hidden_size);
         let add_ptr = feature_weights.as_ptr().add(add * hidden_size);
 
         while idx + 16 <= len {
-            let acc = _mm256_loadu_si256(acc_ptr.add(idx) as *const __m256i);
+            let acc = _mm256_loadu_si256(source_ptr.add(idx) as *const __m256i);
             let removed_first = _mm256_sub_epi16(
                 acc,
                 _mm256_loadu_si256(remove_first_ptr.add(idx) as *const __m256i),
@@ -157,12 +161,12 @@ pub(super) unsafe fn apply_feature_delta_triplet(
                 removed_second,
                 _mm256_loadu_si256(add_ptr.add(idx) as *const __m256i),
             );
-            _mm256_storeu_si256(acc_ptr.add(idx) as *mut __m256i, updated);
+            _mm256_storeu_si256(target_ptr.add(idx) as *mut __m256i, updated);
             idx += 16;
         }
 
         while idx < len {
-            *acc_ptr.add(idx) = (*acc_ptr.add(idx))
+            *target_ptr.add(idx) = (*source_ptr.add(idx))
                 .wrapping_sub(*remove_first_ptr.add(idx))
                 .wrapping_sub(*remove_second_ptr.add(idx))
                 .wrapping_add(*add_ptr.add(idx));
@@ -179,14 +183,75 @@ pub(super) unsafe fn screlu_dot_i16_dual(
     right_accumulator: &[i16],
     right_weights: &[i16],
     qa: i16,
+    narrow_weights: bool,
 ) -> i64 {
     unsafe {
+        if qa <= 255 && narrow_weights {
+            return screlu_dot_i16_narrow_dual(
+                left_accumulator,
+                left_weights,
+                right_accumulator,
+                right_weights,
+                qa,
+            );
+        }
         if qa <= 255 {
             return screlu_dot_i16_u8(left_accumulator, left_weights, qa)
                 + screlu_dot_i16_u8(right_accumulator, right_weights, qa);
         }
         screlu_dot_i16_wide(left_accumulator, left_weights, qa)
             + screlu_dot_i16_wide(right_accumulator, right_weights, qa)
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn screlu_dot_i16_narrow_dual(
+    left_accumulator: &[i16],
+    left_weights: &[i16],
+    right_accumulator: &[i16],
+    right_weights: &[i16],
+    qa: i16,
+) -> i64 {
+    unsafe {
+        let zero = _mm256_setzero_si256();
+        let qa_vec = _mm256_set1_epi16(qa);
+        let mut sum = _mm256_setzero_si256();
+        let mut tail = 0_i64;
+
+        let mut idx = 0_usize;
+        while idx + 16 <= left_accumulator.len() {
+            let acc = _mm256_loadu_si256(left_accumulator.as_ptr().add(idx) as *const __m256i);
+            let clamped = _mm256_min_epi16(_mm256_max_epi16(acc, zero), qa_vec);
+            let weights = _mm256_loadu_si256(left_weights.as_ptr().add(idx) as *const __m256i);
+            let weighted = _mm256_mullo_epi16(clamped, weights);
+            sum = _mm256_add_epi32(sum, _mm256_madd_epi16(weighted, clamped));
+            idx += 16;
+        }
+        while idx < left_accumulator.len() {
+            let value = i64::from(*left_accumulator.get_unchecked(idx)).clamp(0, i64::from(qa));
+            tail += value * value * i64::from(*left_weights.get_unchecked(idx));
+            idx += 1;
+        }
+
+        idx = 0;
+        while idx + 16 <= right_accumulator.len() {
+            let acc = _mm256_loadu_si256(right_accumulator.as_ptr().add(idx) as *const __m256i);
+            let clamped = _mm256_min_epi16(_mm256_max_epi16(acc, zero), qa_vec);
+            let weights = _mm256_loadu_si256(right_weights.as_ptr().add(idx) as *const __m256i);
+            let weighted = _mm256_mullo_epi16(clamped, weights);
+            sum = _mm256_add_epi32(sum, _mm256_madd_epi16(weighted, clamped));
+            idx += 16;
+        }
+        while idx < right_accumulator.len() {
+            let value = i64::from(*right_accumulator.get_unchecked(idx)).clamp(0, i64::from(qa));
+            tail += value * value * i64::from(*right_weights.get_unchecked(idx));
+            idx += 1;
+        }
+
+        let low = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(sum));
+        let high = _mm256_cvtepi32_epi64(_mm256_extracti128_si256(sum, 1));
+        tail + horizontal_sum_i64(_mm256_add_epi64(low, high))
     }
 }
 
