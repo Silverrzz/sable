@@ -1,6 +1,7 @@
 
 use crate::{
     Board, Color, GameStatus, Move, Piece,
+    chess::MoveGenState,
     evaluation::{
         DRAW_SCORE, LOSS_SCORE,
         is_board_drawn,
@@ -66,11 +67,16 @@ pub(in crate::search) fn piece_value(piece: Piece) -> i32 {
     }
 }
 
-pub(in crate::search) fn terminal_score(board: &Board, repetition: bool, ply: u16) -> Option<i32> {
+pub(in crate::search) fn terminal_score(
+    board: &Board,
+    movegen: &MoveGenState,
+    repetition: bool,
+    ply: u16,
+) -> Option<i32> {
     if repetition || is_board_drawn(board) {
         return Some(DRAW_SCORE);
     }
-    match crate::chess::status(board) {
+    match crate::chess::status_with_movegen(board, movegen) {
         GameStatus::Ongoing => None,
         GameStatus::Drawn => Some(DRAW_SCORE),
         GameStatus::Won => Some(LOSS_SCORE.saturating_add(ply as i32)),

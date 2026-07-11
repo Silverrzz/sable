@@ -724,15 +724,6 @@ where
 }
 
 #[inline]
-pub(crate) fn generate_tactical_moves<F>(board: &Board, mut listener: F)
-where
-    F: FnMut(PieceMoves) -> bool,
-{
-    let movegen = MoveGenState::new(board);
-    generate_tactical_moves_with_state(board, &movegen, |moves| listener(moves));
-}
-
-#[inline]
 pub(crate) fn generate_tactical_moves_with_state<F>(
     board: &Board,
     movegen: &MoveGenState,

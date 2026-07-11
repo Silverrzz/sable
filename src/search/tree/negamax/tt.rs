@@ -98,7 +98,8 @@ fn tt_cutoff_pv(
         crate::chess::play_unchecked(&mut board, mv);
         let key = position_key(&board);
         let repetition = is_repetition(key, crate::chess::halfmove_clock(&board), &repetition_keys);
-        if terminal_score(&board, repetition, pv.len() as u16).is_some() {
+        let movegen = crate::chess::MoveGenState::new(&board);
+        if terminal_score(&board, &movegen, repetition, pv.len() as u16).is_some() {
             let status = if repetition {
                 TtPvStatus::RepetitionDraw
             } else {

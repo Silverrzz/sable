@@ -49,7 +49,11 @@ pub(in crate::search) struct SearchContextConfig<'a> {
 #[derive(Clone, Copy, Debug)]
 enum EvalPending {
     Root,
-    Move(Move),
+    Move {
+        mv: Move,
+        moving_piece: crate::Piece,
+        captured_piece: Option<crate::Piece>,
+    },
     NullMove,
 }
 
@@ -227,8 +231,22 @@ impl<'a> SearchContext<'a> {
         self.eval.ply = next_ply;
     }
 
-    pub(in crate::search) fn push_eval_state(&mut self, _before: &Board, after: &Board, mv: Move) {
-        self.push_eval_frame(after, EvalPending::Move(mv));
+    pub(in crate::search) fn push_eval_state(
+        &mut self,
+        _before: &Board,
+        after: &Board,
+        mv: Move,
+        moving_piece: crate::Piece,
+        captured_piece: Option<crate::Piece>,
+    ) {
+        self.push_eval_frame(
+            after,
+            EvalPending::Move {
+                mv,
+                moving_piece,
+                captured_piece,
+            },
+        );
     }
 
     pub(in crate::search) fn pop_eval_state(&mut self, _before: &Board, _mv: Move) {
@@ -272,12 +290,18 @@ impl<'a> SearchContext<'a> {
             let source = &previous[ply - 1];
             let target = &mut next[0];
             let updated = match self.eval.pending[ply] {
-                EvalPending::Move(mv) => model.update_accumulators_after_move(
+                EvalPending::Move {
+                    mv,
+                    moving_piece,
+                    captured_piece,
+                } => model.update_accumulators_after_move(
                     source,
                     target,
                     before,
                     after,
                     mv,
+                    moving_piece,
+                    captured_piece,
                     self.eval.finny.as_mut(),
                 ),
                 EvalPending::NullMove => {

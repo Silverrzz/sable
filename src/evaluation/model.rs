@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use crate::{Board, Color, EngineError, Move, Piece, pieces::ALL_PIECES};
+use crate::{Board, Color, EngineError, Move, Piece, chess::Rank, pieces::ALL_PIECES};
 
 use super::{
     features::{
@@ -316,14 +316,32 @@ impl NnueModel {
         before: &Board,
         after: &Board,
         mv: Move,
+        moving_piece: Piece,
+        captured_piece: Option<Piece>,
         mut finny: Option<&mut NnueFinnyTable>,
     ) -> bool {
+        let side = crate::chess::side_to_move(before);
+        let is_castle = moving_piece == Piece::King && crate::chess::colors(before, side).has(mv.to);
+        let captured = captured_piece.map(|piece| {
+            let square = if moving_piece == Piece::Pawn
+                && !crate::chess::colors(before, !side).has(mv.to)
+            {
+                crate::Square::new(mv.to.file(), Rank::Fifth.relative_to(side))
+            } else {
+                mv.to
+            };
+            (piece, square)
+        });
         let white = self.update_accumulator_after_move_for_perspective(
             &source.white,
             &mut target.white,
             before,
             after,
             mv,
+            side,
+            moving_piece,
+            captured,
+            is_castle,
             Color::White,
             finny.as_mut().map(|table| &mut **table),
         );
@@ -333,6 +351,10 @@ impl NnueModel {
             before,
             after,
             mv,
+            side,
+            moving_piece,
+            captured,
+            is_castle,
             Color::Black,
             finny.as_mut().map(|table| &mut **table),
         );
@@ -346,6 +368,10 @@ impl NnueModel {
         before: &Board,
         after: &Board,
         mv: Move,
+        side: Color,
+        moving_piece: Piece,
+        captured: Option<(Piece, crate::Square)>,
+        is_castle: bool,
         perspective: Color,
         finny: Option<&mut NnueFinnyTable>,
     ) -> bool {
@@ -354,6 +380,10 @@ impl NnueModel {
             target,
             before,
             mv,
+            side,
+            moving_piece,
+            captured,
+            is_castle,
             perspective,
         ) {
             return true;
@@ -367,9 +397,21 @@ impl NnueModel {
         target: &mut [i16; RUNESTONE_HIDDEN],
         before: &Board,
         mv: Move,
+        side: Color,
+        moving_piece: Piece,
+        captured: Option<(Piece, crate::Square)>,
+        is_castle: bool,
         perspective: Color,
     ) -> bool {
-        let Some(updates) = collect_move_feature_updates(before, mv, perspective) else {
+        let Some(updates) = collect_move_feature_updates(
+            before,
+            mv,
+            side,
+            moving_piece,
+            captured,
+            is_castle,
+            perspective,
+        ) else {
             return false;
         };
         apply_feature_deltas(source, target, self.feature_weights(), &updates);

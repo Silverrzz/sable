@@ -3,7 +3,7 @@ mod null_move;
 mod static_eval;
 mod tt;
 
-use crate::{Board, Move};
+use crate::{Board, Move, chess::MoveGenState};
 
 use super::{
     constants::*,
@@ -68,7 +68,8 @@ pub(in crate::search) fn negamax(
     if context.should_stop().is_some() {
         return None;
     }
-    if let Some(score) = terminal_score(board, repetition, ply) {
+    let movegen = MoveGenState::new(board);
+    if let Some(score) = terminal_score(board, &movegen, repetition, ply) {
         return Some(terminal_outcome(score, repetition));
     }
     let alpha_start = alpha;
@@ -84,7 +85,7 @@ pub(in crate::search) fn negamax(
         return Some(outcome);
     }
 
-    let in_check = !crate::chess::checkers(board).is_empty();
+    let in_check = movegen.in_check();
     let needs_full_mate_search = requires_full_mate_search(alpha, beta);
     let expected_cut_node = !is_pv_node && beta == alpha.saturating_add(1);
     let hash_move = tt_entry.and_then(|entry| entry.best_move);
@@ -163,6 +164,7 @@ pub(in crate::search) fn negamax(
     match try_probcut(
         ProbCutParams {
             board,
+            movegen: &movegen,
             repetition,
             depth,
             root_depth,
@@ -187,6 +189,7 @@ pub(in crate::search) fn negamax(
     let loop_result = search_move_loop(
         MoveLoopParams {
             board,
+            movegen: &movegen,
             previous_pv,
             previous_move,
             correction_context,
@@ -225,6 +228,7 @@ pub(in crate::search) fn negamax(
 
 struct ProbCutParams<'a> {
     board: &'a Board,
+    movegen: &'a MoveGenState,
     repetition: bool,
     depth: u32,
     root_depth: u32,
@@ -263,6 +267,7 @@ fn try_probcut(
     let mut moves = MovePicker::new();
     collect_moves_into(
         params.board,
+        params.movegen,
         MoveFilter::Tactical,
         tt_move,
         params.previous_move,
@@ -271,9 +276,6 @@ fn try_probcut(
     );
 
     while let Some(ordered) = moves.next(params.board, context.ordering()) {
-        if context.should_stop().is_some() {
-            return PruneResult::Interrupted;
-        }
         let see = ordered
             .see
             .unwrap_or_else(|| {
@@ -289,10 +291,22 @@ fn try_probcut(
         }
 
         let mut next = params.board.clone();
-        crate::chess::play_unchecked(&mut next, ordered.mv);
+        crate::chess::play_generated_move_unchecked(
+            &mut next,
+            ordered.mv,
+            ordered.moving_piece,
+            ordered.captured_piece,
+        );
         let next_key = position_key(&next);
+        context.transposition_table().prefetch(next_key);
         let next_repetition = context.push_position(&next, next_key);
-        context.push_eval_state(params.board, &next, ordered.mv);
+        context.push_eval_state(
+            params.board,
+            &next,
+            ordered.mv,
+            ordered.moving_piece,
+            ordered.captured_piece,
+        );
         let child_correction_context =
             params.correction_context.after_move(ordered.mv, ordered.moving_piece);
 
