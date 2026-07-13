@@ -620,7 +620,7 @@ fn has_shard_header(bytes: &[u8]) -> bool {
         && read_u32(bytes, 32) == Some(SHARD_OUTPUT_SCALE as u32)
         && read_u32(bytes, 36) == Some(SHARD_QA as u32)
         && read_u32(bytes, 40) == Some(SHARD_QB as u32)
-        && read_u32(bytes, 44) == Some(1)
+        && read_u32(bytes, 44) == Some(3)
         && read_u32(bytes, 64) == Some(SHARD_HIDDEN as u32)
 }
 
