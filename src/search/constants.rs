@@ -204,10 +204,6 @@ pub fn spsa_parameters() -> Vec<SpsaParameter> {
         .collect()
 }
 
-pub(crate) fn is_spsa_parameter(name: &str) -> bool {
-    find_spsa_parameter(name).is_some()
-}
-
 pub(crate) fn set_spsa_parameter(
     name: &str,
     value: Option<&str>,

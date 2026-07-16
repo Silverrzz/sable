@@ -21,7 +21,7 @@ use crate::{
     search::{
         PersistentSearchState, PositionKey, SearchBudget, SearchInfo, SearchRequest, SearchResult,
         StaticEval, StaticEvalSource, TranspositionTable, is_claimable_repetition_draw,
-        is_spsa_parameter, max_depth_from_limits, position_key, run_search, select_candidate_moves,
+        max_depth_from_limits, position_key, run_search, select_candidate_moves,
     },
     protocol::uci::{format_uci_move_for_board, mate_score_to_uci, parse_legal_move_for_board},
 };
@@ -106,7 +106,6 @@ impl Engine {
 
     pub fn set_option(&mut self, name: &str, value: Option<&str>) -> Result<(), EngineError> {
         let normalized = name.to_ascii_lowercase().replace(' ', "");
-        let spsa_parameter = is_spsa_parameter(name);
         let previous_hash_mb = self.options.hash_mb;
         if normalized == "clearhash" {
             self.clear_hash();
@@ -115,13 +114,8 @@ impl Engine {
             self.set_eval_file_option(name, value)?;
         }
         apply_engine_option(&mut self.options, name, value)?;
-        if spsa_parameter
-            || should_reset_transposition_table(&normalized, self.options.hash_mb, previous_hash_mb)
-        {
+        if should_reset_transposition_table(&normalized, self.options.hash_mb, previous_hash_mb) {
             self.transposition_table = TranspositionTable::new(self.options.hash_mb);
-        }
-        if spsa_parameter {
-            self.search_state.reset();
         }
         Ok(())
     }

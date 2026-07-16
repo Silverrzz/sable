@@ -73,17 +73,22 @@ fn main() -> Result<()> {
 }
 
 fn print_spsa_parameters() {
-    for parameter in spsa_parameters() {
-        println!(
-            "{}, int, {}, {}, {}, {}, {}",
-            parameter.name,
-            parameter.value,
-            parameter.min,
-            parameter.max,
-            parameter.c_end,
-            parameter.r_end,
-        );
-    }
+    let output = spsa_parameters()
+        .into_iter()
+        .map(|parameter| {
+            format!(
+                "{}, int, {}, {}, {}, {}, {}",
+                parameter.name,
+                parameter.value,
+                parameter.min,
+                parameter.max,
+                parameter.c_end,
+                parameter.r_end,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    print!("{output}");
 }
 
 fn protocol_script_commands() -> Option<Vec<String>> {
