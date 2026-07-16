@@ -34,6 +34,9 @@ pub(crate) fn apply_engine_option(
     name: &str,
     value: Option<&str>,
 ) -> Result<(), EngineError> {
+    if crate::search::set_spsa_parameter(name, value)? {
+        return Ok(());
+    }
     match EngineOption::from_name(name)? {
         EngineOption::Hash => options.hash_mb = parse_u32_option(name, value, 1, 32768)?,
         EngineOption::Threads => options.threads = parse_u32_option(name, value, 1, 256)?,

@@ -99,35 +99,35 @@ impl CorrectionHistory {
     ) {
         let target = score
             .saturating_sub(raw_eval)
-            .clamp(-MAX_CORRECTION_HISTORY_SCORE, MAX_CORRECTION_HISTORY_SCORE);
+            .clamp(-MAX_CORRECTION_HISTORY_SCORE(), MAX_CORRECTION_HISTORY_SCORE());
         let weight = correction_history_weight(depth);
         let side = crate::chess::side_to_move(board) as usize;
 
         update_correction_value(
             &mut self.pawn[pawn_correction_index(board, side)],
             target,
-            scaled_update_weight(weight, CORRECTION_HISTORY_PAWN_UPDATE_SCALE),
+            scaled_update_weight(weight, CORRECTION_HISTORY_PAWN_UPDATE_SCALE()),
         );
         update_correction_value(
             &mut self.minor[minor_correction_index(board, side)],
             target,
-            scaled_update_weight(weight, CORRECTION_HISTORY_MINOR_UPDATE_SCALE),
+            scaled_update_weight(weight, CORRECTION_HISTORY_MINOR_UPDATE_SCALE()),
         );
         update_correction_value(
             &mut self.non_pawn_white[non_pawn_correction_index(board, side, Color::White)],
             target,
-            scaled_update_weight(weight, CORRECTION_HISTORY_NON_PAWN_UPDATE_SCALE),
+            scaled_update_weight(weight, CORRECTION_HISTORY_NON_PAWN_UPDATE_SCALE()),
         );
         update_correction_value(
             &mut self.non_pawn_black[non_pawn_correction_index(board, side, Color::Black)],
             target,
-            scaled_update_weight(weight, CORRECTION_HISTORY_NON_PAWN_UPDATE_SCALE),
+            scaled_update_weight(weight, CORRECTION_HISTORY_NON_PAWN_UPDATE_SCALE()),
         );
         if let Some(previous) = correction_context.previous {
             update_correction_value(
                 &mut self.continuation_previous[continuation_correction_index(side, previous)],
                 target,
-                scaled_update_weight(weight, CORRECTION_HISTORY_PREVIOUS_UPDATE_SCALE),
+                scaled_update_weight(weight, CORRECTION_HISTORY_PREVIOUS_UPDATE_SCALE()),
             );
         }
         if let Some(previous_same_side) = correction_context.previous_same_side {
@@ -135,7 +135,7 @@ impl CorrectionHistory {
                 &mut self.continuation_same_side
                     [continuation_correction_index(side, previous_same_side)],
                 target,
-                scaled_update_weight(weight, CORRECTION_HISTORY_SAME_SIDE_UPDATE_SCALE),
+                scaled_update_weight(weight, CORRECTION_HISTORY_SAME_SIDE_UPDATE_SCALE()),
             );
         }
     }
@@ -152,32 +152,32 @@ impl CorrectionHistory {
             &mut sum,
             &mut weight_sum,
             self.pawn[pawn_correction_index(board, side)],
-            CORRECTION_HISTORY_PAWN_WEIGHT,
+            CORRECTION_HISTORY_PAWN_WEIGHT(),
         );
         add_weighted_correction(
             &mut sum,
             &mut weight_sum,
             self.minor[minor_correction_index(board, side)],
-            CORRECTION_HISTORY_MINOR_WEIGHT,
+            CORRECTION_HISTORY_MINOR_WEIGHT(),
         );
         add_weighted_correction(
             &mut sum,
             &mut weight_sum,
             self.non_pawn_white[non_pawn_correction_index(board, side, Color::White)],
-            CORRECTION_HISTORY_NON_PAWN_WEIGHT,
+            CORRECTION_HISTORY_NON_PAWN_WEIGHT(),
         );
         add_weighted_correction(
             &mut sum,
             &mut weight_sum,
             self.non_pawn_black[non_pawn_correction_index(board, side, Color::Black)],
-            CORRECTION_HISTORY_NON_PAWN_WEIGHT,
+            CORRECTION_HISTORY_NON_PAWN_WEIGHT(),
         );
         if let Some(previous) = correction_context.previous {
             add_weighted_correction(
                 &mut sum,
                 &mut weight_sum,
                 self.continuation_previous[continuation_correction_index(side, previous)],
-                CORRECTION_HISTORY_PREVIOUS_WEIGHT,
+                CORRECTION_HISTORY_PREVIOUS_WEIGHT(),
             );
         }
         if let Some(previous_same_side) = correction_context.previous_same_side {
@@ -188,7 +188,7 @@ impl CorrectionHistory {
                     side,
                     previous_same_side,
                 )],
-                CORRECTION_HISTORY_SAME_SIDE_WEIGHT,
+                CORRECTION_HISTORY_SAME_SIDE_WEIGHT(),
             );
         }
         if weight_sum == 0 {
@@ -239,8 +239,8 @@ pub(in crate::search) fn scaled_update_weight(weight: i32, scale: i32) -> i32 {
 pub(in crate::search) fn update_correction_value(value: &mut i32, target: i32, weight: i32) {
     let delta = target.saturating_sub(*value);
     *value = (*value)
-        .saturating_add(delta.saturating_mul(weight) / CORRECTION_HISTORY_UPDATE_DIVISOR)
-        .clamp(-MAX_CORRECTION_HISTORY_SCORE, MAX_CORRECTION_HISTORY_SCORE);
+        .saturating_add(delta.saturating_mul(weight) / CORRECTION_HISTORY_UPDATE_DIVISOR())
+        .clamp(-MAX_CORRECTION_HISTORY_SCORE(), MAX_CORRECTION_HISTORY_SCORE());
 }
 
 pub(in crate::search) fn decay_correction_table(values: &mut [i32]) {

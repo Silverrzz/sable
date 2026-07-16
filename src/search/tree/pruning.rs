@@ -32,13 +32,13 @@ pub(in crate::search) fn internal_iterative_reduction(
         || in_check
         || needs_full_mate_search
         || has_hash_move
-        || depth < INTERNAL_ITERATIVE_REDUCTION_MIN_DEPTH
+        || depth < INTERNAL_ITERATIVE_REDUCTION_MIN_DEPTH()
     {
         return 0;
     }
 
     if is_pv_node || expected_cut_node {
-        INTERNAL_ITERATIVE_REDUCTION.min(depth.saturating_sub(1))
+        INTERNAL_ITERATIVE_REDUCTION().min(depth.saturating_sub(1))
     } else {
         0
     }
@@ -178,8 +178,8 @@ pub(in crate::search) fn late_move_reduction(
     move_score: i32,
     _search_profile: SearchProfile,
 ) -> u32 {
-    if depth < LMR_MIN_DEPTH
-        || searched_moves < LMR_MIN_MOVE_INDEX
+    if depth < LMR_MIN_DEPTH()
+        || searched_moves < LMR_MIN_MOVE_INDEX()
         || !is_quiet
         || move_score >= COUNTER_MOVE_SCORE
     {
@@ -232,7 +232,7 @@ pub(in crate::search) fn late_move_reduction(
         reduction = reduction.saturating_sub(1);
     }
     if gives_check {
-        reduction = reduction.saturating_sub(SPARSE_ENDGAME_QUIET_CHECK_LMR_PROTECTION);
+        reduction = reduction.saturating_sub(SPARSE_ENDGAME_QUIET_CHECK_LMR_PROTECTION());
     }
 
     reduction.min(depth.saturating_sub(1))
@@ -247,7 +247,7 @@ pub(in crate::search) fn should_try_null_move(
     allow_null_move: bool,
 ) -> bool {
     allow_null_move
-        && depth >= NULL_MOVE_MIN_DEPTH
+        && depth >= NULL_MOVE_MIN_DEPTH()
         && !is_pv_node
         && !in_check
         && side_has_non_pawn_material(board)
@@ -261,12 +261,12 @@ pub(in crate::search) fn null_move_reduction(
     search_profile: SearchProfile,
 ) -> u32 {
     let eval_margin = static_eval.saturating_sub(beta).max(0);
-    let eval_reduction = (eval_margin / NULL_MOVE_EVAL_MARGIN_PER_REDUCTION) as u32;
-    let mut reduction = NULL_MOVE_BASE_REDUCTION
-        .saturating_add(depth / NULL_MOVE_DEPTH_REDUCTION_DIVISOR)
-        .saturating_add(eval_reduction.min(NULL_MOVE_MAX_EVAL_REDUCTION));
+    let eval_reduction = (eval_margin / NULL_MOVE_EVAL_MARGIN_PER_REDUCTION()) as u32;
+    let mut reduction = NULL_MOVE_BASE_REDUCTION()
+        .saturating_add(depth / NULL_MOVE_DEPTH_REDUCTION_DIVISOR())
+        .saturating_add(eval_reduction.min(NULL_MOVE_MAX_EVAL_REDUCTION()));
     if search_profile.sparse_pawnless_endgame() {
-        reduction = reduction.saturating_sub(NULL_MOVE_SPARSE_ENDGAME_REDUCTION_PROTECTION);
+        reduction = reduction.saturating_sub(NULL_MOVE_SPARSE_ENDGAME_REDUCTION_PROTECTION());
     }
     reduction.min(depth.saturating_sub(1))
 }
@@ -276,7 +276,7 @@ pub(in crate::search) fn should_verify_null_move(
     depth: u32,
     search_profile: SearchProfile,
 ) -> bool {
-    depth >= NULL_MOVE_VERIFICATION_MIN_DEPTH || search_profile.sparse_pawnless_endgame()
+    depth >= NULL_MOVE_VERIFICATION_MIN_DEPTH() || search_profile.sparse_pawnless_endgame()
 }
 
 #[inline]
@@ -327,21 +327,21 @@ pub(in crate::search) fn requires_full_mate_search(alpha: i32, beta: i32) -> boo
 
 #[inline]
 pub(in crate::search) fn reverse_futility_margin(depth: u32) -> i32 {
-    REVERSE_FUTILITY_BASE_MARGIN
-        + REVERSE_FUTILITY_MARGIN_PER_DEPTH.saturating_mul(depth.min(32) as i32)
+    REVERSE_FUTILITY_BASE_MARGIN()
+        + REVERSE_FUTILITY_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32)
 }
 
 #[inline]
 pub(in crate::search) fn razor_margin(depth: u32) -> i32 {
-    RAZOR_BASE_MARGIN + RAZOR_MARGIN_PER_DEPTH.saturating_mul(depth.min(32) as i32)
+    RAZOR_BASE_MARGIN() + RAZOR_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32)
 }
 
 #[inline]
 pub(in crate::search) fn futility_margin(depth: u32, improving: bool) -> i32 {
-    let base = FUTILITY_BASE_MARGIN
-        + FUTILITY_MARGIN_PER_DEPTH.saturating_mul(depth.min(32) as i32);
+    let base = FUTILITY_BASE_MARGIN()
+        + FUTILITY_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32);
     if improving {
-        base.saturating_add(FUTILITY_IMPROVING_MARGIN)
+        base.saturating_add(FUTILITY_IMPROVING_MARGIN())
     } else {
         base
     }
@@ -349,7 +349,7 @@ pub(in crate::search) fn futility_margin(depth: u32, improving: bool) -> i32 {
 
 #[inline]
 pub(in crate::search) fn see_pruning_margin(depth: u32) -> i32 {
-    SEE_PRUNING_BASE_MARGIN + SEE_PRUNING_MARGIN_PER_DEPTH.saturating_mul(depth.min(32) as i32)
+    SEE_PRUNING_BASE_MARGIN() + SEE_PRUNING_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32)
 }
 
 #[inline]
@@ -358,7 +358,7 @@ pub(in crate::search) fn should_reverse_futility_prune(
     static_eval: i32,
     beta: i32,
 ) -> Option<i32> {
-    if depth > REVERSE_FUTILITY_MAX_DEPTH {
+    if depth > REVERSE_FUTILITY_MAX_DEPTH() {
         return None;
     }
     let score = static_eval.saturating_sub(reverse_futility_margin(depth));
@@ -367,7 +367,7 @@ pub(in crate::search) fn should_reverse_futility_prune(
 
 #[inline]
 pub(in crate::search) fn should_try_razoring(depth: u32, static_eval: i32, alpha: i32) -> bool {
-    depth <= RAZOR_MAX_DEPTH && static_eval.saturating_add(razor_margin(depth)) <= alpha
+    depth <= RAZOR_MAX_DEPTH() && static_eval.saturating_add(razor_margin(depth)) <= alpha
 }
 
 #[inline]
@@ -378,7 +378,7 @@ pub(in crate::search) fn should_futility_prune_quiet(
     quiet_score: i32,
     improving: bool,
 ) -> bool {
-    depth <= FUTILITY_MAX_DEPTH
+    depth <= FUTILITY_MAX_DEPTH()
         && quiet_score < COUNTER_MOVE_SCORE
         && static_eval
             .saturating_add(futility_margin(depth, improving))
@@ -393,7 +393,7 @@ pub(in crate::search) fn is_see_prune_candidate(depth: u32, is_pv_node: bool, se
 
 #[inline]
 pub(in crate::search) fn can_try_see_pruning(depth: u32, is_pv_node: bool, searched_moves: u32) -> bool {
-    depth <= SEE_PRUNING_MAX_DEPTH && !is_pv_node && searched_moves > 0
+    depth <= SEE_PRUNING_MAX_DEPTH() && !is_pv_node && searched_moves > 0
 }
 
 #[inline]
@@ -411,14 +411,14 @@ pub(in crate::search) fn should_q_delta_prune_capture(
     stand_pat
         .saturating_add(piece_value(captured_piece))
         .saturating_add(promotion_gain)
-        .saturating_add(Q_DELTA_PRUNING_MARGIN)
+        .saturating_add(Q_DELTA_PRUNING_MARGIN())
         <= alpha
 }
 
 #[inline]
 pub(in crate::search) fn late_quiet_pruning_threshold(depth: u32, improving: bool) -> u32 {
-    let depth = depth.max(1).min(LATE_QUIET_PRUNING_MAX_DEPTH);
-    let threshold = LATE_QUIET_PRUNING_BASE_THRESHOLD
+    let depth = depth.max(1).min(LATE_QUIET_PRUNING_MAX_DEPTH());
+    let threshold = LATE_QUIET_PRUNING_BASE_THRESHOLD()
         .saturating_add(depth.saturating_mul(depth));
     let threshold = if improving {
         threshold
@@ -441,7 +441,7 @@ pub(in crate::search) fn should_prune_late_quiet(
     quiet_score: i32,
     improving: bool,
 ) -> bool {
-    depth <= LATE_QUIET_PRUNING_MAX_DEPTH
+    depth <= LATE_QUIET_PRUNING_MAX_DEPTH()
         && quiet_score < COUNTER_MOVE_SCORE
         && searched_moves >= late_quiet_pruning_threshold(depth, improving)
 }

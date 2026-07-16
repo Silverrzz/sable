@@ -19,7 +19,7 @@ pub use evaluation::{
 };
 pub(crate) use options::EngineOptions;
 pub use search::{
-    SearchBudget, SearchInfo, SearchLimits, SearchRequest, SearchResult, StaticEval,
-    StaticEvalSource, TimeControl,
+    SearchBudget, SearchInfo, SearchLimits, SearchRequest, SearchResult, SpsaParameter,
+    StaticEval, StaticEvalSource, TimeControl, spsa_parameters,
 };
 pub use simd::runtime_backend_name as runtime_simd_backend;

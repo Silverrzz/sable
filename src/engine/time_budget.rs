@@ -1,17 +1,14 @@
 use crate::{
     Board, Color, EngineOptions,
-    search::{SearchBudget, SearchRequest},
+    search::{
+        DEFAULT_TIME_ALLOCATION_DIVISOR, HARD_TIME_CLOCK_PERMILLE,
+        HARD_TIME_SOFT_MULTIPLIER_PERMILLE, INCREMENT_TIME_PERMILLE, SearchBudget, SearchRequest,
+    },
 };
 
 const TIME_SAFETY_MARGIN_MS: u64 = 25;
 const CLOCK_RESERVE_DIVISOR: u64 = 40;
 const CLOCK_RESERVE_MAX_MS: u64 = 500;
-const DEFAULT_TIME_ALLOCATION_DIVISOR: u64 = 16;
-const INCREMENT_TIME_NUMERATOR: u64 = 17;
-const INCREMENT_TIME_DENOMINATOR: u64 = 20;
-const HARD_TIME_SOFT_MULTIPLIER: u64 = 4;
-const HARD_TIME_CLOCK_NUMERATOR: u64 = 4;
-const HARD_TIME_CLOCK_DENOMINATOR: u64 = 5;
 
 pub(super) fn compute_search_budget(
     board: &Board,
@@ -42,16 +39,16 @@ pub(super) fn compute_search_budget(
     let divisor = time_control
         .moves_to_go
         .map(u64::from)
-        .unwrap_or(DEFAULT_TIME_ALLOCATION_DIVISOR)
+        .unwrap_or_else(DEFAULT_TIME_ALLOCATION_DIVISOR)
         .max(1);
-    let increment_share =
-        increment_ms.saturating_mul(INCREMENT_TIME_NUMERATOR) / INCREMENT_TIME_DENOMINATOR;
+    let increment_share = increment_ms.saturating_mul(INCREMENT_TIME_PERMILLE()) / 1_000;
     let target_soft = (available_ms / divisor)
         .saturating_add(increment_share)
         .min(available_ms);
-    let hard_by_soft = target_soft.saturating_mul(HARD_TIME_SOFT_MULTIPLIER);
-    let hard_by_clock =
-        available_ms.saturating_mul(HARD_TIME_CLOCK_NUMERATOR) / HARD_TIME_CLOCK_DENOMINATOR;
+    let hard_by_soft = target_soft
+        .saturating_mul(HARD_TIME_SOFT_MULTIPLIER_PERMILLE())
+        / 1_000;
+    let hard_by_clock = available_ms.saturating_mul(HARD_TIME_CLOCK_PERMILLE()) / 1_000;
     let hard = hard_by_soft.min(hard_by_clock).min(available_ms);
     let soft = target_soft.min(hard);
 

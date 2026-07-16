@@ -211,7 +211,7 @@ pub(in crate::search) fn tactical_move_score_with_history(
                 candidate.mv.to,
                 candidate.captured_piece,
             ),
-            CAPTURE_HISTORY_ORDERING_DIVISOR,
+            CAPTURE_HISTORY_ORDERING_DIVISOR(),
         ),
     )
 }

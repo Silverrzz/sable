@@ -133,7 +133,7 @@ where
                 },
             },
             |info| {
-                if info.depth.unwrap_or(0) >= ASPIRATION_MIN_DEPTH {
+                if info.depth.unwrap_or(0) >= ASPIRATION_MIN_DEPTH() {
                     helper_start.store(true, Ordering::Relaxed);
                 }
                 observer(info);
@@ -178,7 +178,7 @@ pub(in crate::search) fn lazy_smp_worker_depth(nominal_depth: u32, worker_id: us
 }
 
 fn lazy_smp_worker_depth_offset(nominal_depth: u32, worker_id: usize) -> u32 {
-    if worker_id == 0 || nominal_depth <= ASPIRATION_MIN_DEPTH {
+    if worker_id == 0 || nominal_depth <= ASPIRATION_MIN_DEPTH() {
         return 0;
     }
     if worker_id % 2 == 0 { 2 } else { 1 }

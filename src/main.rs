@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use sable_engine::{
     Engine, SearchLimits, SearchRequest, embedded_eval_hash, embedded_eval_label,
-    has_embedded_eval, runtime_simd_backend,
+    has_embedded_eval, runtime_simd_backend, spsa_parameters,
 };
 use std::env;
 use std::io::{self, Write};
@@ -45,6 +45,7 @@ enum Command {
         count: usize,
     },
     Bmt5k,
+    Spsa,
     Version,
 }
 
@@ -60,10 +61,28 @@ fn main() -> Result<()> {
         Command::Bench => run_bench(),
         Command::Vbench { count } => run_verbose_bench(count),
         Command::Bmt5k => run_bmt5k(),
+        Command::Spsa => {
+            print_spsa_parameters();
+            Ok(())
+        }
         Command::Version => {
             print_version_info();
             Ok(())
         }
+    }
+}
+
+fn print_spsa_parameters() {
+    for parameter in spsa_parameters() {
+        println!(
+            "{}, int, {}, {}, {}, {}, {}",
+            parameter.name,
+            parameter.value,
+            parameter.min,
+            parameter.max,
+            parameter.c_end,
+            parameter.r_end,
+        );
     }
 }
 

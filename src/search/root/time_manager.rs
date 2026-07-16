@@ -68,7 +68,7 @@ impl IterativeTimeManager {
         if elapsed_ms >= limit_ms {
             return true;
         }
-        if completed_depth < TIME_MANAGER_MIN_PREDICTION_DEPTH || !self.dynamic_soft_enabled() {
+        if completed_depth < TIME_MANAGER_MIN_PREDICTION_DEPTH() || !self.dynamic_soft_enabled() {
             return false;
         }
         let Some(predicted_ms) = self.predicted_next_iteration_ms() else {
@@ -108,7 +108,7 @@ impl IterativeTimeManager {
             };
             self.last_score_delta = Some(delta);
             self.fail_low_multiplier_per_mille = fail_low_multiplier_per_mille(score_drop);
-            if delta <= TIME_MANAGER_STABLE_SCORE_CP {
+            if delta <= TIME_MANAGER_STABLE_SCORE_CP() {
                 self.score_stability = self.score_stability.saturating_add(1);
             } else {
                 self.score_stability = 0;
@@ -142,19 +142,33 @@ impl IterativeTimeManager {
 
     pub(in crate::search) fn soft_multiplier_per_mille(&self) -> u64 {
         let move_factor: u64 = match self.best_move_stability {
-            0 => 1_300,
-            1 => 1_150,
-            2 => 1_050,
-            3 => 1_000,
-            _ => 940,
+            0 => TIME_MANAGER_MOVE_UNSTABLE_MULTIPLIER(),
+            1 => TIME_MANAGER_MOVE_STABILITY_1_MULTIPLIER(),
+            2 => TIME_MANAGER_MOVE_STABILITY_2_MULTIPLIER(),
+            3 => TIME_MANAGER_MOVE_STABILITY_3_MULTIPLIER(),
+            _ => TIME_MANAGER_MOVE_STABLE_MULTIPLIER(),
         };
         let score_factor: u64 = match (self.last_score_delta, self.score_stability) {
-            (Some(delta), _) if delta >= 250 => 1_350,
-            (Some(delta), _) if delta >= 120 => 1_200,
-            (Some(delta), _) if delta >= 60 => 1_100,
-            (Some(delta), stability) if delta <= 12 && stability >= 3 => 920,
-            (Some(delta), stability) if delta <= TIME_MANAGER_STABLE_SCORE_CP && stability >= 2 => {
-                960
+            (Some(delta), _) if delta >= TIME_MANAGER_FAIL_LOW_BIG_DROP_CP() => {
+                TIME_MANAGER_SCORE_BIG_DELTA_MULTIPLIER()
+            }
+            (Some(delta), _) if delta >= TIME_MANAGER_FAIL_LOW_MEDIUM_DROP_CP() => {
+                TIME_MANAGER_SCORE_MEDIUM_DELTA_MULTIPLIER()
+            }
+            (Some(delta), _) if delta >= TIME_MANAGER_FAIL_LOW_SMALL_DROP_CP() => {
+                TIME_MANAGER_SCORE_SMALL_DELTA_MULTIPLIER()
+            }
+            (Some(delta), stability)
+                if delta <= TIME_MANAGER_VERY_STABLE_SCORE_CP()
+                    && stability >= TIME_MANAGER_VERY_STABLE_ITERATIONS() =>
+            {
+                TIME_MANAGER_SCORE_VERY_STABLE_MULTIPLIER()
+            }
+            (Some(delta), stability)
+                if delta <= TIME_MANAGER_STABLE_SCORE_CP()
+                    && stability >= TIME_MANAGER_STABLE_ITERATIONS() =>
+            {
+                TIME_MANAGER_SCORE_STABLE_MULTIPLIER()
             }
             _ => 1_000,
         };
@@ -164,8 +178,8 @@ impl IterativeTimeManager {
             .saturating_mul(self.fail_low_multiplier_per_mille)
             .saturating_div(1_000)
             .clamp(
-                TIME_MANAGER_MIN_SOFT_MULTIPLIER,
-                TIME_MANAGER_MAX_SOFT_MULTIPLIER,
+                TIME_MANAGER_MIN_SOFT_MULTIPLIER(),
+                TIME_MANAGER_MAX_SOFT_MULTIPLIER(),
             )
     }
 
@@ -177,31 +191,31 @@ impl IterativeTimeManager {
 
     pub(in crate::search) fn node_growth_per_mille(&self) -> u64 {
         let Some(last_nodes) = self.last_iteration_nodes else {
-            return TIME_MANAGER_DEFAULT_NODE_GROWTH_PERMILLE;
+            return TIME_MANAGER_DEFAULT_NODE_GROWTH_PERMILLE();
         };
         let Some(previous_nodes) = self.previous_iteration_nodes else {
-            return TIME_MANAGER_DEFAULT_NODE_GROWTH_PERMILLE;
+            return TIME_MANAGER_DEFAULT_NODE_GROWTH_PERMILLE();
         };
         if previous_nodes == 0 {
-            return TIME_MANAGER_DEFAULT_NODE_GROWTH_PERMILLE;
+            return TIME_MANAGER_DEFAULT_NODE_GROWTH_PERMILLE();
         }
         last_nodes
             .saturating_mul(1_000)
             .saturating_div(previous_nodes)
             .clamp(
-                TIME_MANAGER_MIN_NODE_GROWTH_PERMILLE,
-                TIME_MANAGER_MAX_NODE_GROWTH_PERMILLE,
+                TIME_MANAGER_MIN_NODE_GROWTH_PERMILLE(),
+                TIME_MANAGER_MAX_NODE_GROWTH_PERMILLE(),
             )
     }
 }
 
 pub(in crate::search) fn fail_low_multiplier_per_mille(score_drop: i32) -> u64 {
-    if score_drop >= TIME_MANAGER_FAIL_LOW_BIG_DROP_CP {
-        TIME_MANAGER_FAIL_LOW_BIG_MULTIPLIER
-    } else if score_drop >= TIME_MANAGER_FAIL_LOW_MEDIUM_DROP_CP {
-        TIME_MANAGER_FAIL_LOW_MEDIUM_MULTIPLIER
-    } else if score_drop >= TIME_MANAGER_FAIL_LOW_SMALL_DROP_CP {
-        TIME_MANAGER_FAIL_LOW_SMALL_MULTIPLIER
+    if score_drop >= TIME_MANAGER_FAIL_LOW_BIG_DROP_CP() {
+        TIME_MANAGER_FAIL_LOW_BIG_MULTIPLIER()
+    } else if score_drop >= TIME_MANAGER_FAIL_LOW_MEDIUM_DROP_CP() {
+        TIME_MANAGER_FAIL_LOW_MEDIUM_MULTIPLIER()
+    } else if score_drop >= TIME_MANAGER_FAIL_LOW_SMALL_DROP_CP() {
+        TIME_MANAGER_FAIL_LOW_SMALL_MULTIPLIER()
     } else {
         1_000
     }
