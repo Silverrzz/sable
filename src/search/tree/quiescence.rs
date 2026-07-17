@@ -133,7 +133,7 @@ pub(in crate::search) fn quiescence(
     while let Some(ordered) = moves.next(board, context.ordering()) {
         found_move = true;
         if in_check
-            && searched_moves >= QSEARCH_MAX_EVASION_MOVES
+            && searched_moves >= QSEARCH_MAX_EVASION_MOVES()
             && Some(ordered.mv) != pv_move
         {
             continue;

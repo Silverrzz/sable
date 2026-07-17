@@ -91,7 +91,7 @@ impl MoveOrdering {
                     from,
                     to,
                 )],
-                CONTINUATION_HISTORY_ORDERING_DIVISOR,
+                CONTINUATION_HISTORY_ORDERING_DIVISOR(),
             );
             score = score.saturating_add(continuation_score);
         }
@@ -508,7 +508,7 @@ impl MovePicker {
         if let Some(continuation_base) = context.continuation_base {
             score = score.saturating_add(
                 ordering.continuation_history[continuation_base + move_offset]
-                    / CONTINUATION_HISTORY_ORDERING_DIVISOR,
+                    / CONTINUATION_HISTORY_ORDERING_DIVISOR(),
             );
         }
         score.clamp(-MAX_HISTORY_SCORE, MAX_HISTORY_SCORE)

@@ -56,7 +56,7 @@ pub(in crate::search) fn is_better_root_score(
     repetition_draw
         && score == DRAW_SCORE
         && best.score > DRAW_SCORE
-        && best.score < DRAW_PREFERENCE_MAX_SCORE
+        && best.score < DRAW_PREFERENCE_MAX_SCORE()
 }
 
 #[inline]
@@ -84,7 +84,7 @@ pub(in crate::search) fn should_defer_repetition_root_switch(
     let switched_move = matches!(previous_move, Some(best) if best != candidate_move);
     completed_depth > 0
         && switched_move
-        && previous_score > ROOT_REPETITION_DEFER_MIN_SCORE
+        && previous_score > ROOT_REPETITION_DEFER_MIN_SCORE()
         && candidate.score == DRAW_SCORE
         && candidate.repetition_draw
 }

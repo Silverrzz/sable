@@ -282,7 +282,7 @@ fn singular_extension(
     if params.excluded_move.is_some()
         || params.in_check
         || params.needs_full_mate_search
-        || params.depth < SINGULAR_EXTENSION_MIN_DEPTH
+        || params.depth < SINGULAR_EXTENSION_MIN_DEPTH()
         || Some(params.ordered.mv) != params.tt_move
     {
         return Some(SingularVerdict::Extend(0));
@@ -291,7 +291,7 @@ fn singular_extension(
         return Some(SingularVerdict::Extend(0));
     };
     if !matches!(entry.bound, Bound::Lower | Bound::Exact)
-        || u32::from(entry.depth).saturating_add(SINGULAR_EXTENSION_TT_DEPTH_MARGIN) < params.depth
+        || u32::from(entry.depth).saturating_add(SINGULAR_EXTENSION_TT_DEPTH_MARGIN()) < params.depth
     {
         return Some(SingularVerdict::Extend(0));
     }
@@ -335,14 +335,14 @@ fn singular_extension(
 
 #[inline]
 fn singular_extension_margin(depth: u32) -> i32 {
-    SINGULAR_EXTENSION_BASE_MARGIN
-        + SINGULAR_EXTENSION_MARGIN_PER_DEPTH.saturating_mul(depth.min(32) as i32)
+    SINGULAR_EXTENSION_BASE_MARGIN()
+        + SINGULAR_EXTENSION_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32)
 }
 
 #[inline]
 fn double_singular_extension_margin(depth: u32) -> i32 {
-    DOUBLE_SINGULAR_EXTENSION_BASE_MARGIN
-        + DOUBLE_SINGULAR_EXTENSION_MARGIN_PER_DEPTH.saturating_mul(depth.min(32) as i32)
+    DOUBLE_SINGULAR_EXTENSION_BASE_MARGIN()
+        + DOUBLE_SINGULAR_EXTENSION_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32)
 }
 
 #[inline]

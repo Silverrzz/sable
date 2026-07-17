@@ -139,7 +139,7 @@ pub(in crate::search) fn search_root_iteration(
     context: &mut SearchContext<'_>,
     chess960: bool,
 ) -> Option<(Move, SearchOutcome)> {
-    if completed_depth == 0 || depth < ASPIRATION_MIN_DEPTH || previous_pv.is_empty() {
+    if completed_depth == 0 || depth < ASPIRATION_MIN_DEPTH() || previous_pv.is_empty() {
         return search_root_depth_dispatch(
             board,
             candidate_moves,
@@ -152,7 +152,7 @@ pub(in crate::search) fn search_root_iteration(
         );
     }
 
-    let mut window = ASPIRATION_INITIAL_WINDOW;
+    let mut window = ASPIRATION_INITIAL_WINDOW();
     let mut alpha = previous_score.saturating_sub(window).max(i32::MIN + 1);
     let mut beta = previous_score.saturating_add(window);
 

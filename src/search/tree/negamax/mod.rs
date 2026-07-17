@@ -248,7 +248,7 @@ fn try_probcut(
     static_eval: static_eval::StaticEvalState,
     context: &mut SearchContext<'_>,
 ) -> PruneResult {
-    if params.depth < PROBCUT_MIN_DEPTH
+    if params.depth < PROBCUT_MIN_DEPTH()
         || params.is_pv_node
         || params.in_check
         || params.needs_full_mate_search
@@ -259,10 +259,10 @@ fn try_probcut(
         return PruneResult::Continue;
     }
 
-    let probcut_beta = params.beta.saturating_add(PROBCUT_MARGIN);
+    let probcut_beta = params.beta.saturating_add(PROBCUT_MARGIN());
     let child_alpha = probcut_beta.saturating_neg();
     let child_beta = child_alpha.saturating_add(1);
-    let probcut_depth = params.depth.saturating_sub(PROBCUT_DEPTH_REDUCTION).max(1);
+    let probcut_depth = params.depth.saturating_sub(PROBCUT_DEPTH_REDUCTION()).max(1);
     let tt_move = params.tt_entry.and_then(|entry| entry.best_move);
     let mut moves = MovePicker::new();
     collect_moves_into(
@@ -286,7 +286,7 @@ fn try_probcut(
                     ordered.captured_piece,
                 )
             });
-        if see < PROBCUT_SEE_THRESHOLD {
+        if see < PROBCUT_SEE_THRESHOLD() {
             continue;
         }
 
