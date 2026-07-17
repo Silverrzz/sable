@@ -95,7 +95,7 @@ impl MoveOrdering {
             );
             score = score.saturating_add(continuation_score);
         }
-        score.clamp(-MAX_HISTORY_SCORE(), MAX_HISTORY_SCORE())
+        score.clamp(-MAX_HISTORY_SCORE, MAX_HISTORY_SCORE)
     }
 
     pub(in crate::search) fn capture_score(
@@ -114,7 +114,7 @@ impl MoveOrdering {
             to as usize,
             captured_piece as usize,
         )]
-        .clamp(-MAX_HISTORY_SCORE(), MAX_HISTORY_SCORE())
+        .clamp(-MAX_HISTORY_SCORE, MAX_HISTORY_SCORE)
     }
 
     pub(in crate::search) fn record_quiet_cutoff(
@@ -511,7 +511,7 @@ impl MovePicker {
                     / CONTINUATION_HISTORY_ORDERING_DIVISOR(),
             );
         }
-        score.clamp(-MAX_HISTORY_SCORE(), MAX_HISTORY_SCORE())
+        score.clamp(-MAX_HISTORY_SCORE, MAX_HISTORY_SCORE)
     }
 
     pub(in crate::search) fn best_tactical(
@@ -651,7 +651,7 @@ fn score_heap_score(entry: u64) -> i32 {
 pub(in crate::search) fn history_bonus(depth: u32) -> i32 {
     let depth = depth.min(64);
     depth.saturating_mul(depth).saturating_mul(16).max(16)
-        .min(MAX_HISTORY_SCORE() as u32) as i32
+        .min(MAX_HISTORY_SCORE as u32) as i32
 }
 
 pub(in crate::search) fn history_malus(depth: u32) -> i32 {
@@ -659,10 +659,10 @@ pub(in crate::search) fn history_malus(depth: u32) -> i32 {
 }
 
 pub(in crate::search) fn update_history_value(value: &mut i32, delta: i32) {
-    let delta = delta.clamp(-MAX_HISTORY_SCORE(), MAX_HISTORY_SCORE());
-    let gravity = (*value as i64 * delta.abs() as i64) / MAX_HISTORY_SCORE() as i64;
+    let delta = delta.clamp(-MAX_HISTORY_SCORE, MAX_HISTORY_SCORE);
+    let gravity = (*value as i64 * delta.abs() as i64) / MAX_HISTORY_SCORE as i64;
     *value = (*value as i64 + delta as i64 - gravity)
-        .clamp(-MAX_HISTORY_SCORE() as i64, MAX_HISTORY_SCORE() as i64) as i32;
+        .clamp(-MAX_HISTORY_SCORE as i64, MAX_HISTORY_SCORE as i64) as i32;
 }
 
 pub(in crate::search) fn decay_history_table(values: &mut [i32]) {

@@ -1,6 +1,6 @@
 [package]
 name = "sable-engine"
-version = "2.0.83"
+version = "2.0.84"
 edition = "2024"
 build = "build.rs"
 
