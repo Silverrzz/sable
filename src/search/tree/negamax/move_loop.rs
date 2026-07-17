@@ -300,7 +300,7 @@ fn singular_extension(
         return Some(SingularVerdict::Extend(0));
     }
 
-    let singular_beta = tt_score.saturating_sub(singular_extension_margin(params.depth));
+    let singular_beta = tt_score.saturating_sub(SINGULAR_EXTENSION_BASE_MARGIN());
     let excluded = negamax(
         params.board,
         params.repetition,
@@ -319,7 +319,7 @@ fn singular_extension(
 
     if excluded.score < singular_beta {
         let double_singular_beta =
-            tt_score.saturating_sub(double_singular_extension_margin(params.depth));
+            tt_score.saturating_sub(DOUBLE_SINGULAR_EXTENSION_BASE_MARGIN());
         let extension = if !params.is_pv_node && excluded.score < double_singular_beta {
             2
         } else {
@@ -331,18 +331,6 @@ fn singular_extension(
     } else {
         Some(SingularVerdict::Extend(0))
     }
-}
-
-#[inline]
-fn singular_extension_margin(depth: u32) -> i32 {
-    SINGULAR_EXTENSION_BASE_MARGIN()
-        + SINGULAR_EXTENSION_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32)
-}
-
-#[inline]
-fn double_singular_extension_margin(depth: u32) -> i32 {
-    DOUBLE_SINGULAR_EXTENSION_BASE_MARGIN()
-        + DOUBLE_SINGULAR_EXTENSION_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32)
 }
 
 #[inline]

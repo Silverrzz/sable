@@ -178,11 +178,7 @@ pub(in crate::search) fn late_move_reduction(
     move_score: i32,
     _search_profile: SearchProfile,
 ) -> u32 {
-    if depth < LMR_MIN_DEPTH()
-        || searched_moves < LMR_MIN_MOVE_INDEX()
-        || !is_quiet
-        || move_score >= COUNTER_MOVE_SCORE
-    {
+    if depth < LMR_MIN_DEPTH() || !is_quiet || move_score >= COUNTER_MOVE_SCORE {
         return 0;
     }
 
