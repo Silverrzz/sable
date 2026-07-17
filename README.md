@@ -37,7 +37,7 @@ An in-development personal project written in Rust designed to play Chess better
         - continuation
 - An efficiently updatable neural network - Runestone 1.4
     - (768x16hm>512)x2->1 arch
-    - Trained on a single iteration of selfplay, with ~1 billion positions of data
+    - Trained on a single iteration of selfplay from Vex 3.5, with ~1 billion positions of data
     - Trained using [Bullet](https://github.com/jw1912/bullet)
 - Lazy SMP for efficient multi-thread usage
 - UCI protocol
@@ -72,6 +72,7 @@ My primary goal with Sable is to learn more about low-level programming and also
 
 With only a moderate proficiency in Rust, in-line completions were frequently used to assist with writing Rust syntax.
 While developing the code for NNUE, Mr GPT was consulted for explanations and snippets.
+LLM agents have modified the codebase for faster mass deletions or param changes.
 
 You can create your own Sable build with cargo build --release.
 
