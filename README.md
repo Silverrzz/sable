@@ -35,9 +35,9 @@ An in-development personal project written in Rust designed to play Chess better
         - minor
         - non-pawn
         - continuation
-- An efficiently updatable neural network - Runestone 1.4
+- An efficiently updatable neural network - Runestone 2.3
     - (768x16hm>512)x2->1 arch
-    - Trained on a single iteration of selfplay from Vex 3.5, with ~1 billion positions of data
+    - Trained on selfplay from Runestone 1.4, with ~2 billion positions of data
     - Trained using [Bullet](https://github.com/jw1912/bullet)
 - Lazy SMP for efficient multi-thread usage
 - UCI protocol
