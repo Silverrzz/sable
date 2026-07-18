@@ -15,6 +15,8 @@ pub(super) const FIRST_KILLER_SCORE: i32 = 800_000_000;
 pub(super) const SECOND_KILLER_SCORE: i32 = 799_000_000;
 pub(super) const COUNTER_MOVE_SCORE: i32 = 790_000_000;
 pub(super) const MAX_HISTORY_SCORE: i32 = 8_000_000;
+pub(super) const CORRECTION_HISTORY_UPDATE_DIVISOR: i32 = 466;
+pub(super) const CORRECTION_HISTORY_PAWN_WEIGHT: i32 = 262;
 pub(super) const CORRECTION_HISTORY_BUCKETS: usize = 16_384;
 pub(super) const ASPIRATION_MAX_WINDOW: i32 = 4096;
 pub(super) const SPARSE_ENDGAME_MAX_NON_KING_PIECES: u32 = 4;
@@ -101,8 +103,6 @@ macro_rules! define_tunable_parameters {
 
 define_tunable_parameters!(
     (MAX_CORRECTION_HISTORY_SCORE, max_correction_history_score_parameter, i32, 374, 32, 1024, 32.0),
-    (CORRECTION_HISTORY_UPDATE_DIVISOR, correction_history_update_divisor_parameter, i32, 466, 64, 2048, 64.0),
-    (CORRECTION_HISTORY_PAWN_WEIGHT, correction_history_pawn_weight_parameter, i32, 262, 0, 512, 16.0),
     (CORRECTION_HISTORY_MINOR_WEIGHT, correction_history_minor_weight_parameter, i32, 193, 0, 512, 16.0),
     (CORRECTION_HISTORY_NON_PAWN_WEIGHT, correction_history_non_pawn_weight_parameter, i32, 274, 0, 512, 16.0),
     (CORRECTION_HISTORY_PREVIOUS_WEIGHT, correction_history_previous_weight_parameter, i32, 144, 0, 512, 16.0),
@@ -136,12 +136,12 @@ define_tunable_parameters!(
     (NULL_MOVE_SPARSE_ENDGAME_REDUCTION_PROTECTION, null_move_sparse_endgame_reduction_protection_parameter, u32, 2, 0, 4, 0.5),
     (NULL_MOVE_VERIFICATION_MIN_DEPTH, null_move_verification_min_depth_parameter, u32, 11, 4, 24, 1.0),
     (REVERSE_FUTILITY_MAX_DEPTH, reverse_futility_max_depth_parameter, u32, 5, 1, 12, 1.0),
-    (REVERSE_FUTILITY_BASE_MARGIN, reverse_futility_base_margin_parameter, i32, 29, 0, 400, 20.0),
+    (REVERSE_FUTILITY_BASE_MARGIN, reverse_futility_base_margin_parameter, i32, 29, -100, 400, 20.0),
     (REVERSE_FUTILITY_MARGIN_PER_DEPTH, reverse_futility_margin_per_depth_parameter, i32, 20, 0, 300, 15.0),
     (RAZOR_MAX_DEPTH, razor_max_depth_parameter, u32, 1, 1, 6, 0.5),
     (RAZOR_BASE_MARGIN, razor_base_margin_parameter, i32, 181, 0, 500, 25.0),
     (RAZOR_MARGIN_PER_DEPTH, razor_margin_per_depth_parameter, i32, 77, 0, 300, 15.0),
-    (FUTILITY_MAX_DEPTH, futility_max_depth_parameter, u32, 10, 1, 12, 1.0),
+    (FUTILITY_MAX_DEPTH, futility_max_depth_parameter, u32, 10, 1, 20, 1.0),
     (FUTILITY_BASE_MARGIN, futility_base_margin_parameter, i32, 61, 0, 400, 20.0),
     (FUTILITY_MARGIN_PER_DEPTH, futility_margin_per_depth_parameter, i32, 82, 0, 300, 15.0),
     (FUTILITY_IMPROVING_MARGIN, futility_improving_margin_parameter, i32, 93, 0, 300, 15.0),
@@ -161,7 +161,7 @@ define_tunable_parameters!(
     (TIME_MANAGER_MIN_PREDICTION_DEPTH, time_manager_min_prediction_depth_parameter, u32, 1, 1, 5, 0.5),
     (TIME_MANAGER_DEFAULT_NODE_GROWTH_PERMILLE, time_manager_default_node_growth_permille_parameter, u64, 3270, 2000, 5000, 100.0),
     (TIME_MANAGER_MIN_NODE_GROWTH_PERMILLE, time_manager_min_node_growth_permille_parameter, u64, 1607, 1000, 2000, 50.0),
-    (TIME_MANAGER_MAX_NODE_GROWTH_PERMILLE, time_manager_max_node_growth_permille_parameter, u64, 5138, 5000, 8000, 100.0),
+    (TIME_MANAGER_MAX_NODE_GROWTH_PERMILLE, time_manager_max_node_growth_permille_parameter, u64, 5138, 3000, 8000, 100.0),
     (TIME_MANAGER_STABLE_SCORE_CP, time_manager_stable_score_cp_parameter, i32, 20, 18, 40, 2.0),
     (TIME_MANAGER_VERY_STABLE_SCORE_CP, time_manager_very_stable_score_cp_parameter, i32, 14, 4, 16, 1.0),
     (TIME_MANAGER_FAIL_LOW_SMALL_DROP_CP, time_manager_fail_low_small_drop_cp_parameter, i32, 48, 30, 90, 5.0),
@@ -181,7 +181,7 @@ define_tunable_parameters!(
     (TIME_MANAGER_SCORE_MEDIUM_DELTA_MULTIPLIER, time_manager_score_medium_delta_multiplier_parameter, u64, 1183, 1050, 1400, 25.0),
     (TIME_MANAGER_SCORE_SMALL_DELTA_MULTIPLIER, time_manager_score_small_delta_multiplier_parameter, u64, 1099, 1000, 1250, 10.0),
     (TIME_MANAGER_SCORE_VERY_STABLE_MULTIPLIER, time_manager_score_very_stable_multiplier_parameter, u64, 928, 800, 990, 10.0),
-    (TIME_MANAGER_SCORE_STABLE_MULTIPLIER, time_manager_score_stable_multiplier_parameter, u64, 986, 850, 1000, 10.0),
+    (TIME_MANAGER_SCORE_STABLE_MULTIPLIER, time_manager_score_stable_multiplier_parameter, u64, 986, 850, 1100, 10.0),
     (TIME_MANAGER_VERY_STABLE_ITERATIONS, time_manager_very_stable_iterations_parameter, u32, 3, 2, 5, 0.5),
     (TIME_MANAGER_STABLE_ITERATIONS, time_manager_stable_iterations_parameter, u32, 2, 1, 3, 0.5),
 );
