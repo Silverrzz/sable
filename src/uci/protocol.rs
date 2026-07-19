@@ -1,6 +1,7 @@
 use anyhow::Result;
 use sable_engine::{
-    Engine, embedded_eval_hash, embedded_eval_label, has_embedded_eval, spsa_parameters,
+    Engine, SPSA_UCI_OPTIONS_ENABLED, embedded_eval_hash, embedded_eval_label, has_embedded_eval,
+    spsa_parameters,
 };
 use std::io::{self, Write};
 
@@ -19,12 +20,14 @@ pub(super) fn write_uci_identification(stdout: &mut io::Stdout, engine: &Engine)
     writeln!(stdout, "option name UseSoftNodes type check default false")?;
     writeln!(stdout, "option name UCI_Chess960 type check default false")?;
     writeln!(stdout, "option name UCI_ShowWDL type check default false")?;
-    for parameter in spsa_parameters() {
-        writeln!(
-            stdout,
-            "option name {} type spin default {} min {} max {}",
-            parameter.name, parameter.default, parameter.min, parameter.max
-        )?;
+    if SPSA_UCI_OPTIONS_ENABLED {
+        for parameter in spsa_parameters() {
+            writeln!(
+                stdout,
+                "option name {} type spin default {} min {} max {}",
+                parameter.name, parameter.default, parameter.min, parameter.max
+            )?;
+        }
     }
     writeln!(
         stdout,

@@ -9,6 +9,8 @@ mod protocol;
 mod search;
 mod simd;
 
+pub const SPSA_UCI_OPTIONS_ENABLED: bool = false;
+
 pub(crate) use chess::Square;
 pub use chess::{Board, Color, GameStatus, Move, Piece};
 pub use engine::{Engine, VerboseEval, VerboseEvalSquare};

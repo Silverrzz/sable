@@ -34,7 +34,7 @@ pub(crate) fn apply_engine_option(
     name: &str,
     value: Option<&str>,
 ) -> Result<(), EngineError> {
-    if crate::search::set_spsa_parameter(name, value)? {
+    if crate::SPSA_UCI_OPTIONS_ENABLED && crate::search::set_spsa_parameter(name, value)? {
         return Ok(());
     }
     match EngineOption::from_name(name)? {
