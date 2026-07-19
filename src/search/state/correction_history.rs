@@ -152,7 +152,7 @@ impl CorrectionHistory {
             &mut sum,
             &mut weight_sum,
             self.pawn[pawn_correction_index(board, side)],
-            CORRECTION_HISTORY_PAWN_WEIGHT(),
+            CORRECTION_HISTORY_PAWN_WEIGHT,
         );
         add_weighted_correction(
             &mut sum,
@@ -239,7 +239,7 @@ pub(in crate::search) fn scaled_update_weight(weight: i32, scale: i32) -> i32 {
 pub(in crate::search) fn update_correction_value(value: &mut i32, target: i32, weight: i32) {
     let delta = target.saturating_sub(*value);
     *value = (*value)
-        .saturating_add(delta.saturating_mul(weight) / CORRECTION_HISTORY_UPDATE_DIVISOR())
+        .saturating_add(delta.saturating_mul(weight) / CORRECTION_HISTORY_UPDATE_DIVISOR)
         .clamp(-MAX_CORRECTION_HISTORY_SCORE(), MAX_CORRECTION_HISTORY_SCORE());
 }
 
