@@ -66,7 +66,7 @@ An in-development personal project written in Rust designed to play Chess better
 ## Strength
 |Version|My Estimate|CCRL 40/15|CCRL FRC 40/2|
 |-|-|-|-|
-|3.0.0|3475|-|-|
+|3.0.0|3450|-|-|
 |2.0.0|3300|3258|3323|
 |1.1.0|2900|2915|-|
 |1.0.0|2800|-|-|
