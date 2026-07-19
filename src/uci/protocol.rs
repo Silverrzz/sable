@@ -106,7 +106,10 @@ fn format_uci_score(info: &sable_engine::SearchInfo) -> String {
     if let Some(score_mate) = info.score_mate {
         format!("score mate {score_mate}")
     } else {
-        format!("score cp {}", info.score_cp.unwrap_or(0))
+        format!(
+            "score cp {}",
+            normalize_uci_cp(info.score_cp.unwrap_or(0))
+        )
     }
 }
 
@@ -114,8 +117,16 @@ pub(super) fn format_static_eval_score(eval: &sable_engine::StaticEval) -> Strin
     if let Some(score_mate) = eval.score_mate {
         format!("score mate {score_mate}")
     } else {
-        format!("score cp {}", eval.score_cp)
+        format!("score cp {}", normalize_uci_cp(eval.score_cp))
     }
+}
+
+fn normalize_uci_cp(score: i32) -> i32 {
+    let magnitude = score.unsigned_abs();
+    if magnitude <= 100 {
+        return score;
+    }
+    score.signum() * ((f64::from(magnitude) * 100.0).sqrt().round() as i32)
 }
 
 pub(super) fn eval_source_label(source: sable_engine::StaticEvalSource) -> &'static str {
@@ -135,7 +146,7 @@ fn format_wdl(info: &sable_engine::SearchInfo) -> (u32, u32, u32) {
             (0, 1000, 0)
         };
     }
-    let cp = info.score_cp.unwrap_or(0).clamp(-2000, 2000) as f64;
+    let cp = normalize_uci_cp(info.score_cp.unwrap_or(0)).clamp(-2000, 2000) as f64;
     let decisive = 1.0 / (1.0 + (-cp / 180.0).exp());
     let draw = (350.0 * (-cp.abs() / 400.0).exp()).round() as u32;
     let remaining = 1000_u32.saturating_sub(draw);
