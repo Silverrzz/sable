@@ -44,7 +44,10 @@ An in-development personal project written in Rust designed to play Chess better
 
 ## Future Features
 - A net with more complex input features and multi hidden layers
-- A better packaged testing suite
+- Multilayer
+- More layers after the first layer in my net
+- A more complicated net with things like multiple layers and output buckets
+- more elo
 
 ## UCI Options
 |Name|Type|Default|Min/Max or Vars|Description|
@@ -63,9 +66,10 @@ An in-development personal project written in Rust designed to play Chess better
 ## Strength
 |Version|My Estimate|CCRL 40/15|CCRL FRC 40/2|
 |-|-|-|-|
-|2.0|3300|3258|3323|
-|1.1|2900|2915|-|
-|1.0|2800|-|-|
+|3.0.0|3475|-|-|
+|2.0.0|3300|3258|3323|
+|1.1.0|2900|2915|-|
+|1.0.0|2800|-|-|
 
 ## Project Details
 My primary goal with Sable is to learn more about low-level programming and also training cool networks
