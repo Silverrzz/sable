@@ -12,37 +12,38 @@ pub(super) const QUEEN_VALUE: i32 = 900;
 
 pub(super) const PIECE_SQUARE_FEATURES: usize = 768;
 pub(super) const KING_SQUARES: usize = 64;
-pub(super) const RUNESTONE_KING_BUCKETS: usize = 16;
-pub(super) const RUNESTONE_HIDDEN: usize = 512;
-pub(super) const RUNESTONE_OUTPUTS: usize = RUNESTONE_HIDDEN * 2;
-pub(super) const RUNESTONE_INPUT_FEATURES: usize =
-    PIECE_SQUARE_FEATURES * RUNESTONE_KING_BUCKETS;
-pub(super) const RUNESTONE_FEATURE_WEIGHTS: usize =
-    RUNESTONE_INPUT_FEATURES * RUNESTONE_HIDDEN;
-pub(super) const RUNESTONE_TENSOR_VALUES: usize =
-    RUNESTONE_FEATURE_WEIGHTS + RUNESTONE_HIDDEN + RUNESTONE_OUTPUTS + 1;
-pub(super) const RUNESTONE_TENSOR_BYTES: usize = RUNESTONE_TENSOR_VALUES * 2;
-pub(super) const RUNESTONE_FILE_MAX_BYTES: usize = RUNESTONE_TENSOR_BYTES + 63;
-pub(super) const RUNESTONE_QA: i16 = 255;
-pub(super) const RUNESTONE_QB: i16 = 64;
-pub(super) const RUNESTONE_OUTPUT_SCALE: i32 = 400;
+pub(super) const SHARD_KING_BUCKETS: usize = 16;
+pub(super) const SHARD_HIDDEN: usize = 768;
+pub const SHARD_OUTPUT_BUCKETS: usize = 8;
+pub(super) const SHARD_OUTPUTS_PER_BUCKET: usize = SHARD_HIDDEN * 2;
+pub(super) const SHARD_OUTPUT_WEIGHTS: usize = SHARD_OUTPUTS_PER_BUCKET * SHARD_OUTPUT_BUCKETS;
+pub(super) const SHARD_INPUT_FEATURES: usize = PIECE_SQUARE_FEATURES * SHARD_KING_BUCKETS;
+pub(super) const SHARD_FEATURE_WEIGHTS: usize = SHARD_INPUT_FEATURES * SHARD_HIDDEN;
+pub(super) const SHARD_HEADER_BYTES: usize = 180;
+pub(super) const SHARD_TENSOR_BYTES: usize = SHARD_HEADER_BYTES
+    + (SHARD_FEATURE_WEIGHTS + SHARD_HIDDEN) * 2
+    + (SHARD_OUTPUT_WEIGHTS + SHARD_OUTPUT_BUCKETS) * 4;
+pub(super) const SHARD_FILE_MAX_BYTES: usize = SHARD_TENSOR_BYTES + 63;
+pub(super) const SHARD_QA: i16 = 255;
+pub(super) const SHARD_QB: i16 = 64;
+pub(super) const SHARD_OUTPUT_SCALE: i32 = 400;
 pub(super) const MAX_MOVE_FEATURE_UPDATES: usize = 3;
 pub(super) const FINNY_TABLE_ENTRIES: usize = KING_SQUARES * 2;
 pub(super) const FINNY_PIECE_BITBOARDS: usize = 12;
-pub(super) const RUNESTONE_BUCKET_LAYOUT: [usize; 32] = [
+pub(super) const SHARD_BUCKET_LAYOUT: [usize; 32] = [
     0, 1, 2, 3, 0, 1, 2, 3, 4, 5, 6, 7, 4, 5, 6, 7, 8, 9, 10, 11, 8, 9, 10,
     11, 12, 13, 14, 15, 12, 13, 14, 15,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NnueArchitectureId {
-    Runestone,
+    Shard,
 }
 
 impl NnueArchitectureId {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Runestone => "runestone",
+            Self::Shard => "shard",
         }
     }
 }
@@ -50,35 +51,35 @@ impl NnueArchitectureId {
 #[derive(Debug)]
 pub struct NnueModel {
     pub(super) feature_weights: Box<[AlignedFeatureBlock]>,
-    pub(super) bias: [i16; RUNESTONE_HIDDEN],
+    pub(super) bias: [i16; SHARD_HIDDEN],
     pub(super) output_weights: AlignedOutputWeights,
     pub(super) narrow_output_weights: bool,
-    pub(super) output_bias: i32,
+    pub(super) output_bias: [i32; SHARD_OUTPUT_BUCKETS],
 }
 
 #[repr(C, align(64))]
 #[derive(Debug)]
-pub(super) struct AlignedFeatureBlock(pub(super) [i16; RUNESTONE_HIDDEN]);
+pub(super) struct AlignedFeatureBlock(pub(super) [i16; SHARD_HIDDEN]);
 
-const _: () = assert!(std::mem::size_of::<AlignedFeatureBlock>() == RUNESTONE_HIDDEN * 2);
+const _: () = assert!(std::mem::size_of::<AlignedFeatureBlock>() == SHARD_HIDDEN * 2);
 
 #[repr(align(64))]
 #[derive(Debug)]
-pub(super) struct AlignedOutputWeights(pub(super) [i16; RUNESTONE_OUTPUTS]);
+pub(super) struct AlignedOutputWeights(pub(super) [i16; SHARD_OUTPUT_WEIGHTS]);
 
 #[repr(align(64))]
 #[derive(Clone, Debug)]
 pub struct NnueAccumulators {
-    pub(super) white: [i16; RUNESTONE_HIDDEN],
-    pub(super) black: [i16; RUNESTONE_HIDDEN],
+    pub(super) white: [i16; SHARD_HIDDEN],
+    pub(super) black: [i16; SHARD_HIDDEN],
 }
 
 impl NnueAccumulators {
     pub(crate) fn empty_like(source: &Self) -> Self {
         let _ = source;
         Self {
-            white: [0; RUNESTONE_HIDDEN],
-            black: [0; RUNESTONE_HIDDEN],
+            white: [0; SHARD_HIDDEN],
+            black: [0; SHARD_HIDDEN],
         }
     }
 }
@@ -90,7 +91,7 @@ pub(crate) struct NnueFinnyTable {
 
 #[derive(Clone, Debug)]
 pub(super) struct NnueFinnyEntry {
-    pub(super) values: [i16; RUNESTONE_HIDDEN],
+    pub(super) values: [i16; SHARD_HIDDEN],
     pub(super) pieces: [u64; FINNY_PIECE_BITBOARDS],
     pub(super) valid: bool,
 }
@@ -100,7 +101,7 @@ impl NnueFinnyTable {
         Self {
             entries: (0..FINNY_TABLE_ENTRIES)
                 .map(|_| NnueFinnyEntry {
-                    values: [0; RUNESTONE_HIDDEN],
+                    values: [0; SHARD_HIDDEN],
                     pieces: [0; FINNY_PIECE_BITBOARDS],
                     valid: false,
                 })

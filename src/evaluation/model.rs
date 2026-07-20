@@ -24,42 +24,56 @@ impl NnueModel {
     }
 
     fn from_bytes(path: &Path, bytes: &[u8]) -> Result<Self, EngineError> {
-        if bytes.len() < RUNESTONE_TENSOR_BYTES || bytes.len() > RUNESTONE_FILE_MAX_BYTES {
+        if bytes.len() < SHARD_TENSOR_BYTES
+            || bytes.len() > SHARD_FILE_MAX_BYTES
+            || !has_shard_header(bytes)
+        {
             return Err(invalid_eval_file(
                 path,
-                "expected runestone layout (768x16hm->512)x2->1",
+                "expected shard SABLENET layout (768x16hm->768)x2->8",
             ));
         }
 
-        let mut chunks = bytes[..RUNESTONE_TENSOR_BYTES]
+        let i16_end = SHARD_HEADER_BYTES + (SHARD_FEATURE_WEIGHTS + SHARD_HIDDEN) * 2;
+        let mut chunks = bytes[SHARD_HEADER_BYTES..i16_end]
             .chunks_exact(2)
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]));
-        let mut feature_weights = Vec::with_capacity(RUNESTONE_INPUT_FEATURES);
-        for _ in 0..RUNESTONE_INPUT_FEATURES {
-            let mut block = [0; RUNESTONE_HIDDEN];
+        let mut feature_weights = Vec::with_capacity(SHARD_INPUT_FEATURES);
+        for _ in 0..SHARD_INPUT_FEATURES {
+            let mut block = [0; SHARD_HIDDEN];
             for value in &mut block {
                 *value = chunks
                     .next()
-                    .expect("runestone feature weights are present");
+                    .expect("shard feature weights are present");
             }
             feature_weights.push(AlignedFeatureBlock(block));
         }
 
-        let mut bias = [0; RUNESTONE_HIDDEN];
+        let mut bias = [0; SHARD_HIDDEN];
         for value in &mut bias {
             *value = chunks
                 .next()
-                .expect("runestone accumulator bias is present");
+                .expect("shard accumulator bias is present");
         }
+        debug_assert!(chunks.next().is_none());
 
-        let mut output_weights = [0; RUNESTONE_OUTPUTS];
+        let mut chunks = bytes[i16_end..SHARD_TENSOR_BYTES]
+            .chunks_exact(4)
+            .map(|chunk| i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+        let mut output_weights = [0; SHARD_OUTPUT_WEIGHTS];
         for value in &mut output_weights {
-            *value = chunks.next().expect("runestone output weights are present");
+            let weight = chunks.next().expect("shard output weights are present");
+            *value = i16::try_from(weight).map_err(|_| {
+                invalid_eval_file(path, "shard output weight does not fit the SIMD evaluator")
+            })?;
         }
-        let output_bias = i32::from(chunks.next().expect("runestone output bias is present"));
+        let mut output_bias = [0; SHARD_OUTPUT_BUCKETS];
+        for value in &mut output_bias {
+            *value = chunks.next().expect("shard output biases are present");
+        }
         debug_assert!(chunks.next().is_none());
         let narrow_output_weights = output_weights.iter().all(|&weight| {
-            i32::from(weight).abs() * i32::from(RUNESTONE_QA) <= i32::from(i16::MAX)
+            i32::from(weight).abs() * i32::from(SHARD_QA) <= i32::from(i16::MAX)
         });
 
         validate_i16_accumulator_range(path, &bias, feature_weight_slice(&feature_weights))?;
@@ -110,13 +124,13 @@ impl NnueModel {
     }
 
     pub fn architecture_id(&self) -> NnueArchitectureId {
-        NnueArchitectureId::Runestone
+        NnueArchitectureId::Shard
     }
 
     pub fn initial_accumulators(&self, board: &Board) -> Option<NnueAccumulators> {
         let mut accumulators = NnueAccumulators {
-            white: [0; RUNESTONE_HIDDEN],
-            black: [0; RUNESTONE_HIDDEN],
+            white: [0; SHARD_HIDDEN],
+            black: [0; SHARD_HIDDEN],
         };
         self.refresh_accumulators_into(&mut accumulators, board)
             .then_some(accumulators)
@@ -167,7 +181,7 @@ impl NnueModel {
 
     fn refresh_accumulator_values_into(
         &self,
-        values: &mut [i16; RUNESTONE_HIDDEN],
+        values: &mut [i16; SHARD_HIDDEN],
         board: &Board,
         perspective: Color,
         finny: Option<&mut NnueFinnyTable>,
@@ -180,7 +194,7 @@ impl NnueModel {
 
     fn refresh_accumulator_values_full_into(
         &self,
-        values: &mut [i16; RUNESTONE_HIDDEN],
+        values: &mut [i16; SHARD_HIDDEN],
         board: &Board,
         perspective: Color,
     ) -> bool {
@@ -208,7 +222,7 @@ impl NnueModel {
 
     fn refresh_accumulator_values_from_finny(
         &self,
-        values: &mut [i16; RUNESTONE_HIDDEN],
+        values: &mut [i16; SHARD_HIDDEN],
         board: &Board,
         perspective: Color,
         table: &mut NnueFinnyTable,
@@ -267,7 +281,7 @@ impl NnueModel {
         table: &mut NnueFinnyTable,
         board: &Board,
         perspective: Color,
-        values: &[i16; RUNESTONE_HIDDEN],
+        values: &[i16; SHARD_HIDDEN],
     ) -> bool {
         let Some(king_square) = oriented_king_square(board, perspective) else {
             return false;
@@ -283,7 +297,7 @@ impl NnueModel {
 
     fn apply_piece_bitboard_diff(
         &self,
-        values: &mut [i16; RUNESTONE_HIDDEN],
+        values: &mut [i16; SHARD_HIDDEN],
         perspective: Color,
         king_square: usize,
         color: Color,
@@ -363,8 +377,8 @@ impl NnueModel {
 
     fn update_accumulator_after_move_for_perspective(
         &self,
-        source: &[i16; RUNESTONE_HIDDEN],
-        target: &mut [i16; RUNESTONE_HIDDEN],
+        source: &[i16; SHARD_HIDDEN],
+        target: &mut [i16; SHARD_HIDDEN],
         before: &Board,
         after: &Board,
         mv: Move,
@@ -393,8 +407,8 @@ impl NnueModel {
 
     fn apply_move_delta_for_perspective(
         &self,
-        source: &[i16; RUNESTONE_HIDDEN],
-        target: &mut [i16; RUNESTONE_HIDDEN],
+        source: &[i16; SHARD_HIDDEN],
+        target: &mut [i16; SHARD_HIDDEN],
         before: &Board,
         mv: Move,
         side: Color,
@@ -421,7 +435,7 @@ impl NnueModel {
     pub fn evaluate(&self, board: &Board) -> i32 {
         let accumulators = self
             .initial_accumulators(board)
-            .expect("valid runestone NNUE model should produce accumulators");
+            .expect("valid shard NNUE model should produce accumulators");
         self.evaluate_with_accumulators(board, &accumulators)
     }
 
@@ -430,23 +444,47 @@ impl NnueModel {
         board: &Board,
         accumulators: &NnueAccumulators,
     ) -> i32 {
+        self.evaluate_output_bucket_with_accumulators(
+            board,
+            accumulators,
+            output_bucket(board),
+        )
+    }
+
+    pub fn output_bucket_values(&self, board: &Board) -> [i32; SHARD_OUTPUT_BUCKETS] {
+        let accumulators = self
+            .initial_accumulators(board)
+            .expect("valid shard NNUE model should produce accumulators");
+        std::array::from_fn(|bucket| {
+            self.evaluate_output_bucket_with_accumulators(board, &accumulators, bucket)
+        })
+    }
+
+    fn evaluate_output_bucket_with_accumulators(
+        &self,
+        board: &Board,
+        accumulators: &NnueAccumulators,
+        bucket: usize,
+    ) -> i32 {
         let (stm, ntm) = match crate::chess::side_to_move(board) {
             Color::White => (&accumulators.white, &accumulators.black),
             Color::Black => (&accumulators.black, &accumulators.white),
         };
+        let start = bucket * SHARD_OUTPUTS_PER_BUCKET;
+        let weights = &self.output_weights.0[start..start + SHARD_OUTPUTS_PER_BUCKET];
         let mut output = crate::simd::screlu_dot_i16_dual(
             stm,
-            &self.output_weights.0[..RUNESTONE_HIDDEN],
+            &weights[..SHARD_HIDDEN],
             ntm,
-            &self.output_weights.0[RUNESTONE_HIDDEN..],
-            RUNESTONE_QA,
+            &weights[SHARD_HIDDEN..],
+            SHARD_QA,
             self.narrow_output_weights,
         );
-        let qa = i64::from(RUNESTONE_QA);
+        let qa = i64::from(SHARD_QA);
         output /= qa;
-        output += i64::from(self.output_bias);
-        output *= i64::from(RUNESTONE_OUTPUT_SCALE);
-        output /= qa * i64::from(RUNESTONE_QB);
+        output += i64::from(self.output_bias[bucket]);
+        output *= i64::from(SHARD_OUTPUT_SCALE);
+        output /= qa * i64::from(SHARD_QB);
         output.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
     }
 
@@ -525,7 +563,7 @@ impl NnueModel {
 
     fn apply_removed_piece_delta(
         &self,
-        values: &mut [i16; RUNESTONE_HIDDEN],
+        values: &mut [i16; SHARD_HIDDEN],
         perspective: Color,
         king_square: usize,
         color: Color,
@@ -542,11 +580,11 @@ impl NnueModel {
 }
 
 fn feature_weight_slice(blocks: &[AlignedFeatureBlock]) -> &[i16] {
-    debug_assert_eq!(std::mem::size_of::<AlignedFeatureBlock>(), RUNESTONE_HIDDEN * 2);
+    debug_assert_eq!(std::mem::size_of::<AlignedFeatureBlock>(), SHARD_HIDDEN * 2);
     unsafe {
         std::slice::from_raw_parts(
             blocks.as_ptr().cast::<i16>(),
-            blocks.len() * RUNESTONE_HIDDEN,
+            blocks.len() * SHARD_HIDDEN,
         )
     }
 }
@@ -564,6 +602,31 @@ fn board_piece_bitboards(board: &Board) -> [u64; FINNY_PIECE_BITBOARDS] {
 
 fn piece_bitboard_index(color: Color, piece: Piece) -> usize {
     color as usize * 6 + piece as usize
+}
+
+fn output_bucket(board: &Board) -> usize {
+    let piece_count = crate::chess::colors(board, Color::White).len()
+        + crate::chess::colors(board, Color::Black).len();
+    ((piece_count.saturating_sub(2) / 4) as usize).min(SHARD_OUTPUT_BUCKETS - 1)
+}
+
+fn has_shard_header(bytes: &[u8]) -> bool {
+    bytes.get(..8) == Some(&b"SABLENET"[..])
+        && read_u32(bytes, 8) == Some(1)
+        && read_u32(bytes, 12) == Some(3)
+        && read_u32(bytes, 16) == Some(SHARD_HEADER_BYTES as u32)
+        && read_u32(bytes, 20) == Some(SHARD_INPUT_FEATURES as u32)
+        && read_u32(bytes, 28) == Some(SHARD_OUTPUT_BUCKETS as u32)
+        && read_u32(bytes, 32) == Some(SHARD_OUTPUT_SCALE as u32)
+        && read_u32(bytes, 36) == Some(SHARD_QA as u32)
+        && read_u32(bytes, 40) == Some(SHARD_QB as u32)
+        && read_u32(bytes, 44) == Some(3)
+        && read_u32(bytes, 64) == Some(SHARD_HIDDEN as u32)
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
+    let value = bytes.get(offset..offset + 4)?;
+    Some(u32::from_le_bytes(value.try_into().ok()?))
 }
 
 fn invalid_eval_file(path: &Path, message: &str) -> EngineError {

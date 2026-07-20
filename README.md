@@ -35,9 +35,9 @@ An in-development personal project written in Rust designed to play Chess better
         - minor
         - non-pawn
         - continuation
-- An efficiently updatable neural network - Runestone 2.3
-    - (768x16hm>512)x2->1 arch
-    - Trained on selfplay from Runestone 1.4, with ~2 billion positions of data
+- An efficiently updatable neural network - Shard 1.14
+    - (768x16hm->768)x2->8 arch
+    - Trained on ~2.2 billion positions of selfplay data
     - Trained using [Bullet](https://github.com/jw1912/bullet)
 - Lazy SMP for efficient multi-thread usage
 - UCI protocol
@@ -61,7 +61,7 @@ An in-development personal project written in Rust designed to play Chess better
 |UCI_ShowWDL|check|false||Adds WDL values to UCI info lines.|
 |Move Overhead|spin|100|0 / 10000|Milliseconds reserved from time controls to avoid flagging.|
 |Clear Hash|button|||Clears the transposition table.|
-|Eval File|string|embedded if compiled in, otherwise blank||Loads a native Runestone NNUE file from disk, or `embedded` for the compiled-in net.|
+|Eval File|string|embedded if compiled in, otherwise blank||Loads a native Shard NNUE file from disk, or `embedded` for the compiled-in net.|
 
 ## Strength
 |Version|My Estimate|CCRL 40/15|CCRL FRC 40/2|
@@ -81,7 +81,7 @@ LLM agents have modified the codebase for faster mass deletions or param changes
 You can create your own Sable build with cargo build --release.
 
 ## Release Builds
-The embedded Runestone NNUE is read from data/quantised.bin when that file exists.
+The embedded Shard NNUE is read from data/quantised.bin when that file exists.
 Builds without an embedded net still compile, but search requires `Eval File` to be loaded before use.
 
 ## Thanks :D
