@@ -322,20 +322,44 @@ pub(in crate::search) fn requires_full_mate_search(alpha: i32, beta: i32) -> boo
 }
 
 #[inline]
-pub(in crate::search) fn reverse_futility_margin(depth: u32) -> i32 {
+pub(in crate::search) fn reverse_futility_margin(depth: u32, volatility: i32) -> i32 {
     REVERSE_FUTILITY_BASE_MARGIN()
-        + REVERSE_FUTILITY_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32)
+        .saturating_add(
+            REVERSE_FUTILITY_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32),
+        )
+        .saturating_add(volatility_margin_adjustment(
+            volatility,
+            VOLATILITY_HISTORY_REVERSE_FUTILITY_WEIGHT(),
+            VOLATILITY_HISTORY_REVERSE_FUTILITY_HIGH_WEIGHT(),
+        ))
 }
 
 #[inline]
-pub(in crate::search) fn razor_margin(depth: u32) -> i32 {
-    RAZOR_BASE_MARGIN() + RAZOR_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32)
+pub(in crate::search) fn razor_margin(depth: u32, volatility: i32) -> i32 {
+    RAZOR_BASE_MARGIN()
+        .saturating_add(RAZOR_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32))
+        .saturating_add(volatility_margin_adjustment(
+            volatility,
+            VOLATILITY_HISTORY_RAZOR_WEIGHT(),
+            VOLATILITY_HISTORY_RAZOR_HIGH_WEIGHT(),
+        ))
 }
 
 #[inline]
-pub(in crate::search) fn futility_margin(depth: u32, improving: bool) -> i32 {
+pub(in crate::search) fn futility_margin(
+    depth: u32,
+    improving: bool,
+    volatility: i32,
+) -> i32 {
     let base = FUTILITY_BASE_MARGIN()
-        + FUTILITY_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32);
+        .saturating_add(
+            FUTILITY_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32),
+        )
+        .saturating_add(volatility_margin_adjustment(
+            volatility,
+            VOLATILITY_HISTORY_FUTILITY_WEIGHT(),
+            VOLATILITY_HISTORY_FUTILITY_HIGH_WEIGHT(),
+        ));
     if improving {
         base.saturating_add(FUTILITY_IMPROVING_MARGIN())
     } else {
@@ -353,17 +377,24 @@ pub(in crate::search) fn should_reverse_futility_prune(
     depth: u32,
     static_eval: i32,
     beta: i32,
+    volatility: i32,
 ) -> Option<i32> {
     if depth > REVERSE_FUTILITY_MAX_DEPTH() {
         return None;
     }
-    let score = static_eval.saturating_sub(reverse_futility_margin(depth));
+    let score = static_eval.saturating_sub(reverse_futility_margin(depth, volatility));
     (score >= beta).then_some(score)
 }
 
 #[inline]
-pub(in crate::search) fn should_try_razoring(depth: u32, static_eval: i32, alpha: i32) -> bool {
-    depth <= RAZOR_MAX_DEPTH() && static_eval.saturating_add(razor_margin(depth)) <= alpha
+pub(in crate::search) fn should_try_razoring(
+    depth: u32,
+    static_eval: i32,
+    alpha: i32,
+    volatility: i32,
+) -> bool {
+    depth <= RAZOR_MAX_DEPTH()
+        && static_eval.saturating_add(razor_margin(depth, volatility)) <= alpha
 }
 
 #[inline]
@@ -373,12 +404,30 @@ pub(in crate::search) fn should_futility_prune_quiet(
     alpha: i32,
     quiet_score: i32,
     improving: bool,
+    volatility: i32,
 ) -> bool {
     depth <= FUTILITY_MAX_DEPTH()
         && quiet_score < COUNTER_MOVE_SCORE
         && static_eval
-            .saturating_add(futility_margin(depth, improving))
+            .saturating_add(futility_margin(depth, improving, volatility))
             <= alpha
+}
+
+#[inline]
+fn volatility_margin_adjustment(
+    volatility: i32,
+    low_weight: i32,
+    high_weight: i32,
+) -> i32 {
+    let baseline =
+        VOLATILITY_HISTORY_BASELINE().clamp(0, MAX_VOLATILITY_HISTORY_SCORE());
+    let centered = volatility.saturating_sub(baseline);
+    let weight = if centered < 0 {
+        low_weight
+    } else {
+        high_weight
+    };
+    centered.saturating_mul(weight.max(0)) / 128
 }
 
 #[inline]

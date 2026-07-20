@@ -452,7 +452,14 @@ fn should_static_prune_quiet(
     let Some(eval) = static_eval.corrected else {
         return false;
     };
-    should_futility_prune_quiet(depth, eval, alpha, ordered.score, static_eval.improving)
+    should_futility_prune_quiet(
+        depth,
+        eval,
+        alpha,
+        ordered.score,
+        static_eval.improving,
+        static_eval.volatility,
+    )
         || should_prune_late_quiet(depth, searched_moves, ordered.score, static_eval.improving)
 }
 
@@ -531,6 +538,18 @@ pub(super) fn finish_node(
         Bound::Exact
     };
     let best_move = result.best.pv.last().map(|pv| pv.mv);
+    if params.use_tt
+        && !result.best.repetition_draw
+        && let Some(raw_eval) = params.raw_static_eval
+    {
+        context.update_volatility_history(
+            params.board,
+            raw_eval,
+            result.best.score,
+            params.depth,
+            bound,
+        );
+    }
     if params.use_tt
         && !result.best.repetition_draw
         && let Some(raw_eval) = params.raw_static_eval

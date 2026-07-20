@@ -19,6 +19,7 @@ use super::{
 pub(super) struct StaticEvalState {
     pub(super) raw: Option<i32>,
     pub(super) corrected: Option<i32>,
+    pub(super) volatility: i32,
     pub(super) can_prune: bool,
     pub(super) improving: bool,
 }
@@ -70,9 +71,11 @@ pub(super) fn prepare_static_eval(
     if let Some(eval) = corrected {
         context.record_static_eval_at_ply(ply, eval);
     }
+    let volatility = raw.map_or(0, |_| context.volatility(board));
     StaticEvalState {
         raw,
         corrected,
+        volatility,
         can_prune: can_use_static_eval_pruning(repetition, is_pv_node, in_check, alpha, beta),
         improving,
     }
@@ -101,11 +104,21 @@ pub(super) fn try_static_eval_pruning(
         return PruneResult::Continue;
     };
 
-    if let Some(score) = should_reverse_futility_prune(params.depth, eval, params.beta) {
+    if let Some(score) = should_reverse_futility_prune(
+        params.depth,
+        eval,
+        params.beta,
+        static_eval.volatility,
+    ) {
         return PruneResult::Done(terminal_outcome(score, false));
     }
 
-    if should_try_razoring(params.depth, eval, params.alpha) {
+    if should_try_razoring(
+        params.depth,
+        eval,
+        params.alpha,
+        static_eval.volatility,
+    ) {
         let Some(razor) = quiescence(
             params.board,
             params.repetition,

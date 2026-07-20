@@ -18,6 +18,7 @@ use crate::search::{
         position_key::PositionKey,
         stop_reason::StopReason,
         transposition::TranspositionTable,
+        volatility_history::VolatilityHistory,
     },
 };
 
@@ -63,6 +64,7 @@ pub(super) struct SearchHeuristics {
     pub(super) static_eval_stack: [Option<i32>; MAX_ORDERING_PLY],
     pub(super) ordering: MoveOrdering,
     pub(super) correction_history: CorrectionHistory,
+    pub(super) volatility_history: VolatilityHistory,
     pub(super) transposition_table: TranspositionTable,
 }
 

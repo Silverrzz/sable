@@ -103,6 +103,15 @@ macro_rules! define_tunable_parameters {
 
 define_tunable_parameters!(
     (MAX_CORRECTION_HISTORY_SCORE, max_correction_history_score_parameter, i32, 423, 32, 1024, 32.0),
+    (MAX_VOLATILITY_HISTORY_SCORE, max_volatility_history_score_parameter, i32, 512, 64, 2048, 64.0),
+    (VOLATILITY_HISTORY_BASELINE, volatility_history_baseline_parameter, i32, 128, 0, 512, 16.0),
+    (VOLATILITY_HISTORY_UPDATE_SCALE, volatility_history_update_scale_parameter, i32, 128, 0, 384, 16.0),
+    (VOLATILITY_HISTORY_REVERSE_FUTILITY_WEIGHT, volatility_history_reverse_futility_weight_parameter, i32, 160, 0, 256, 16.0),
+    (VOLATILITY_HISTORY_REVERSE_FUTILITY_HIGH_WEIGHT, volatility_history_reverse_futility_high_weight_parameter, i32, 32, 0, 256, 16.0),
+    (VOLATILITY_HISTORY_RAZOR_WEIGHT, volatility_history_razor_weight_parameter, i32, 160, 0, 256, 16.0),
+    (VOLATILITY_HISTORY_RAZOR_HIGH_WEIGHT, volatility_history_razor_high_weight_parameter, i32, 32, 0, 256, 16.0),
+    (VOLATILITY_HISTORY_FUTILITY_WEIGHT, volatility_history_futility_weight_parameter, i32, 160, 0, 256, 16.0),
+    (VOLATILITY_HISTORY_FUTILITY_HIGH_WEIGHT, volatility_history_futility_high_weight_parameter, i32, 32, 0, 256, 16.0),
     (CORRECTION_HISTORY_MINOR_WEIGHT, correction_history_minor_weight_parameter, i32, 183, 0, 512, 16.0),
     (CORRECTION_HISTORY_NON_PAWN_WEIGHT, correction_history_non_pawn_weight_parameter, i32, 293, 0, 512, 16.0),
     (CORRECTION_HISTORY_PREVIOUS_WEIGHT, correction_history_previous_weight_parameter, i32, 169, 0, 512, 16.0),

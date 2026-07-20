@@ -13,7 +13,8 @@ use super::{
     correction_history::{CorrectionContext, CorrectionHistory},
     move_ordering::MoveOrdering,
     position_key::{PositionKey, actual_game_repetition_count, is_repetition, position_key},
-    transposition::TranspositionTable,
+    transposition::{Bound, TranspositionTable},
+    volatility_history::VolatilityHistory,
 };
 
 mod parts;
@@ -61,12 +62,14 @@ enum EvalPending {
 pub(crate) struct PersistentSearchState {
     pub(in crate::search) ordering: MoveOrdering,
     pub(in crate::search) correction_history: CorrectionHistory,
+    pub(in crate::search) volatility_history: VolatilityHistory,
 }
 
 impl PersistentSearchState {
     pub(in crate::search) fn decay(&mut self) {
         self.ordering.decay_persistent();
         self.correction_history.decay();
+        self.volatility_history.decay();
     }
 }
 
@@ -144,6 +147,7 @@ impl<'a> SearchContext<'a> {
         let PersistentSearchState {
             ordering,
             correction_history,
+            volatility_history,
         } = search_state;
         let mut context = Self {
             clock: SearchClock {
@@ -183,6 +187,7 @@ impl<'a> SearchContext<'a> {
                 static_eval_stack: [None; MAX_ORDERING_PLY],
                 ordering,
                 correction_history,
+                volatility_history,
                 transposition_table,
             },
         };
@@ -404,12 +409,34 @@ impl<'a> SearchContext<'a> {
             .update(board, correction_context, raw_eval, score, depth);
     }
 
+    pub(in crate::search) fn volatility(&self, board: &Board) -> i32 {
+        self.heuristics.volatility_history.volatility(board)
+    }
+
+    pub(in crate::search) fn update_volatility_history(
+        &mut self,
+        board: &Board,
+        raw_eval: i32,
+        score: i32,
+        depth: u32,
+        bound: Bound,
+    ) {
+        if super::volatility_history::should_update_volatility_history(
+            bound, raw_eval, score,
+        ) {
+            self.heuristics
+                .volatility_history
+                .update(board, raw_eval, score, depth);
+        }
+    }
+
     /// moves persistent tables out without cloning
     /// only call this when search is done with the context
     pub(in crate::search) fn take_persistent_state(&mut self) -> PersistentSearchState {
         PersistentSearchState {
             ordering: std::mem::take(&mut self.heuristics.ordering),
             correction_history: std::mem::take(&mut self.heuristics.correction_history),
+            volatility_history: std::mem::take(&mut self.heuristics.volatility_history),
         }
     }
 }
