@@ -12,7 +12,7 @@ pub(super) fn validate_i16_accumulator_range(
     if feature_weights.len() != SHARD_FEATURE_WEIGHTS {
         return Err(invalid_eval_file(
             path,
-            "shard feature weight count does not match 768x16hm->768",
+            "shard feature weight count does not match 1024x16hm->768",
         ));
     }
 

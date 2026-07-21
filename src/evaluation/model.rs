@@ -30,7 +30,7 @@ impl NnueModel {
         {
             return Err(invalid_eval_file(
                 path,
-                "expected shard SABLENET layout (768x16hm->768)x2->8",
+                "expected shard SABLENET layout (768x16hm->1024)x2->8",
             ));
         }
 
