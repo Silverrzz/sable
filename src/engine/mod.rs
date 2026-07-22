@@ -259,6 +259,10 @@ impl Engine {
 
     fn search_request_with_option_defaults(&self, request: &SearchRequest) -> SearchRequest {
         let mut request = request.clone();
+        if request.limits.nodes == Some(1) {
+            request.limits.nodes = None;
+            request.limits.depth = Some(1);
+        }
         if self.options.use_soft_nodes
             && request.limits.soft_nodes.is_none()
             && let Some(nodes) = request.limits.nodes.take()
@@ -415,5 +419,25 @@ fn flush_empty_squares(normalized: &mut String, empty_squares: &mut u32) {
     if *empty_squares > 0 {
         normalized.push_str(&empty_squares.to_string());
         *empty_squares = 0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_node_request_becomes_depth_one_search() {
+        let mut engine = Engine::default();
+        engine.options.use_soft_nodes = true;
+        let mut request = SearchRequest::default();
+        request.limits.nodes = Some(1);
+
+        let normalized = engine.search_request_with_option_defaults(&request);
+
+        assert_eq!(normalized.limits.depth, Some(1));
+        assert_eq!(normalized.limits.nodes, None);
+        assert_eq!(normalized.limits.soft_nodes, None);
+        assert_eq!(normalized.limits.hard_nodes, None);
     }
 }
