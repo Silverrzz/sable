@@ -158,16 +158,16 @@ fn parse_go(rest: &str) -> Result<SearchRequest, String> {
                 parser.advance_flag();
             }
             "wtime" => {
-                time_control.white_time_ms = Some(parser.u64_arg("wtime")?);
+                time_control.white_time_ms = Some(parser.clamped_u64_arg("wtime")?);
             }
             "btime" => {
-                time_control.black_time_ms = Some(parser.u64_arg("btime")?);
+                time_control.black_time_ms = Some(parser.clamped_u64_arg("btime")?);
             }
             "winc" => {
-                time_control.white_increment_ms = Some(parser.u64_arg("winc")?);
+                time_control.white_increment_ms = Some(parser.clamped_u64_arg("winc")?);
             }
             "binc" => {
-                time_control.black_increment_ms = Some(parser.u64_arg("binc")?);
+                time_control.black_increment_ms = Some(parser.clamped_u64_arg("binc")?);
             }
             "movestogo" => {
                 time_control.moves_to_go = Some(parser.nonzero_u32_arg("movestogo")?);
@@ -249,6 +249,14 @@ impl<'a> GoParser<'a> {
         raw
             .parse::<u64>()
             .map_err(|_| format!("invalid integer for {name}: {raw}"))
+    }
+
+    fn clamped_u64_arg(&mut self, name: &str) -> Result<u64, String> {
+        let raw = self.arg(name)?;
+        let value = raw
+            .parse::<i64>()
+            .map_err(|_| format!("invalid integer for {name}: {raw}"))?;
+        Ok(value.max(0) as u64)
     }
 
     fn u32_arg(&mut self, name: &str) -> Result<u32, String> {
