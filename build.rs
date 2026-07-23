@@ -13,6 +13,18 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SABLE_EVAL_FILE");
     println!("cargo:rerun-if-env-changed=SABLE_EVAL_LABEL");
 
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let repo_default = manifest_dir.join("data").join("quantised.bin");
+    let workspace_default = manifest_dir.join("..").join("data").join("quantised.bin");
+    println!("cargo:rerun-if-changed={}", repo_default.strip_prefix(&manifest_dir).unwrap_or(&repo_default).display());
+    println!("cargo:rerun-if-changed={}", workspace_default.strip_prefix(&manifest_dir).unwrap_or(&workspace_default).display());
+
+    if let Ok(path) = env::var("SABLE_EVAL_FILE")
+        && !path.trim().is_empty()
+    {
+        println!("cargo:rerun-if-changed={path}");
+    }
+
     if let Ok(release_id) = env::var("SABLE_RELEASE_ID")
         && !release_id.trim().is_empty()
     {
@@ -52,7 +64,6 @@ fn main() {
         return;
     }
 
-    println!("cargo:rerun-if-changed={}", source.display());
     let bytes = fs::read(&source).unwrap_or_else(|error| {
         panic!(
             "Failed to read embedded eval from '{}': {error}",
