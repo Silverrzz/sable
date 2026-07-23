@@ -6,17 +6,22 @@ use super::types::*;
 
 pub(super) fn validate_i16_accumulator_range(
     path: &Path,
-    bias: &[i16; SHARD_HIDDEN],
+    bias: &[i16],
     feature_weights: &[i16],
+    hidden_size: usize,
 ) -> Result<(), EngineError> {
-    if feature_weights.len() != SHARD_FEATURE_WEIGHTS {
+    if bias.len() != hidden_size
+        || SHARD_INPUT_FEATURES
+            .checked_mul(hidden_size)
+            .is_none_or(|expected| feature_weights.len() != expected)
+    {
         return Err(invalid_eval_file(
             path,
-            "shard feature weight count does not match 1024x16hm->768",
+            "shard first-layer dimensions do not match the declared hidden width",
         ));
     }
 
-    for neuron in 0..SHARD_HIDDEN {
+    for neuron in 0..hidden_size {
         let bias_abs = i64::from(i32::from(bias[neuron]).abs());
         for king_bucket in 0..SHARD_KING_BUCKETS {
             let mut top = [0_i32; 32];
@@ -24,7 +29,7 @@ pub(super) fn validate_i16_accumulator_range(
             for piece_feature in 0..PIECE_SQUARE_FEATURES {
                 let feature = bucket_start + piece_feature;
                 let magnitude =
-                    i32::from(feature_weights[feature * SHARD_HIDDEN + neuron]).abs();
+                    i32::from(feature_weights[feature * hidden_size + neuron]).abs();
                 insert_top_magnitude(&mut top, magnitude);
             }
 
@@ -61,22 +66,25 @@ fn insert_top_magnitude(top: &mut [i32; 32], magnitude: i32) {
 }
 
 pub(super) fn apply_feature_delta(
-    accumulator: &mut [i16; SHARD_HIDDEN],
+    accumulator: &mut [i16],
     feature_weights: &[i16],
     feature_index: usize,
     sign: i32,
 ) {
-    let start = feature_index * SHARD_HIDDEN;
-    let end = start + SHARD_HIDDEN;
+    let hidden_size = accumulator.len();
+    let start = feature_index * hidden_size;
+    let end = start + hidden_size;
     crate::simd::apply_feature_delta(accumulator, &feature_weights[start..end], sign);
 }
 
 pub(super) fn apply_feature_deltas(
-    source: &[i16; SHARD_HIDDEN],
-    target: &mut [i16; SHARD_HIDDEN],
+    source: &[i16],
+    target: &mut [i16],
     feature_weights: &[i16],
     updates: &FeatureUpdateList,
 ) {
+    let hidden_size = source.len();
+    debug_assert_eq!(target.len(), hidden_size);
     if updates.len == 2
         && updates.updates[0].sign == -1
         && updates.updates[1].sign == 1
@@ -85,7 +93,7 @@ pub(super) fn apply_feature_deltas(
             source,
             target,
             feature_weights,
-            SHARD_HIDDEN,
+            hidden_size,
             updates.updates[0].feature,
             updates.updates[1].feature,
         );
@@ -100,7 +108,7 @@ pub(super) fn apply_feature_deltas(
             source,
             target,
             feature_weights,
-            SHARD_HIDDEN,
+            hidden_size,
             updates.updates[0].feature,
             updates.updates[1].feature,
             updates.updates[2].feature,
@@ -126,15 +134,16 @@ pub(super) fn apply_feature_deltas(
 }
 
 pub(super) fn apply_feature_delta_batch(
-    accumulator: &mut [i16; SHARD_HIDDEN],
+    accumulator: &mut [i16],
     feature_weights: &[i16],
     features: &[usize],
     signs: &[i32],
 ) {
+    let hidden_size = accumulator.len();
     crate::simd::apply_feature_deltas(
         accumulator,
         feature_weights,
-        SHARD_HIDDEN,
+        hidden_size,
         features,
         signs,
     );

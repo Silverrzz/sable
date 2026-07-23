@@ -13,17 +13,10 @@ pub(super) const QUEEN_VALUE: i32 = 900;
 pub(super) const PIECE_SQUARE_FEATURES: usize = 768;
 pub(super) const KING_SQUARES: usize = 64;
 pub(super) const SHARD_KING_BUCKETS: usize = 16;
-pub(super) const SHARD_HIDDEN: usize = 1024;
 pub const SHARD_OUTPUT_BUCKETS: usize = 8;
-pub(super) const SHARD_OUTPUTS_PER_BUCKET: usize = SHARD_HIDDEN * 2;
-pub(super) const SHARD_OUTPUT_WEIGHTS: usize = SHARD_OUTPUTS_PER_BUCKET * SHARD_OUTPUT_BUCKETS;
 pub(super) const SHARD_INPUT_FEATURES: usize = PIECE_SQUARE_FEATURES * SHARD_KING_BUCKETS;
-pub(super) const SHARD_FEATURE_WEIGHTS: usize = SHARD_INPUT_FEATURES * SHARD_HIDDEN;
 pub(super) const SHARD_HEADER_BYTES: usize = 180;
-pub(super) const SHARD_TENSOR_BYTES: usize = SHARD_HEADER_BYTES
-    + (SHARD_FEATURE_WEIGHTS + SHARD_HIDDEN) * 2
-    + (SHARD_OUTPUT_WEIGHTS + SHARD_OUTPUT_BUCKETS) * 4;
-pub(super) const SHARD_FILE_MAX_BYTES: usize = SHARD_TENSOR_BYTES + 63;
+pub(super) const SHARD_FILE_PADDING_BYTES: usize = 63;
 pub(super) const SHARD_QA: i16 = 255;
 pub(super) const SHARD_QB: i16 = 64;
 pub(super) const SHARD_OUTPUT_SCALE: i32 = 400;
@@ -50,36 +43,24 @@ impl NnueArchitectureId {
 
 #[derive(Debug)]
 pub struct NnueModel {
-    pub(super) feature_weights: Box<[AlignedFeatureBlock]>,
-    pub(super) bias: [i16; SHARD_HIDDEN],
-    pub(super) output_weights: AlignedOutputWeights,
+    pub(super) feature_weights: Box<[i16]>,
+    pub(super) bias: Box<[i16]>,
+    pub(super) output_weights: Box<[i16]>,
     pub(super) narrow_output_weights: bool,
     pub(super) output_bias: [i32; SHARD_OUTPUT_BUCKETS],
 }
 
-#[repr(C, align(64))]
-#[derive(Debug)]
-pub(super) struct AlignedFeatureBlock(pub(super) [i16; SHARD_HIDDEN]);
-
-const _: () = assert!(std::mem::size_of::<AlignedFeatureBlock>() == SHARD_HIDDEN * 2);
-
-#[repr(align(64))]
-#[derive(Debug)]
-pub(super) struct AlignedOutputWeights(pub(super) [i16; SHARD_OUTPUT_WEIGHTS]);
-
-#[repr(align(64))]
 #[derive(Clone, Debug)]
 pub struct NnueAccumulators {
-    pub(super) white: [i16; SHARD_HIDDEN],
-    pub(super) black: [i16; SHARD_HIDDEN],
+    pub(super) white: Box<[i16]>,
+    pub(super) black: Box<[i16]>,
 }
 
 impl NnueAccumulators {
     pub(crate) fn empty_like(source: &Self) -> Self {
-        let _ = source;
         Self {
-            white: [0; SHARD_HIDDEN],
-            black: [0; SHARD_HIDDEN],
+            white: vec![0; source.white.len()].into_boxed_slice(),
+            black: vec![0; source.black.len()].into_boxed_slice(),
         }
     }
 }
@@ -91,17 +72,17 @@ pub(crate) struct NnueFinnyTable {
 
 #[derive(Clone, Debug)]
 pub(super) struct NnueFinnyEntry {
-    pub(super) values: [i16; SHARD_HIDDEN],
+    pub(super) values: Box<[i16]>,
     pub(super) pieces: [u64; FINNY_PIECE_BITBOARDS],
     pub(super) valid: bool,
 }
 
 impl NnueFinnyTable {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(hidden_size: usize) -> Self {
         Self {
             entries: (0..FINNY_TABLE_ENTRIES)
                 .map(|_| NnueFinnyEntry {
-                    values: [0; SHARD_HIDDEN],
+                    values: vec![0; hidden_size].into_boxed_slice(),
                     pieces: [0; FINNY_PIECE_BITBOARDS],
                     valid: false,
                 })
