@@ -24,32 +24,40 @@ impl NnueModel {
     }
 
     fn from_bytes(path: &Path, bytes: &[u8]) -> Result<Self, EngineError> {
-        if bytes.len() < SHARD_TENSOR_BYTES
-            || bytes.len() > SHARD_FILE_MAX_BYTES
-            || !has_shard_header(bytes)
-        {
+        let Some(hidden_size) = shard_hidden_size(bytes) else {
             return Err(invalid_eval_file(
                 path,
-                "expected shard SABLENET layout (768x16hm->768)x2->8",
+                "expected a single-hidden-layer shard SABLENET layout",
+            ));
+        };
+        let Some(tensor_bytes) = shard_tensor_bytes(hidden_size) else {
+            return Err(invalid_eval_file(path, "shard tensor dimensions overflow"));
+        };
+        let Some(file_max_bytes) = tensor_bytes.checked_add(SHARD_FILE_PADDING_BYTES) else {
+            return Err(invalid_eval_file(path, "shard file dimensions overflow"));
+        };
+        if bytes.len() < tensor_bytes || bytes.len() > file_max_bytes {
+            return Err(invalid_eval_file(
+                path,
+                "shard file size does not match its declared hidden width",
             ));
         }
 
-        let i16_end = SHARD_HEADER_BYTES + (SHARD_FEATURE_WEIGHTS + SHARD_HIDDEN) * 2;
+        let feature_weight_count = SHARD_INPUT_FEATURES * hidden_size;
+        let i16_end = SHARD_HEADER_BYTES + (feature_weight_count + hidden_size) * 2;
         let mut chunks = bytes[SHARD_HEADER_BYTES..i16_end]
             .chunks_exact(2)
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]));
-        let mut feature_weights = Vec::with_capacity(SHARD_INPUT_FEATURES);
-        for _ in 0..SHARD_INPUT_FEATURES {
-            let mut block = [0; SHARD_HIDDEN];
-            for value in &mut block {
-                *value = chunks
+        let mut feature_weights = Vec::with_capacity(feature_weight_count);
+        for _ in 0..feature_weight_count {
+            feature_weights.push(
+                chunks
                     .next()
-                    .expect("shard feature weights are present");
-            }
-            feature_weights.push(AlignedFeatureBlock(block));
+                    .expect("shard feature weights are present"),
+            );
         }
 
-        let mut bias = [0; SHARD_HIDDEN];
+        let mut bias = vec![0; hidden_size];
         for value in &mut bias {
             *value = chunks
                 .next()
@@ -57,15 +65,16 @@ impl NnueModel {
         }
         debug_assert!(chunks.next().is_none());
 
-        let mut chunks = bytes[i16_end..SHARD_TENSOR_BYTES]
+        let mut chunks = bytes[i16_end..tensor_bytes]
             .chunks_exact(4)
             .map(|chunk| i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-        let mut output_weights = [0; SHARD_OUTPUT_WEIGHTS];
-        for value in &mut output_weights {
+        let output_weight_count = hidden_size * 2 * SHARD_OUTPUT_BUCKETS;
+        let mut output_weights = Vec::with_capacity(output_weight_count);
+        for _ in 0..output_weight_count {
             let weight = chunks.next().expect("shard output weights are present");
-            *value = i16::try_from(weight).map_err(|_| {
+            output_weights.push(i16::try_from(weight).map_err(|_| {
                 invalid_eval_file(path, "shard output weight does not fit the SIMD evaluator")
-            })?;
+            })?);
         }
         let mut output_bias = [0; SHARD_OUTPUT_BUCKETS];
         for value in &mut output_bias {
@@ -76,11 +85,11 @@ impl NnueModel {
             i32::from(weight).abs() * i32::from(SHARD_QA) <= i32::from(i16::MAX)
         });
 
-        validate_i16_accumulator_range(path, &bias, feature_weight_slice(&feature_weights))?;
+        validate_i16_accumulator_range(path, &bias, &feature_weights, hidden_size)?;
         Ok(Self {
             feature_weights: feature_weights.into_boxed_slice(),
-            bias,
-            output_weights: AlignedOutputWeights(output_weights),
+            bias: bias.into_boxed_slice(),
+            output_weights: output_weights.into_boxed_slice(),
             narrow_output_weights,
             output_bias,
         })
@@ -128,16 +137,17 @@ impl NnueModel {
     }
 
     pub fn initial_accumulators(&self, board: &Board) -> Option<NnueAccumulators> {
+        let hidden_size = self.hidden_size();
         let mut accumulators = NnueAccumulators {
-            white: [0; SHARD_HIDDEN],
-            black: [0; SHARD_HIDDEN],
+            white: vec![0; hidden_size].into_boxed_slice(),
+            black: vec![0; hidden_size].into_boxed_slice(),
         };
         self.refresh_accumulators_into(&mut accumulators, board)
             .then_some(accumulators)
     }
 
     pub(crate) fn new_finny_table(&self) -> Option<NnueFinnyTable> {
-        Some(NnueFinnyTable::new())
+        Some(NnueFinnyTable::new(self.hidden_size()))
     }
 
     pub(crate) fn seed_finny_table(
@@ -181,7 +191,7 @@ impl NnueModel {
 
     fn refresh_accumulator_values_into(
         &self,
-        values: &mut [i16; SHARD_HIDDEN],
+        values: &mut [i16],
         board: &Board,
         perspective: Color,
         finny: Option<&mut NnueFinnyTable>,
@@ -194,11 +204,11 @@ impl NnueModel {
 
     fn refresh_accumulator_values_full_into(
         &self,
-        values: &mut [i16; SHARD_HIDDEN],
+        values: &mut [i16],
         board: &Board,
         perspective: Color,
     ) -> bool {
-        *values = self.bias;
+        values.copy_from_slice(&self.bias);
         let Some(king_square) = oriented_king_square(board, perspective) else {
             return false;
         };
@@ -222,7 +232,7 @@ impl NnueModel {
 
     fn refresh_accumulator_values_from_finny(
         &self,
-        values: &mut [i16; SHARD_HIDDEN],
+        values: &mut [i16],
         board: &Board,
         perspective: Color,
         table: &mut NnueFinnyTable,
@@ -238,7 +248,7 @@ impl NnueModel {
             if !self.refresh_accumulator_values_full_into(values, board, perspective) {
                 return false;
             }
-            entry.values = *values;
+            entry.values.copy_from_slice(values);
             entry.pieces = current_pieces;
             entry.valid = true;
             return true;
@@ -272,7 +282,7 @@ impl NnueModel {
 
         entry.pieces = current_pieces;
         entry.valid = true;
-        *values = entry.values;
+        values.copy_from_slice(&entry.values);
         true
     }
 
@@ -281,7 +291,7 @@ impl NnueModel {
         table: &mut NnueFinnyTable,
         board: &Board,
         perspective: Color,
-        values: &[i16; SHARD_HIDDEN],
+        values: &[i16],
     ) -> bool {
         let Some(king_square) = oriented_king_square(board, perspective) else {
             return false;
@@ -289,7 +299,7 @@ impl NnueModel {
         let Some(entry) = table.entry_mut(perspective, king_square) else {
             return false;
         };
-        entry.values = *values;
+        entry.values.copy_from_slice(values);
         entry.pieces = board_piece_bitboards(board);
         entry.valid = true;
         true
@@ -297,7 +307,7 @@ impl NnueModel {
 
     fn apply_piece_bitboard_diff(
         &self,
-        values: &mut [i16; SHARD_HIDDEN],
+        values: &mut [i16],
         perspective: Color,
         king_square: usize,
         color: Color,
@@ -377,8 +387,8 @@ impl NnueModel {
 
     fn update_accumulator_after_move_for_perspective(
         &self,
-        source: &[i16; SHARD_HIDDEN],
-        target: &mut [i16; SHARD_HIDDEN],
+        source: &[i16],
+        target: &mut [i16],
         before: &Board,
         after: &Board,
         mv: Move,
@@ -407,8 +417,8 @@ impl NnueModel {
 
     fn apply_move_delta_for_perspective(
         &self,
-        source: &[i16; SHARD_HIDDEN],
-        target: &mut [i16; SHARD_HIDDEN],
+        source: &[i16],
+        target: &mut [i16],
         before: &Board,
         mv: Move,
         side: Color,
@@ -470,13 +480,15 @@ impl NnueModel {
             Color::White => (&accumulators.white, &accumulators.black),
             Color::Black => (&accumulators.black, &accumulators.white),
         };
-        let start = bucket * SHARD_OUTPUTS_PER_BUCKET;
-        let weights = &self.output_weights.0[start..start + SHARD_OUTPUTS_PER_BUCKET];
+        let hidden_size = self.hidden_size();
+        let outputs_per_bucket = hidden_size * 2;
+        let start = bucket * outputs_per_bucket;
+        let weights = &self.output_weights[start..start + outputs_per_bucket];
         let mut output = crate::simd::screlu_dot_i16_dual(
             stm,
-            &weights[..SHARD_HIDDEN],
+            &weights[..hidden_size],
             ntm,
-            &weights[SHARD_HIDDEN..],
+            &weights[hidden_size..],
             SHARD_QA,
             self.narrow_output_weights,
         );
@@ -563,7 +575,7 @@ impl NnueModel {
 
     fn apply_removed_piece_delta(
         &self,
-        values: &mut [i16; SHARD_HIDDEN],
+        values: &mut [i16],
         perspective: Color,
         king_square: usize,
         color: Color,
@@ -575,17 +587,11 @@ impl NnueModel {
     }
 
     fn feature_weights(&self) -> &[i16] {
-        feature_weight_slice(&self.feature_weights)
+        &self.feature_weights
     }
-}
 
-fn feature_weight_slice(blocks: &[AlignedFeatureBlock]) -> &[i16] {
-    debug_assert_eq!(std::mem::size_of::<AlignedFeatureBlock>(), SHARD_HIDDEN * 2);
-    unsafe {
-        std::slice::from_raw_parts(
-            blocks.as_ptr().cast::<i16>(),
-            blocks.len() * SHARD_HIDDEN,
-        )
+    fn hidden_size(&self) -> usize {
+        self.bias.len()
     }
 }
 
@@ -610,18 +616,64 @@ fn output_bucket(board: &Board) -> usize {
     ((piece_count.saturating_sub(2) / 4) as usize).min(SHARD_OUTPUT_BUCKETS - 1)
 }
 
-fn has_shard_header(bytes: &[u8]) -> bool {
-    bytes.get(..8) == Some(&b"SABLENET"[..])
+fn shard_hidden_size(bytes: &[u8]) -> Option<usize> {
+    let hidden_size = usize::try_from(read_u32(bytes, 64)?).ok()?;
+    let doubled_hidden = u32::try_from(hidden_size.checked_mul(2)?).ok()?;
+    let valid = bytes.get(..8) == Some(&b"SABLENET"[..])
         && read_u32(bytes, 8) == Some(1)
         && read_u32(bytes, 12) == Some(3)
         && read_u32(bytes, 16) == Some(SHARD_HEADER_BYTES as u32)
         && read_u32(bytes, 20) == Some(SHARD_INPUT_FEATURES as u32)
+        && read_u32(bytes, 24) == Some(1)
         && read_u32(bytes, 28) == Some(SHARD_OUTPUT_BUCKETS as u32)
         && read_u32(bytes, 32) == Some(SHARD_OUTPUT_SCALE as u32)
         && read_u32(bytes, 36) == Some(SHARD_QA as u32)
         && read_u32(bytes, 40) == Some(SHARD_QB as u32)
         && read_u32(bytes, 44) == Some(3)
-        && read_u32(bytes, 64) == Some(SHARD_HIDDEN as u32)
+        && read_u32(bytes, 48) == Some(1)
+        && read_u32(bytes, 52) == Some(4)
+        && hidden_size > 0
+        && read_u32(bytes, 68) == Some(1)
+        && read_u32(bytes, 72) == Some(SHARD_INPUT_FEATURES as u32)
+        && read_u32(bytes, 76) == Some(2)
+        && read_u32(bytes, 80) == Some(SHARD_QA as u32)
+        && read_u32(bytes, 84) == Some(1)
+        && read_u32(bytes, 88) == Some(1)
+        && read_u32(bytes, 92) == Some(SHARD_INPUT_FEATURES as u32)
+        && read_u32(bytes, 96) == Some(hidden_size as u32)
+        && read_u32(bytes, 100) == Some(2)
+        && read_u32(bytes, 104) == Some(SHARD_QA as u32)
+        && read_u32(bytes, 108) == Some(2)
+        && read_u32(bytes, 112) == Some(1)
+        && read_u32(bytes, 116) == Some(1)
+        && read_u32(bytes, 120) == Some(hidden_size as u32)
+        && read_u32(bytes, 124) == Some(2)
+        && read_u32(bytes, 128) == Some(SHARD_QA as u32)
+        && read_u32(bytes, 132) == Some(5)
+        && read_u32(bytes, 136) == Some(2)
+        && read_u32(bytes, 140) == Some(doubled_hidden)
+        && read_u32(bytes, 144) == Some(1)
+        && read_u32(bytes, 148) == Some(4)
+        && read_u32(bytes, 152) == Some(SHARD_QB as u32)
+        && read_u32(bytes, 156) == Some(6)
+        && read_u32(bytes, 160) == Some(2)
+        && read_u32(bytes, 164) == Some(1)
+        && read_u32(bytes, 168) == Some(1)
+        && read_u32(bytes, 172) == Some(4)
+        && read_u32(bytes, 176) == Some((i32::from(SHARD_QA) * i32::from(SHARD_QB)) as u32);
+    valid.then_some(hidden_size)
+}
+
+fn shard_tensor_bytes(hidden_size: usize) -> Option<usize> {
+    let feature_weights = SHARD_INPUT_FEATURES.checked_mul(hidden_size)?;
+    let i16_values = feature_weights.checked_add(hidden_size)?;
+    let output_weights = hidden_size
+        .checked_mul(2)?
+        .checked_mul(SHARD_OUTPUT_BUCKETS)?;
+    let i32_values = output_weights.checked_add(SHARD_OUTPUT_BUCKETS)?;
+    SHARD_HEADER_BYTES
+        .checked_add(i16_values.checked_mul(2)?)?
+        .checked_add(i32_values.checked_mul(4)?)
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
