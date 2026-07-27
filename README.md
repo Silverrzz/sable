@@ -35,9 +35,9 @@ An in-development personal project written in Rust designed to play Chess better
         - minor
         - non-pawn
         - continuation
-- An efficiently updatable neural network - Shard 1.14
+- An efficiently updatable neural network - Shard 3.2
     - (768x16hm->768)x2->8 arch
-    - Trained on ~2.2 billion positions of selfplay data
+    - Trained on ~1.9 billion positions of selfplay data, 100% of which was DFRC games.
     - Trained using [Bullet](https://github.com/jw1912/bullet)
 - Lazy SMP for efficient multi-thread usage
 - UCI protocol
