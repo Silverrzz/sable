@@ -180,7 +180,19 @@ impl TranspositionTable {
             };
             if entry_key == key {
                 if should_overwrite_same_key(existing, depth, bound, age) {
-                    entry.store(key, data);
+                    let replacement = if best_move.is_none() && existing.best_move.is_some() {
+                        encode_tt_data(
+                            depth,
+                            score_to_tt(score, ply),
+                            bound,
+                            existing.best_move,
+                            static_eval,
+                            age,
+                        )
+                    } else {
+                        data
+                    };
+                    entry.store(key, replacement);
                 }
                 return;
             }

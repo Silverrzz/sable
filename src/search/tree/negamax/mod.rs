@@ -97,7 +97,9 @@ pub(in crate::search) fn negamax(
     let in_check = movegen.in_check();
     let needs_full_mate_search = requires_full_mate_search(alpha, beta);
     let expected_cut_node = !is_pv_node && beta == alpha.saturating_add(1);
-    let hash_move = tt_entry.and_then(|entry| entry.best_move);
+    let has_reliable_hash_move = tt_entry.is_some_and(|entry| {
+        entry.best_move.is_some() && u32::from(entry.depth).saturating_add(2) >= depth
+    });
     let iir = if excluded_move.is_none() {
         internal_iterative_reduction(
             depth,
@@ -106,7 +108,7 @@ pub(in crate::search) fn negamax(
             expected_cut_node,
             in_check,
             needs_full_mate_search,
-            hash_move.is_some(),
+            has_reliable_hash_move,
         )
     } else {
         0
@@ -315,6 +317,15 @@ pub(in crate::search) fn negamax(
 
             let score = -reduced.score;
             if score >= probcut_beta {
+                context.transposition_table().store(
+                    key,
+                    probcut_depth,
+                    score,
+                    Bound::Lower,
+                    Some(ordered.mv),
+                    static_eval.raw,
+                    ply,
+                );
                 return Some(terminal_outcome(score, false));
             }
         }
