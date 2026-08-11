@@ -7,7 +7,8 @@ use super::{
 use crate::search::{
     constants::*,
     moves::{
-        move_generation::{MoveFilter, collect_moves, priority_move_for_node},
+        move_generation::{MoveFilter, collect_moves_into, priority_move_for_node},
+        move_ordering::MovePicker,
         see::move_gives_check,
     },
     root::outcome::{SearchOutcome, is_better_score, parent_outcome, terminal_outcome},
@@ -118,7 +119,16 @@ pub(in crate::search) fn quiescence(
     } else {
         MoveFilter::Tactical
     };
-    let mut moves = collect_moves(board, &movegen, filter, priority_move, previous_move, ply);
+    let mut moves = MovePicker::new();
+    collect_moves_into(
+        board,
+        &movegen,
+        filter,
+        priority_move,
+        previous_move,
+        ply,
+        &mut moves,
+    );
     let mut best = SearchOutcome {
         score: stand_pat.unwrap_or(i32::MIN),
         repetition_draw: false,

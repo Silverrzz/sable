@@ -308,13 +308,7 @@ pub(in crate::search) struct MovePicker {
 }
 
 impl MovePicker {
-    pub(in crate::search) fn new(
-        priority_move: Option<Move>,
-        side: Color,
-        previous_move: Option<Move>,
-        ply: u16,
-        filter: MoveFilter,
-    ) -> Self {
+    pub(in crate::search) fn new() -> Self {
         Self {
             moves: ArrayVec::new(),
             score_heap: ArrayVec::new(),
@@ -323,16 +317,42 @@ impl MovePicker {
             bad_tactical_indices: ArrayVec::new(),
             searched_indices: ArrayVec::new(),
             priority_index: None,
-            stage: MovePickerStage::Priority,
-            priority_move,
-            side,
-            previous_move,
-            ply,
-            filter,
+            stage: MovePickerStage::Done,
+            priority_move: None,
+            side: Color::White,
+            previous_move: None,
+            ply: 0,
+            filter: MoveFilter::All,
             good_tacticals_heapified: false,
             quiets_heapified: false,
             bad_tacticals_heapified: false,
         }
+    }
+
+    pub(in crate::search) fn reset(
+        &mut self,
+        priority_move: Option<Move>,
+        side: Color,
+        previous_move: Option<Move>,
+        ply: u16,
+        filter: MoveFilter,
+    ) {
+        self.moves.clear();
+        self.score_heap.clear();
+        self.tactical_indices.clear();
+        self.quiet_indices.clear();
+        self.bad_tactical_indices.clear();
+        self.searched_indices.clear();
+        self.priority_index = None;
+        self.stage = MovePickerStage::Priority;
+        self.priority_move = priority_move;
+        self.side = side;
+        self.previous_move = previous_move;
+        self.ply = ply;
+        self.filter = filter;
+        self.good_tacticals_heapified = false;
+        self.quiets_heapified = false;
+        self.bad_tacticals_heapified = false;
     }
 
     #[inline]

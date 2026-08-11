@@ -17,7 +17,7 @@ use super::{
 use crate::search::{
     constants::*,
     moves::{
-        move_generation::{MoveFilter, collect_moves, priority_move_for_node},
+        move_generation::{MoveFilter, collect_moves_into, priority_move_for_node},
         move_ordering::{MovePicker, ScoredMove},
         see::{
             move_gives_check, static_exchange_eval_for_move, static_exchange_eval_for_quiet_move,
@@ -226,13 +226,15 @@ pub(in crate::search) fn negamax(
         let child_beta = child_alpha.saturating_add(1);
         let probcut_depth = depth.saturating_sub(PROBCUT_DEPTH_REDUCTION()).max(1);
         let tt_move = tt_entry.and_then(|entry| entry.best_move);
-        let mut moves = collect_moves(
+        let mut moves = MovePicker::new();
+        collect_moves_into(
             board,
             &movegen,
             MoveFilter::Tactical,
             tt_move,
             previous_move,
             ply,
+            &mut moves,
         );
 
         while let Some(ordered) = moves.next(board, context.ordering()) {
@@ -322,13 +324,15 @@ pub(in crate::search) fn negamax(
     let pv_move = previous_pv.last().copied();
     let tt_move = tt_entry.and_then(|entry| entry.best_move);
     let priority_move = priority_move_for_node(board, pv_move, tt_move, in_check);
-    let mut moves = collect_moves(
+    let mut moves = MovePicker::new();
+    collect_moves_into(
         board,
         &movegen,
         MoveFilter::All,
         priority_move,
         previous_move,
         ply,
+        &mut moves,
     );
     let mut best = SearchOutcome {
         score: i32::MIN,
