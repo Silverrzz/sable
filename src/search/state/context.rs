@@ -9,12 +9,11 @@ use crate::{
 };
 
 use super::{
-    constants::*,
     correction_history::{CorrectionContext, CorrectionHistory},
-    move_ordering::MoveOrdering,
     position_key::{PositionKey, actual_game_repetition_count, is_repetition, position_key},
     transposition::TranspositionTable,
 };
+use crate::search::{constants::*, moves::move_ordering::MoveOrdering};
 
 mod parts;
 
@@ -42,7 +41,6 @@ pub(in crate::search) struct SearchContextConfig<'a> {
     pub(in crate::search) ponder_flag: Option<&'a AtomicBool>,
     pub(in crate::search) game_history: &'a [PositionKey],
     pub(in crate::search) transposition_table: TranspositionTable,
-    pub(in crate::search) chess960: bool,
     pub(in crate::search) search_state: PersistentSearchState,
 }
 
@@ -73,12 +71,6 @@ impl PersistentSearchState {
 impl<'a> SearchContext<'a> {
     pub(in crate::search) fn new(mut config: SearchContextConfig<'a>) -> Self {
         config.search_state.decay();
-        let mut context = Self::with_transposition_table(config);
-        context.heuristics.ordering.clear_search_local();
-        context
-    }
-
-    pub(in crate::search) fn with_transposition_table(config: SearchContextConfig<'a>) -> Self {
         let SearchContextConfig {
             root_board,
             started,
@@ -90,7 +82,6 @@ impl<'a> SearchContext<'a> {
             ponder_flag,
             game_history,
             transposition_table,
-            chess960,
             search_state,
         } = config;
 
@@ -142,9 +133,10 @@ impl<'a> SearchContext<'a> {
             .map(|flag| flag.load(Ordering::Relaxed))
             .unwrap_or(false);
         let PersistentSearchState {
-            ordering,
+            mut ordering,
             correction_history,
         } = search_state;
+        ordering.clear_search_local();
         let mut context = Self {
             clock: SearchClock {
                 timed_started: started,
@@ -167,7 +159,6 @@ impl<'a> SearchContext<'a> {
             },
             eval: EvalStackState {
                 evaluator,
-                chess960,
                 stack: eval_stack,
                 ply: 0,
                 boards: eval_boards,
@@ -205,7 +196,11 @@ impl<'a> SearchContext<'a> {
     }
 
     pub(in crate::search) fn push_position(&mut self, board: &Board, key: PositionKey) -> bool {
-        let repeated = is_repetition(key, crate::chess::halfmove_clock(board), &self.repetition.path_keys);
+        let repeated = is_repetition(
+            key,
+            crate::chess::halfmove_clock(board),
+            &self.repetition.path_keys,
+        );
         self.repetition.path_keys.push(key);
         repeated
     }
@@ -233,7 +228,6 @@ impl<'a> SearchContext<'a> {
 
     pub(in crate::search) fn push_eval_state(
         &mut self,
-        _before: &Board,
         after: &Board,
         mv: Move,
         moving_piece: crate::Piece,
@@ -249,7 +243,7 @@ impl<'a> SearchContext<'a> {
         );
     }
 
-    pub(in crate::search) fn pop_eval_state(&mut self, _before: &Board, _mv: Move) {
+    pub(in crate::search) fn pop_eval_state(&mut self) {
         if self.eval.stack.is_empty() {
             return;
         };
@@ -258,11 +252,11 @@ impl<'a> SearchContext<'a> {
         self.eval.materialized = self.eval.materialized.min(self.eval.ply);
     }
 
-    pub(in crate::search) fn push_null_eval_state(&mut self, _before: &Board, after: &Board) {
+    pub(in crate::search) fn push_null_eval_state(&mut self, after: &Board) {
         self.push_eval_frame(after, EvalPending::NullMove);
     }
 
-    pub(in crate::search) fn pop_null_eval_state(&mut self, _before: &Board) {
+    pub(in crate::search) fn pop_null_eval_state(&mut self) {
         if self.eval.stack.is_empty() {
             return;
         };
@@ -276,9 +270,8 @@ impl<'a> SearchContext<'a> {
         while self.eval.materialized < self.eval.ply {
             let ply = self.eval.materialized + 1;
             if ply == self.eval.stack.len() {
-                let empty = crate::evaluation::NnueAccumulators::empty_like(
-                    &self.eval.stack[ply - 1],
-                );
+                let empty =
+                    crate::evaluation::NnueAccumulators::empty_like(&self.eval.stack[ply - 1]);
                 self.eval.stack.push(empty);
             }
             let Some(model) = self.eval.evaluator.active_nnue_model() else {
@@ -314,11 +307,7 @@ impl<'a> SearchContext<'a> {
                 }
             };
             if !updated {
-                model.refresh_accumulators_into_with_finny(
-                    target,
-                    after,
-                    self.eval.finny.as_mut(),
-                );
+                model.refresh_accumulators_into_with_finny(target, after, self.eval.finny.as_mut());
             }
             self.eval.materialized = ply;
         }
@@ -328,12 +317,10 @@ impl<'a> SearchContext<'a> {
         if !self.eval.stack.is_empty() {
             self.materialize_eval_stack();
         }
-        if let (Some(model), Some(accumulators)) =
-            (
-                self.eval.evaluator.active_nnue_model(),
-                self.eval.stack.get(self.eval.ply),
-            )
-        {
+        if let (Some(model), Some(accumulators)) = (
+            self.eval.evaluator.active_nnue_model(),
+            self.eval.stack.get(self.eval.ply),
+        ) {
             return model.evaluate_for_side_to_move_with_accumulators(board, accumulators);
         }
         evaluate_position(board, &self.eval.evaluator)
@@ -399,9 +386,13 @@ impl<'a> SearchContext<'a> {
         score: i32,
         depth: u32,
     ) {
-        self.heuristics
-            .correction_history
-            .update(board, correction_context, raw_eval, score, depth);
+        self.heuristics.correction_history.update(
+            board,
+            correction_context,
+            raw_eval,
+            score,
+            depth,
+        );
     }
 
     /// moves persistent tables out without cloning

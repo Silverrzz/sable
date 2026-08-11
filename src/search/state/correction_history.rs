@@ -1,12 +1,9 @@
-use crate::{
-    Board, Color, Move, Piece,
-    evaluation::LOSS_SCORE,
-};
+use crate::{Board, Color, Move, Piece, evaluation::LOSS_SCORE};
 
-use super::{
-    board_moves::{en_passant_target, is_en_passant},
+use super::transposition::{Bound, is_mate_score};
+use crate::search::{
     constants::*,
-    transposition::{Bound, is_mate_score},
+    moves::board_moves::{en_passant_target, is_en_passant},
 };
 
 const CORRECTION_CONTINUATION_SIZE: usize = 2 * 6 * 64;
@@ -97,9 +94,10 @@ impl CorrectionHistory {
         score: i32,
         depth: u32,
     ) {
-        let target = score
-            .saturating_sub(raw_eval)
-            .clamp(-MAX_CORRECTION_HISTORY_SCORE(), MAX_CORRECTION_HISTORY_SCORE());
+        let target = score.saturating_sub(raw_eval).clamp(
+            -MAX_CORRECTION_HISTORY_SCORE(),
+            MAX_CORRECTION_HISTORY_SCORE(),
+        );
         let weight = correction_history_weight(depth);
         let side = crate::chess::side_to_move(board) as usize;
 
@@ -184,18 +182,12 @@ impl CorrectionHistory {
             add_weighted_correction(
                 &mut sum,
                 &mut weight_sum,
-                self.continuation_same_side[continuation_correction_index(
-                    side,
-                    previous_same_side,
-                )],
+                self.continuation_same_side
+                    [continuation_correction_index(side, previous_same_side)],
                 CORRECTION_HISTORY_SAME_SIDE_WEIGHT(),
             );
         }
-        if weight_sum == 0 {
-            0
-        } else {
-            sum / weight_sum
-        }
+        if weight_sum == 0 { 0 } else { sum / weight_sum }
     }
 }
 
@@ -240,7 +232,10 @@ pub(in crate::search) fn update_correction_value(value: &mut i32, target: i32, w
     let delta = target.saturating_sub(*value);
     *value = (*value)
         .saturating_add(delta.saturating_mul(weight) / CORRECTION_HISTORY_UPDATE_DIVISOR)
-        .clamp(-MAX_CORRECTION_HISTORY_SCORE(), MAX_CORRECTION_HISTORY_SCORE());
+        .clamp(
+            -MAX_CORRECTION_HISTORY_SCORE(),
+            MAX_CORRECTION_HISTORY_SCORE(),
+        );
 }
 
 pub(in crate::search) fn decay_correction_table(values: &mut [i32]) {

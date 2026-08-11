@@ -32,3 +32,29 @@ fn perft_impl(board: Board, depth: u32) -> u64 {
     });
     total
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chess::board_from_fen;
+
+    #[test]
+    fn start_position_move_generation_matches_reference_counts() {
+        let board = Board::default();
+        for (depth, nodes) in [(1, 20), (2, 400), (3, 8_902), (4, 197_281)] {
+            assert_eq!(perft(&board, depth), nodes, "depth {depth}");
+        }
+    }
+
+    #[test]
+    fn kiwipete_move_generation_matches_reference_counts() {
+        let board = board_from_fen(
+            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+            false,
+        )
+        .expect("reference FEN is valid");
+        for (depth, nodes) in [(1, 48), (2, 2_039), (3, 97_862)] {
+            assert_eq!(perft(&board, depth), nodes, "depth {depth}");
+        }
+    }
+}

@@ -1,15 +1,14 @@
-use crate::{
-    Board,
-    evaluation::DRAW_SCORE,
-};
+use crate::{Board, evaluation::DRAW_SCORE};
 
-use super::super::{
+use crate::search::{
     constants::MAX_PV_LENGTH,
-    context::SearchContext,
-    position_key::{is_repetition, position_key},
-    root::{PvMove, SearchOutcome, terminal_outcome},
-    scoring::terminal_score,
-    transposition::{Bound, TranspositionEntry, score_from_tt},
+    root::outcome::{SearchOutcome, terminal_outcome},
+    state::{
+        context::SearchContext,
+        position_key::{is_repetition, position_key},
+        transposition::{Bound, TranspositionEntry, score_from_tt},
+    },
+    tree::scoring::terminal_score,
 };
 
 pub(super) fn tt_cutoff(
@@ -65,7 +64,7 @@ fn exact_tt_cutoff(
 }
 
 struct TtCutoffPv {
-    pv: Vec<PvMove>,
+    pv: Vec<crate::Move>,
     status: TtPvStatus,
 }
 
@@ -94,7 +93,7 @@ fn tt_cutoff_pv(
         if !crate::chess::is_legal(&board, mv) {
             return finish_tt_cutoff_pv(pv, TtPvStatus::IllegalMove);
         }
-        pv.push(PvMove::new(&board, mv, context.chess960()));
+        pv.push(mv);
         crate::chess::play_unchecked(&mut board, mv);
         let key = position_key(&board);
         let repetition = is_repetition(key, crate::chess::halfmove_clock(&board), &repetition_keys);
@@ -123,7 +122,7 @@ fn tt_cutoff_pv(
     finish_tt_cutoff_pv(pv, TtPvStatus::Complete)
 }
 
-fn finish_tt_cutoff_pv(mut pv: Vec<PvMove>, status: TtPvStatus) -> TtCutoffPv {
+fn finish_tt_cutoff_pv(mut pv: Vec<crate::Move>, status: TtPvStatus) -> TtCutoffPv {
     pv.reverse();
     TtCutoffPv { pv, status }
 }

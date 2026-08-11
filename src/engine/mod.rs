@@ -1,12 +1,8 @@
 mod shared_state;
-mod static_eval;
 mod time_budget;
 mod verbose_eval;
 
-use std::sync::{
-    Arc,
-    atomic::AtomicBool,
-};
+use std::sync::{Arc, atomic::AtomicBool};
 
 pub use verbose_eval::{VerboseEval, VerboseEvalSquare};
 
@@ -18,16 +14,15 @@ use crate::{
     },
     options::apply_engine_option,
     perft::perft,
+    protocol::uci::{format_uci_move_for_board, mate_score_to_uci, parse_legal_move_for_board},
     search::{
         PersistentSearchState, PositionKey, SearchBudget, SearchInfo, SearchRequest, SearchResult,
         StaticEval, StaticEvalSource, TranspositionTable, is_claimable_repetition_draw,
         max_depth_from_limits, position_key, run_search, select_candidate_moves,
     },
-    protocol::uci::{format_uci_move_for_board, mate_score_to_uci, parse_legal_move_for_board},
 };
 
 use shared_state::SharedSearchState;
-use static_eval::terminal_static_eval;
 use time_budget::compute_search_budget;
 use verbose_eval::build_verbose_eval;
 
@@ -40,6 +35,14 @@ pub struct Engine {
     transposition_table: TranspositionTable,
     search_state: Arc<SharedSearchState>,
     startup_warnings: Vec<String>,
+}
+
+fn terminal_static_eval(score_cp: i32) -> StaticEval {
+    StaticEval {
+        score_cp,
+        score_mate: mate_score_to_uci(score_cp),
+        source: StaticEvalSource::Terminal,
+    }
 }
 
 impl Default for Engine {
@@ -120,11 +123,7 @@ impl Engine {
         Ok(())
     }
 
-    fn set_eval_file_option(
-        &mut self,
-        name: &str,
-        value: Option<&str>,
-    ) -> Result<(), EngineError> {
+    fn set_eval_file_option(&mut self, name: &str, value: Option<&str>) -> Result<(), EngineError> {
         let Some(path) = value else {
             return Err(EngineError::InvalidOptionValue {
                 option: name.to_owned(),
@@ -244,7 +243,6 @@ impl Engine {
             search_state,
             self.options.threads,
             self.options.multi_pv,
-            self.options.uci_chess960,
             self.evaluator.clone(),
             stop_flag,
             ponder_flag,
@@ -312,6 +310,25 @@ impl Engine {
 
     pub fn format_uci_move(&self, mv: Move) -> String {
         format_uci_move_for_board(&self.board, mv, self.options.uci_chess960)
+    }
+
+    pub fn format_uci_pv(&self, moves: &[Move]) -> Vec<String> {
+        let mut board = self.board.clone();
+        let mut formatted = Vec::with_capacity(moves.len());
+        for &mv in moves {
+            if crate::chess::status(&board) != GameStatus::Ongoing
+                || !crate::chess::is_legal(&board, mv)
+            {
+                break;
+            }
+            formatted.push(format_uci_move_for_board(
+                &board,
+                mv,
+                self.options.uci_chess960,
+            ));
+            crate::chess::play_unchecked(&mut board, mv);
+        }
+        formatted
     }
 
     pub fn eval_file_option_value(&self) -> Option<&str> {
@@ -439,5 +456,40 @@ mod tests {
         assert_eq!(normalized.limits.nodes, None);
         assert_eq!(normalized.limits.soft_nodes, None);
         assert_eq!(normalized.limits.hard_nodes, None);
+    }
+
+    #[test]
+    fn search_result_contains_a_forward_playable_pv() {
+        let engine = Engine::default();
+        let mut request = SearchRequest::default();
+        request.limits.depth = Some(3);
+
+        let result = engine.search(&request).expect("depth search succeeds");
+        assert_eq!(result.best_move, result.info.pv.first().copied());
+
+        let mut board = engine.board.clone();
+        for mv in result.info.pv {
+            assert!(crate::chess::is_legal(&board, mv));
+            crate::chess::play_unchecked(&mut board, mv);
+        }
+    }
+
+    #[test]
+    fn multi_pv_reports_each_requested_line() {
+        let mut engine = Engine::default();
+        engine.options.multi_pv = 3;
+        let mut request = SearchRequest::default();
+        request.limits.depth = Some(2);
+        let mut final_depth_lines = Vec::new();
+
+        engine
+            .search_with_observer(&request, None, |info| {
+                if info.depth == 2 {
+                    final_depth_lines.push(info.multi_pv);
+                }
+            })
+            .expect("multi-PV search succeeds");
+
+        assert_eq!(final_depth_lines, [Some(1), Some(2), Some(3)]);
     }
 }

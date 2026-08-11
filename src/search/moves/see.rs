@@ -1,14 +1,11 @@
-
 use crate::{
     Board, Color, Move, Piece, Square,
     chess::{BoardParts, Rank},
     pieces::ALL_PIECES,
 };
 
-use super::{
-    board_moves::{en_passant_target, is_en_passant},
-    scoring::piece_value,
-};
+use super::board_moves::{en_passant_target, is_en_passant};
+use crate::search::tree::scoring::piece_value;
 
 pub(in crate::search) fn static_exchange_eval_for_move(
     board: &Board,
@@ -48,13 +45,7 @@ pub(in crate::search) fn static_exchange_eval_for_quiet_move(
     let side = crate::chess::side_to_move(board);
     let mut parts = parts_after_move(board, side, moving_piece, mv, moving_piece, None);
 
-    static_exchange_eval_on_target(
-        mv.to,
-        moving_piece,
-        0,
-        !side,
-        &mut parts,
-    )
+    static_exchange_eval_on_target(mv.to, moving_piece, 0, !side, &mut parts)
 }
 
 pub(in crate::search) fn move_gives_check(

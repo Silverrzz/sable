@@ -37,17 +37,16 @@ pub struct SearchBudget {
 #[derive(Clone, Debug, Default)]
 pub struct SearchInfo {
     pub budget: SearchBudget,
-    pub depth: Option<u32>,
-    pub seldepth: Option<u32>,
-    pub nodes: Option<u64>,
-    pub time_ms: Option<u64>,
-    pub nps: Option<u64>,
-    pub score_cp: Option<i32>,
+    pub depth: u32,
+    pub seldepth: u32,
+    pub nodes: u64,
+    pub time_ms: u64,
+    pub nps: u64,
+    pub score_cp: i32,
     pub score_mate: Option<i32>,
     pub multi_pv: Option<u32>,
-    pub hashfull: Option<u16>,
+    pub hashfull: u16,
     pub pv: Vec<Move>,
-    pub pv_uci: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -69,4 +68,3 @@ pub struct StaticEval {
     pub score_mate: Option<i32>,
     pub source: StaticEvalSource,
 }
-

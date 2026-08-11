@@ -14,9 +14,7 @@ use crate::search::{
     constants::STOP_CHECK_NODE_INTERVAL,
     moves::move_ordering::MoveOrdering,
     state::{
-        correction_history::CorrectionHistory,
-        position_key::PositionKey,
-        stop_reason::StopReason,
+        correction_history::CorrectionHistory, position_key::PositionKey,
         transposition::TranspositionTable,
     },
 };
@@ -45,7 +43,6 @@ pub(super) struct SearchControls<'a> {
 
 pub(super) struct EvalStackState {
     pub(super) evaluator: Evaluator,
-    pub(super) chess960: bool,
     pub(super) stack: Vec<NnueAccumulators>,
     pub(super) ply: usize,
     pub(super) boards: Vec<Board>,
@@ -82,9 +79,7 @@ impl<'a> SearchContext<'a> {
     }
 
     pub(in crate::search) fn clock_elapsed_ms(&mut self) -> u64 {
-        self.clock_elapsed()
-            .as_millis()
-            .min(u128::from(u64::MAX)) as u64
+        self.clock_elapsed().as_millis().min(u128::from(u64::MAX)) as u64
     }
 
     pub(in crate::search) fn is_pondering(&mut self) -> bool {
@@ -110,7 +105,10 @@ impl<'a> SearchContext<'a> {
 
     pub(in crate::search) fn flush_shared_node_counts(&mut self) {
         if let Some(shared_nodes) = self.counters.shared_nodes {
-            let delta = self.counters.nodes.saturating_sub(self.counters.published_nodes);
+            let delta = self
+                .counters
+                .nodes
+                .saturating_sub(self.counters.published_nodes);
             if delta > 0 {
                 shared_nodes.fetch_add(delta, Ordering::Relaxed);
                 self.counters.published_nodes = self.counters.nodes;
@@ -119,18 +117,22 @@ impl<'a> SearchContext<'a> {
     }
 
     pub(in crate::search) fn total_nodes(&self) -> u64 {
-        self.counters.shared_nodes.map_or(self.counters.nodes, |nodes| {
-            nodes
-                .load(Ordering::Relaxed)
-                .saturating_add(self.counters.nodes.saturating_sub(self.counters.published_nodes))
-        })
+        self.counters
+            .shared_nodes
+            .map_or(self.counters.nodes, |nodes| {
+                nodes.load(Ordering::Relaxed).saturating_add(
+                    self.counters
+                        .nodes
+                        .saturating_sub(self.counters.published_nodes),
+                )
+            })
     }
 
     pub(in crate::search) fn local_nodes(&self) -> u64 {
         self.counters.nodes
     }
 
-    pub(in crate::search) fn should_stop(&mut self) -> Option<StopReason> {
+    pub(in crate::search) fn should_stop(&mut self) -> bool {
         if let Some(node_limit) = self.controls.node_limit {
             let nodes = if self.counters.shared_nodes.is_some() {
                 self.total_nodes()
@@ -138,7 +140,7 @@ impl<'a> SearchContext<'a> {
                 self.counters.nodes
             };
             if nodes >= node_limit {
-                return Some(StopReason::NodeLimit);
+                return true;
             }
         }
         if self
@@ -146,29 +148,26 @@ impl<'a> SearchContext<'a> {
             .stop_flag
             .is_some_and(|flag| flag.load(Ordering::Relaxed))
         {
-            return Some(StopReason::ExternalStop);
+            return true;
         }
         if self.counters.nodes < self.counters.next_stop_check_node {
-            return None;
+            return false;
         }
-        self.counters.next_stop_check_node = self
-            .counters
-            .nodes
-            .saturating_add(STOP_CHECK_NODE_INTERVAL);
+        self.counters.next_stop_check_node =
+            self.counters.nodes.saturating_add(STOP_CHECK_NODE_INTERVAL);
         if self.is_pondering() {
-            return None;
+            return false;
         }
 
         let Some(hard_time_ms) = self.controls.hard_time_ms else {
             if self.controls.lazy_stop_flag.is_none() {
-                return None;
+                return false;
             }
             self.flush_shared_node_counts();
             return self
                 .controls
                 .lazy_stop_flag
-                .is_some_and(|flag| flag.load(Ordering::Relaxed))
-                .then_some(StopReason::ExternalStop);
+                .is_some_and(|flag| flag.load(Ordering::Relaxed));
         };
 
         self.flush_shared_node_counts();
@@ -177,12 +176,12 @@ impl<'a> SearchContext<'a> {
             .lazy_stop_flag
             .is_some_and(|flag| flag.load(Ordering::Relaxed))
         {
-            return Some(StopReason::ExternalStop);
+            return true;
         }
         if self.clock_elapsed_ms() >= hard_time_ms {
-            return Some(StopReason::TimeHard);
+            return true;
         }
-        None
+        false
     }
 
     pub(in crate::search) fn should_stop_before_iteration_for_nodes(
@@ -198,10 +197,6 @@ impl<'a> SearchContext<'a> {
 
     pub(in crate::search) fn seldepth(&self) -> u32 {
         self.counters.seldepth
-    }
-
-    pub(in crate::search) fn chess960(&self) -> bool {
-        self.eval.chess960
     }
 
     pub(in crate::search) fn ordering(&self) -> &MoveOrdering {

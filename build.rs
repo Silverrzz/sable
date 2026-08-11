@@ -14,16 +14,14 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SABLE_EVAL_LABEL");
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let repo_default = manifest_dir.join("data").join("quantised.bin");
-    let workspace_default = manifest_dir.join("..").join("data").join("quantised.bin");
-    println!("cargo:rerun-if-changed={}", repo_default.strip_prefix(&manifest_dir).unwrap_or(&repo_default).display());
-    println!("cargo:rerun-if-changed={}", workspace_default.strip_prefix(&manifest_dir).unwrap_or(&workspace_default).display());
-
-    if let Ok(path) = env::var("SABLE_EVAL_FILE")
-        && !path.trim().is_empty()
-    {
-        println!("cargo:rerun-if-changed={path}");
-    }
+    let source = workspace_default_weights();
+    println!(
+        "cargo:rerun-if-changed={}",
+        source
+            .strip_prefix(&manifest_dir)
+            .unwrap_or(&source)
+            .display()
+    );
 
     if let Ok(release_id) = env::var("SABLE_RELEASE_ID")
         && !release_id.trim().is_empty()
@@ -42,7 +40,6 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR should be set by Cargo"));
     generate_attack_tables(&out_dir);
 
-    let source = workspace_default_weights();
     let has_weights = source.exists();
 
     if !has_weights {
@@ -142,15 +139,13 @@ fn write_attack_table(
         total_size += 1_usize << mask.count_ones();
     }
 
-    writeln!(out, "static {offsets_name}: [u32; 64] = [")
-        .expect("writing to String cannot fail");
+    writeln!(out, "static {offsets_name}: [u32; 64] = [").expect("writing to String cannot fail");
     for offset in offsets {
         writeln!(out, "    {offset},").expect("writing to String cannot fail");
     }
     writeln!(out, "];").expect("writing to String cannot fail");
 
-    writeln!(out, "static {name}: [u64; {total_size}] = [")
-        .expect("writing to String cannot fail");
+    writeln!(out, "static {name}: [u64; {total_size}] = [").expect("writing to String cannot fail");
     for (square, mask) in masks.iter().enumerate() {
         let square_size = 1_usize << mask.count_ones();
         for index in 0..square_size {
@@ -311,4 +306,3 @@ fn git_commit() -> Option<String> {
         Some(commit.to_owned())
     }
 }
-

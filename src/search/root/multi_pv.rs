@@ -2,14 +2,11 @@ use crate::{Board, Move};
 
 use super::super::{
     moves::move_generation::ordered_root_moves,
-    state::{
-        context::SearchContext,
-        correction_history::CorrectionContext,
-    },
+    state::{context::SearchContext, correction_history::CorrectionContext},
 };
 use super::{
-    outcome::{PvMove, SearchOutcome, is_better_root_outcome},
-    search_root_ordered_move,
+    depth::search_root_child,
+    outcome::{SearchOutcome, debug_validate_pv, is_better_root_outcome, parent_outcome},
 };
 
 #[derive(Clone, Debug)]
@@ -17,7 +14,7 @@ pub(in crate::search) struct RootMoveResult {
     pub(in crate::search) mv: Move,
     pub(in crate::search) score: i32,
     pub(in crate::search) repetition_draw: bool,
-    pub(in crate::search) pv: Vec<PvMove>,
+    pub(in crate::search) pv: Vec<Move>,
 }
 
 pub(in crate::search) fn search_root_multi_pv_iteration(
@@ -26,7 +23,6 @@ pub(in crate::search) fn search_root_multi_pv_iteration(
     depth: u32,
     previous_results: &[RootMoveResult],
     requested_multi_pv: usize,
-    chess960: bool,
     context: &mut SearchContext<'_>,
 ) -> Option<Vec<RootMoveResult>> {
     context.refresh_static_eval_at_ply(board, CorrectionContext::default(), 0);
@@ -36,7 +32,7 @@ pub(in crate::search) fn search_root_multi_pv_iteration(
     let mut results = Vec::with_capacity(moves.len());
 
     for (move_index, ordered) in moves.into_iter().enumerate() {
-        if context.should_stop().is_some() {
+        if context.should_stop() {
             return None;
         }
         let previous_pv = previous_results
@@ -44,7 +40,8 @@ pub(in crate::search) fn search_root_multi_pv_iteration(
             .find(|result| result.mv == ordered.mv)
             .map(|result| result.pv.as_slice())
             .unwrap_or(&[]);
-        let Some((mv, outcome)) = search_root_ordered_move(
+        let mv = ordered.mv;
+        let child = search_root_child(
             board,
             ordered,
             depth,
@@ -55,10 +52,9 @@ pub(in crate::search) fn search_root_multi_pv_iteration(
             move_index as u32,
             false,
             context,
-            chess960,
-        ) else {
-            return None;
-        };
+        )?;
+        let outcome = parent_outcome(mv, child);
+        debug_validate_pv(board, &outcome.pv, "MULTIPV");
         results.push(RootMoveResult {
             mv,
             score: outcome.score,

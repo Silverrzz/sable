@@ -1,13 +1,11 @@
+use crate::{Board, Color, Move, Piece, Square};
 use arrayvec::ArrayVec;
-use crate::{
-    Board, Color, Move, Piece, Square,
-};
 
 use super::{
-    constants::*,
     move_generation::{MoveFilter, tactical_move_score_with_history},
     see::static_exchange_eval_for_move,
 };
+use crate::search::constants::*;
 
 #[derive(Clone, Debug)]
 pub(in crate::search) struct MoveOrdering {
@@ -50,11 +48,21 @@ impl MoveOrdering {
         ((side * 64) + from) * 64 + to
     }
 
-    pub(in crate::search) fn continuation_index(side: usize, previous_to: usize, from: usize, to: usize) -> usize {
+    pub(in crate::search) fn continuation_index(
+        side: usize,
+        previous_to: usize,
+        from: usize,
+        to: usize,
+    ) -> usize {
         (((side * 64) + previous_to) * 64 + from) * 64 + to
     }
 
-    pub(in crate::search) fn capture_index(side: usize, moving_piece: usize, to: usize, captured_piece: usize) -> usize {
+    pub(in crate::search) fn capture_index(
+        side: usize,
+        moving_piece: usize,
+        to: usize,
+        captured_piece: usize,
+    ) -> usize {
         (((side * 6) + moving_piece) * 64 + to) * 6 + captured_piece
     }
 
@@ -62,7 +70,13 @@ impl MoveOrdering {
         ((side * 64) + from) * 64 + to
     }
 
-    pub(in crate::search) fn quiet_score(&self, side: Color, mv: Move, previous_move: Option<Move>, ply: u16) -> i32 {
+    pub(in crate::search) fn quiet_score(
+        &self,
+        side: Color,
+        mv: Move,
+        previous_move: Option<Move>,
+        ply: u16,
+    ) -> i32 {
         let ply = ordering_ply(ply);
         let side = side as usize;
         let from = mv.from as usize;
@@ -85,12 +99,8 @@ impl MoveOrdering {
         let mut score = self.history[Self::history_index(side, from, to)];
         if let Some(previous_move) = previous_move {
             let continuation_score = scaled_history_score(
-                self.continuation_history[Self::continuation_index(
-                    side,
-                    previous_move.to as usize,
-                    from,
-                    to,
-                )],
+                self.continuation_history
+                    [Self::continuation_index(side, previous_move.to as usize, from, to)],
                 CONTINUATION_HISTORY_ORDERING_DIVISOR(),
             );
             score = score.saturating_add(continuation_score);
@@ -145,10 +155,7 @@ impl MoveOrdering {
                 mv.from as usize,
                 mv.to as usize,
             );
-            update_history_value(
-                &mut self.continuation_history[continuation_index],
-                bonus,
-            );
+            update_history_value(&mut self.continuation_history[continuation_index], bonus);
         }
     }
 
@@ -170,10 +177,7 @@ impl MoveOrdering {
                 mv.from as usize,
                 mv.to as usize,
             );
-            update_history_value(
-                &mut self.continuation_history[continuation_index],
-                malus,
-            );
+            update_history_value(&mut self.continuation_history[continuation_index], malus);
         }
     }
 
@@ -195,10 +199,7 @@ impl MoveOrdering {
             mv.to as usize,
             captured_piece as usize,
         );
-        update_history_value(
-            &mut self.capture_history[capture_index],
-            bonus,
-        );
+        update_history_value(&mut self.capture_history[capture_index], bonus);
     }
 
     pub(in crate::search) fn record_capture_failure(
@@ -366,7 +367,10 @@ impl MovePicker {
 
     #[inline]
     fn push_classified(&mut self, candidate: CandidateMove, is_tactical: bool) {
-        assert!(self.moves.len() < MAX_CANDIDATE_MOVES, "move picker capacity exceeded");
+        assert!(
+            self.moves.len() < MAX_CANDIDATE_MOVES,
+            "move picker capacity exceeded"
+        );
         let index = self.moves.len();
         self.moves.push(candidate);
         let index = index as u8;
@@ -387,7 +391,9 @@ impl MovePicker {
         &mut self.moves[index]
     }
 
-    pub(in crate::search) fn searched_candidates(&self) -> impl Iterator<Item = CandidateMove> + '_ {
+    pub(in crate::search) fn searched_candidates(
+        &self,
+    ) -> impl Iterator<Item = CandidateMove> + '_ {
         self.searched_indices
             .iter()
             .map(|&index| self.get(index as usize))
@@ -447,7 +453,10 @@ impl MovePicker {
         }
     }
 
-    pub(in crate::search) fn next_quiet(&mut self, ordering: &MoveOrdering) -> Option<(usize, i32)> {
+    pub(in crate::search) fn next_quiet(
+        &mut self,
+        ordering: &MoveOrdering,
+    ) -> Option<(usize, i32)> {
         if !self.quiets_heapified {
             self.score_heap.clear();
             let context = self.quiet_score_context(ordering);
@@ -470,20 +479,23 @@ impl MovePicker {
         let side = self.side as usize;
         let previous_move = self.previous_move;
         let counter_move = previous_move.and_then(|previous_move| {
-            ordering.counter_moves.get(MoveOrdering::counter_move_index(
-                side,
-                previous_move.from as usize,
-                previous_move.to as usize,
-            )).copied().flatten()
+            ordering
+                .counter_moves
+                .get(MoveOrdering::counter_move_index(
+                    side,
+                    previous_move.from as usize,
+                    previous_move.to as usize,
+                ))
+                .copied()
+                .flatten()
         });
         QuietScoreContext {
             first_killer: ordering.killers[ply][0],
             second_killer: ordering.killers[ply][1],
             counter_move,
             history_base: side * 64 * 64,
-            continuation_base: previous_move.map(|previous_move| {
-                ((side * 64) + previous_move.to as usize) * 64 * 64
-            }),
+            continuation_base: previous_move
+                .map(|previous_move| ((side * 64) + previous_move.to as usize) * 64 * 64),
         }
     }
 
@@ -534,12 +546,8 @@ impl MovePicker {
                     self.bad_tactical_indices.push(index);
                     continue;
                 }
-                let score = tactical_move_score_with_history(
-                    ordering,
-                    self.side,
-                    self.get(index),
-                    see,
-                );
+                let score =
+                    tactical_move_score_with_history(ordering, self.side, self.get(index), see);
                 self.score_heap.push(score_heap_entry(index as u8, score));
                 position += 1;
             }
@@ -560,12 +568,8 @@ impl MovePicker {
             for position in 0..self.bad_tactical_indices.len() {
                 let index = self.bad_tactical_indices[position] as usize;
                 let see = self.tactical_see(board, index);
-                let score = tactical_move_score_with_history(
-                    ordering,
-                    self.side,
-                    self.get(index),
-                    see,
-                );
+                let score =
+                    tactical_move_score_with_history(ordering, self.side, self.get(index), see);
                 self.score_heap.push(score_heap_entry(index as u8, score));
             }
             self.bad_tactical_indices.clear();
@@ -589,7 +593,6 @@ impl MovePicker {
         self.get_mut(index).see = compact_see(see);
         see
     }
-
 }
 
 fn heapify_score_entries(entries: &mut [u64]) {
@@ -598,9 +601,7 @@ fn heapify_score_entries(entries: &mut [u64]) {
     }
 }
 
-fn pop_score_entry(
-    entries: &mut ArrayVec<u64, MAX_CANDIDATE_MOVES>,
-) -> Option<(usize, i32)> {
+fn pop_score_entry(entries: &mut ArrayVec<u64, MAX_CANDIDATE_MOVES>) -> Option<(usize, i32)> {
     let entry = *entries.first()?;
     let replacement = entries.pop().expect("non-empty move heap must pop");
     if !entries.is_empty() {
@@ -650,7 +651,10 @@ fn score_heap_score(entry: u64) -> i32 {
 
 pub(in crate::search) fn history_bonus(depth: u32) -> i32 {
     let depth = depth.min(64);
-    depth.saturating_mul(depth).saturating_mul(16).max(16)
+    depth
+        .saturating_mul(depth)
+        .saturating_mul(16)
+        .max(16)
         .min(MAX_HISTORY_SCORE as u32) as i32
 }
 
@@ -672,9 +676,5 @@ pub(in crate::search) fn decay_history_table(values: &mut [i32]) {
 }
 
 pub(in crate::search) fn scaled_history_score(score: i32, divisor: i32) -> i32 {
-    if divisor <= 0 {
-        0
-    } else {
-        score / divisor
-    }
+    if divisor <= 0 { 0 } else { score / divisor }
 }

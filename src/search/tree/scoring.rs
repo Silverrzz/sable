@@ -1,17 +1,15 @@
-
 use crate::{
     Board, Color, GameStatus, Move, Piece,
     chess::MoveGenState,
-    evaluation::{
-        DRAW_SCORE, LOSS_SCORE,
-        is_board_drawn,
-    },
+    evaluation::{DRAW_SCORE, LOSS_SCORE, is_board_drawn},
 };
 
-use super::{
+use crate::search::{
     constants::*,
-    move_generation::tactical_move_score_with_history,
-    move_ordering::{CandidateMove, MoveOrdering, compact_see},
+    moves::{
+        move_generation::tactical_move_score_with_history,
+        move_ordering::{CandidateMove, MoveOrdering, compact_see},
+    },
 };
 
 pub(in crate::search) fn move_score(

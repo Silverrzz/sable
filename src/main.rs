@@ -12,13 +12,27 @@ use std::io::{self, Write};
 use std::time::Instant;
 
 const BENCH_DEPTH: u32 = 15;
-const BENCH_POSITIONS: [&str; 6] = [
-    "startpos",
-    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-    "4rrk1/p1pb1ppp/1p1p1n2/8/2PP4/2N1P1P1/PP3PBP/R2R2K1 w - - 0 1",
-    "2r2rk1/pp3ppp/2n1bn2/q2p4/3P4/2P1PN2/PP1NBPPP/R2Q1RK1 w - - 0 10",
-    "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
-    "2k4r/8/5p2/p2p1P2/P2P4/P7/8/4K1R1 w - - 0 1",
+const BENCH_POSITIONS: [&str; 20] = [
+    "startpos", // Opening position.
+    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", // Kiwipete: castling, pins, and tactics.
+    "4rrk1/p1pb1ppp/1p1p1n2/8/2PP4/2N1P1P1/PP3PBP/R2R2K1 w - - 0 1", // Quiet queenless middlegame.
+    "2r2rk1/pp3ppp/2n1bn2/q2p4/3P4/2P1PN2/PP1NBPPP/R2Q1RK1 w - - 0 10", // Isolated queen and central tension.
+    "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", // Rook ending with passed pawns.
+    "2k4r/8/5p2/p2p1P2/P2P4/P7/8/4K1R1 w - - 0 1", // Opposed rooks and a fixed pawn chain.
+    "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1", // Promotions, castling, and exposed kings.
+    "rnbq1k1r/pp1Pbppp/2p2n2/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8", // Invasion on the seventh rank.
+    "r4rk1/1pp1qppp/p1np1n2/8/2B1P1b1/2NP1N2/PPP1QPPP/R1B2RK1 w - - 0 10", // Tactical development position.
+    "r1bq1rk1/pp2bppp/2np1n2/2p1p3/4P3/2NP1NP1/PPP2PBP/R1BQ1RK1 w - - 0 9", // Open Sicilian structure.
+    "r2q1rk1/ppp2ppp/2npbn2/8/2BPP3/2N2Q1P/PPP2PP1/2KR3R w - - 0 12", // Opposite-side king attack.
+    "r3r1k1/ppp2ppp/2np1n2/8/2B1P3/2N2P2/PPP3PP/R1B1R1K1 w - - 0 15", // Queenless minor-piece middlegame.
+    "8/5pk1/6p1/3Q4/8/6P1/5PK1/8 b - - 0 1", // Queen ending, black to move.
+    "8/4k3/3pp3/8/8/3PP3/4K3/R7 w - - 0 1",  // Rook versus connected pawns.
+    "8/5pk1/3p2p1/2pP4/2P1P3/4BN2/5PK1/6b1 w - - 0 1", // Mixed-minor-piece ending.
+    "8/1P4k1/8/8/8/8/5pK1/8 w - - 0 1",      // Mutual promotion race.
+    "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",     // Legal en-passant opportunity.
+    "4k3/8/8/8/8/8/4R3/4K3 b - - 0 1",       // Side to move begins in check.
+    "8/8/8/3k4/3P4/3K4/8/8 b - - 0 1",       // Pawn zugzwang.
+    "8/1p3pk1/p2p2p1/P2Pp2p/1P2P2P/5PP1/6K1/8 w - - 0 1", // Locked pawn fortress.
 ];
 
 #[derive(Parser, Debug)]
@@ -202,7 +216,10 @@ fn print_version_info() {
     println!("git_commit={git_commit}");
     println!("target={target}");
     println!("profile={profile}");
-    println!("embedded_eval={}", if has_embedded_eval() { "true" } else { "false" });
+    println!(
+        "embedded_eval={}",
+        if has_embedded_eval() { "true" } else { "false" }
+    );
     println!("embedded_eval_hash={embedded_eval_hash}");
     println!("embedded_eval_arch={embedded_eval_arch}");
     println!("default_eval_source={default_eval}");
@@ -210,7 +227,10 @@ fn print_version_info() {
 }
 
 fn nodes_per_second(nodes: u64, elapsed_ms: u64) -> u64 {
-    nodes.saturating_mul(1000).checked_div(elapsed_ms).unwrap_or(0)
+    nodes
+        .saturating_mul(1000)
+        .checked_div(elapsed_ms)
+        .unwrap_or(0)
 }
 
 fn run_perft(depth: u32, fen: Option<String>) -> Result<()> {
@@ -260,7 +280,6 @@ impl BenchResult {
 }
 
 fn run_bench_once() -> Result<BenchResult> {
-
     let request = SearchRequest {
         limits: SearchLimits {
             depth: Some(BENCH_DEPTH),
@@ -289,7 +308,7 @@ fn run_bench_once() -> Result<BenchResult> {
         let start_search = Instant::now();
         let result = engine.search(&request)?;
         let search_ms = start_search.elapsed().as_millis() as u64;
-        let nodes = result.info.nodes.unwrap_or(0);
+        let nodes = result.info.nodes;
         total_nodes = total_nodes.saturating_add(nodes);
         total_search_ms = total_search_ms.saturating_add(search_ms);
     }
@@ -324,8 +343,8 @@ fn run_verbose_bench(runs: usize) -> Result<()> {
         let result = run_bench_once()?;
         let current_nps = result.nps();
         nps_values.push(current_nps);
-        let average_nps = nps_values.iter().map(|&nps| u128::from(nps)).sum::<u128>()
-            / nps_values.len() as u128;
+        let average_nps =
+            nps_values.iter().map(|&nps| u128::from(nps)).sum::<u128>() / nps_values.len() as u128;
         let elapsed_secs = started.elapsed().as_secs();
         let eta_secs = elapsed_secs
             .saturating_mul((runs - completed) as u64)
@@ -343,8 +362,8 @@ fn run_verbose_bench(runs: usize) -> Result<()> {
     }
 
     println!();
-    let average_nps = nps_values.iter().map(|&nps| u128::from(nps)).sum::<u128>()
-        / nps_values.len() as u128;
+    let average_nps =
+        nps_values.iter().map(|&nps| u128::from(nps)).sum::<u128>() / nps_values.len() as u128;
     let min_nps = nps_values.iter().copied().min().unwrap_or(0);
     let max_nps = nps_values.iter().copied().max().unwrap_or(0);
     println!(
@@ -368,14 +387,18 @@ fn draw_bench_progress(
 ) -> Result<()> {
     let filled = completed.saturating_mul(bar_width) / runs;
     let bar = format!("{}{}", "#".repeat(filled), "-".repeat(bar_width - filled));
-    let eta = eta_secs.map(format_duration).unwrap_or_else(|| "--:--".to_owned());
+    let eta = eta_secs
+        .map(format_duration)
+        .unwrap_or_else(|| "--:--".to_owned());
     print!(
         "\r\x1b[2K[{bar}] {completed:>2}/{runs} | Current: {:>13} nps | Average: {:>13} nps | Elapsed: {} | ETA: {eta}",
         format_number(current_nps),
         format_number(average_nps),
         format_duration(elapsed_secs),
     );
-    io::stdout().flush().context("failed to update bench display")
+    io::stdout()
+        .flush()
+        .context("failed to update bench display")
 }
 
 fn format_number(value: u64) -> String {
@@ -407,7 +430,7 @@ fn run_bmt5k() -> Result<()> {
     };
 
     let result = engine.search_with_observer(&request, None, |info| {
-        println!("{}", uci::format_uci_info(info, false));
+        println!("{}", uci::format_uci_info(&engine, info, false));
     })?;
 
     match result.best_move {
