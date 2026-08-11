@@ -1,22 +1,7 @@
+use crate::{Board, Piece, evaluation::LOSS_SCORE};
 
-use crate::{
-    Board, Move, Piece,
-    evaluation::LOSS_SCORE,
-};
-
-use super::{
-    constants::*,
-    context::SearchContext,
-    correction_history::CorrectionContext,
-    negamax::negamax,
-    root::{PvMove, SearchOutcome, search_child_with_pvs},
-    scoring::piece_value,
-    search_profile::SearchProfile,
-};
-
-pub(in crate::search) fn should_use_pvs(is_pv_node: bool, searched_moves: u32, alpha: i32, beta: i32) -> bool {
-    is_pv_node && searched_moves > 0 && beta > alpha.saturating_add(1)
-}
+use super::scoring::piece_value;
+use crate::search::constants::*;
 
 #[inline]
 pub(in crate::search) fn internal_iterative_reduction(
@@ -44,128 +29,6 @@ pub(in crate::search) fn internal_iterative_reduction(
     }
 }
 
-pub(in crate::search) struct ChildSearchParams<'a> {
-    pub(in crate::search) board: &'a Board,
-    pub(in crate::search) repetition: bool,
-    pub(in crate::search) depth: u32,
-    pub(in crate::search) parent_depth: u32,
-    pub(in crate::search) root_depth: u32,
-    pub(in crate::search) alpha: i32,
-    pub(in crate::search) beta: i32,
-    pub(in crate::search) child_pv: &'a [PvMove],
-    pub(in crate::search) previous_move: Move,
-    pub(in crate::search) correction_context: CorrectionContext,
-    pub(in crate::search) searched_moves: u32,
-    pub(in crate::search) is_pv_node: bool,
-    pub(in crate::search) is_quiet: bool,
-    pub(in crate::search) in_check: bool,
-    pub(in crate::search) gives_check: bool,
-    pub(in crate::search) improving: bool,
-    pub(in crate::search) move_score: i32,
-    pub(in crate::search) allow_reduction: bool,
-    pub(in crate::search) search_profile: SearchProfile,
-    pub(in crate::search) ply: u16,
-}
-
-#[inline]
-pub(in crate::search) fn search_child_with_lmr(
-    params: ChildSearchParams<'_>,
-    context: &mut SearchContext<'_>,
-) -> Option<SearchOutcome> {
-    let ChildSearchParams {
-        board,
-        repetition,
-        depth,
-        parent_depth,
-        root_depth,
-        alpha,
-        beta,
-        child_pv,
-        previous_move,
-        correction_context,
-        searched_moves,
-        is_pv_node,
-        is_quiet,
-        in_check,
-        gives_check,
-        improving,
-        move_score,
-        allow_reduction,
-        search_profile,
-        ply,
-    } = params;
-
-    let reduction = if allow_reduction {
-        late_move_reduction(
-            parent_depth,
-            searched_moves,
-            is_pv_node,
-            is_quiet,
-            in_check,
-            gives_check,
-            improving,
-            move_score,
-            search_profile,
-        )
-    } else {
-        0
-    };
-    if reduction == 0 {
-        return search_child_with_pvs(
-            board,
-            repetition,
-            depth,
-            root_depth,
-            alpha,
-            beta,
-            child_pv,
-            previous_move,
-            correction_context,
-            context,
-            ply,
-            should_use_pvs(is_pv_node, searched_moves, alpha, beta),
-        );
-    }
-
-    let reduced_depth = depth.saturating_sub(reduction);
-    let scout_beta = alpha.saturating_neg();
-    let scout_alpha = scout_beta.saturating_sub(1);
-    let reduced = negamax(
-        board,
-        repetition,
-        reduced_depth,
-        root_depth,
-        scout_alpha,
-        scout_beta,
-        &[],
-        Some(previous_move),
-        correction_context,
-        context,
-        ply,
-        true,
-        None,
-    )?;
-    let reduced_score = -reduced.score;
-    if reduced_score <= alpha {
-        return Some(reduced);
-    }
-
-    search_child_with_pvs(
-        board,
-        repetition,
-        depth,
-        root_depth,
-        alpha,
-        beta,
-        child_pv,
-        previous_move,
-        correction_context,
-        context,
-        ply,
-        false,
-    )
-}
-
 #[inline]
 pub(in crate::search) fn late_move_reduction(
     depth: u32,
@@ -176,7 +39,6 @@ pub(in crate::search) fn late_move_reduction(
     gives_check: bool,
     improving: bool,
     move_score: i32,
-    _search_profile: SearchProfile,
 ) -> u32 {
     if depth < LMR_MIN_DEPTH() || !is_quiet || move_score >= COUNTER_MOVE_SCORE {
         return 0;
@@ -254,14 +116,14 @@ pub(in crate::search) fn null_move_reduction(
     depth: u32,
     static_eval: i32,
     beta: i32,
-    search_profile: SearchProfile,
+    sparse_pawnless_endgame: bool,
 ) -> u32 {
     let eval_margin = static_eval.saturating_sub(beta).max(0);
     let eval_reduction = (eval_margin / NULL_MOVE_EVAL_MARGIN_PER_REDUCTION()) as u32;
     let mut reduction = NULL_MOVE_BASE_REDUCTION()
         .saturating_add(depth / NULL_MOVE_DEPTH_REDUCTION_DIVISOR())
         .saturating_add(eval_reduction.min(NULL_MOVE_MAX_EVAL_REDUCTION()));
-    if search_profile.sparse_pawnless_endgame() {
+    if sparse_pawnless_endgame {
         reduction = reduction.saturating_sub(NULL_MOVE_SPARSE_ENDGAME_REDUCTION_PROTECTION());
     }
     reduction.min(depth.saturating_sub(1))
@@ -270,9 +132,18 @@ pub(in crate::search) fn null_move_reduction(
 #[inline]
 pub(in crate::search) fn should_verify_null_move(
     depth: u32,
-    search_profile: SearchProfile,
+    sparse_pawnless_endgame: bool,
 ) -> bool {
-    depth >= NULL_MOVE_VERIFICATION_MIN_DEPTH() || search_profile.sparse_pawnless_endgame()
+    depth >= NULL_MOVE_VERIFICATION_MIN_DEPTH() || sparse_pawnless_endgame
+}
+
+pub(in crate::search) fn is_sparse_pawnless_endgame(board: &Board) -> bool {
+    crate::chess::pieces(board, Piece::Pawn).is_empty()
+        && [Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen]
+            .into_iter()
+            .map(|piece| crate::chess::pieces(board, piece).len())
+            .sum::<u32>()
+            <= SPARSE_ENDGAME_MAX_NON_KING_PIECES
 }
 
 #[inline]
@@ -292,9 +163,7 @@ pub(in crate::search) fn can_use_static_eval(
     alpha: i32,
     beta: i32,
 ) -> bool {
-    !repetition
-        && !in_check
-        && is_non_mate_search_window(alpha, beta)
+    !repetition && !in_check && is_non_mate_search_window(alpha, beta)
 }
 
 #[inline]
@@ -334,8 +203,8 @@ pub(in crate::search) fn razor_margin(depth: u32) -> i32 {
 
 #[inline]
 pub(in crate::search) fn futility_margin(depth: u32, improving: bool) -> i32 {
-    let base = FUTILITY_BASE_MARGIN()
-        + FUTILITY_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32);
+    let base =
+        FUTILITY_BASE_MARGIN() + FUTILITY_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32);
     if improving {
         base.saturating_add(FUTILITY_IMPROVING_MARGIN())
     } else {
@@ -376,19 +245,25 @@ pub(in crate::search) fn should_futility_prune_quiet(
 ) -> bool {
     depth <= FUTILITY_MAX_DEPTH()
         && quiet_score < COUNTER_MOVE_SCORE
-        && static_eval
-            .saturating_add(futility_margin(depth, improving))
-            <= alpha
+        && static_eval.saturating_add(futility_margin(depth, improving)) <= alpha
 }
 
 #[inline]
-pub(in crate::search) fn is_see_prune_candidate(depth: u32, is_pv_node: bool, searched_moves: u32, see: i32) -> bool {
-    can_try_see_pruning(depth, is_pv_node, searched_moves)
-        && see < -see_pruning_margin(depth)
+pub(in crate::search) fn is_see_prune_candidate(
+    depth: u32,
+    is_pv_node: bool,
+    searched_moves: u32,
+    see: i32,
+) -> bool {
+    can_try_see_pruning(depth, is_pv_node, searched_moves) && see < -see_pruning_margin(depth)
 }
 
 #[inline]
-pub(in crate::search) fn can_try_see_pruning(depth: u32, is_pv_node: bool, searched_moves: u32) -> bool {
+pub(in crate::search) fn can_try_see_pruning(
+    depth: u32,
+    is_pv_node: bool,
+    searched_moves: u32,
+) -> bool {
     depth <= SEE_PRUNING_MAX_DEPTH() && !is_pv_node && searched_moves > 0
 }
 
@@ -414,13 +289,8 @@ pub(in crate::search) fn should_q_delta_prune_capture(
 #[inline]
 pub(in crate::search) fn late_quiet_pruning_threshold(depth: u32, improving: bool) -> u32 {
     let depth = depth.max(1).min(LATE_QUIET_PRUNING_MAX_DEPTH());
-    let threshold = LATE_QUIET_PRUNING_BASE_THRESHOLD()
-        .saturating_add(depth.saturating_mul(depth));
-    let threshold = if improving {
-        threshold
-    } else {
-        threshold / 2
-    };
+    let threshold = LATE_QUIET_PRUNING_BASE_THRESHOLD().saturating_add(depth.saturating_mul(depth));
+    let threshold = if improving { threshold } else { threshold / 2 };
     let shallow_floor = match depth {
         1 => 5,
         2 => 8,
@@ -443,7 +313,11 @@ pub(in crate::search) fn should_prune_late_quiet(
 }
 
 #[inline]
-pub(in crate::search) fn apply_mate_distance_pruning(alpha: &mut i32, beta: &mut i32, ply: u16) -> Option<i32> {
+pub(in crate::search) fn apply_mate_distance_pruning(
+    alpha: &mut i32,
+    beta: &mut i32,
+    ply: u16,
+) -> Option<i32> {
     let ply = ply as i32;
     let worst_score = LOSS_SCORE.saturating_add(ply);
     let best_score = (-LOSS_SCORE).saturating_sub(ply).saturating_sub(1);

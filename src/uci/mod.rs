@@ -1,39 +1,32 @@
 mod command;
 mod input;
-mod position;
 mod protocol;
 mod worker;
 
 use anyhow::Result;
-use command::{UciCommand, parse_uci_command};
+use command::{PositionBase, UciCommand, parse_uci_command};
 use input::spawn_stdin_reader;
-use position::apply_position;
+pub(crate) use protocol::format_uci_info;
 use protocol::{
     eval_source_label, format_static_eval_score, format_verbose_eval, write_uci_identification,
 };
-pub(crate) use protocol::format_uci_info;
 use sable_engine::Engine;
 use std::{
     io::{self, Write},
     sync::mpsc::RecvTimeoutError,
     time::Duration,
 };
-use worker::{WorkerCommand, cancel_active_search, drain_worker_events, spawn_search_worker};
+use worker::SearchWorker;
 
 pub fn run_uci_loop() -> Result<()> {
     let line_rx = spawn_stdin_reader();
-    let (worker_tx, worker_rx) = spawn_search_worker();
+    let mut worker = SearchWorker::new();
     let mut stdout = io::stdout();
     let mut engine = Engine::default();
     let mut state = UciLoopState::default();
 
     while state.running {
-        drain_worker_events(
-            &worker_rx,
-            &mut stdout,
-            &mut state.search_in_progress,
-            &mut state.active_search_id,
-        )?;
+        worker.drain_events(&mut stdout, &mut state.active_search_id)?;
 
         match line_rx.recv_timeout(Duration::from_millis(20)) {
             Ok(line) => {
@@ -46,7 +39,7 @@ pub fn run_uci_loop() -> Result<()> {
                     command,
                     input,
                     &mut engine,
-                    &worker_tx,
+                    &mut worker,
                     &mut stdout,
                     &mut state,
                 )?;
@@ -58,12 +51,8 @@ pub fn run_uci_loop() -> Result<()> {
         }
     }
 
-    drain_worker_events(
-        &worker_rx,
-        &mut stdout,
-        &mut state.search_in_progress,
-        &mut state.active_search_id,
-    )?;
+    worker.shutdown();
+    worker.drain_events(&mut stdout, &mut state.active_search_id)?;
 
     Ok(())
 }
@@ -72,7 +61,6 @@ pub fn run_uci_loop() -> Result<()> {
 struct UciLoopState {
     debug_enabled: bool,
     running: bool,
-    search_in_progress: bool,
     next_search_id: u64,
     active_search_id: Option<u64>,
 }
@@ -82,7 +70,6 @@ impl Default for UciLoopState {
         Self {
             debug_enabled: false,
             running: true,
-            search_in_progress: false,
             next_search_id: 1,
             active_search_id: None,
         }
@@ -93,7 +80,7 @@ fn handle_command(
     command: UciCommand,
     input: &str,
     engine: &mut Engine,
-    worker_tx: &std::sync::mpsc::Sender<WorkerCommand>,
+    worker: &mut SearchWorker,
     stdout: &mut io::Stdout,
     state: &mut UciLoopState,
 ) -> Result<()> {
@@ -101,23 +88,30 @@ fn handle_command(
         UciCommand::Uci => write_uci_identification(stdout, engine)?,
         UciCommand::IsReady => write_ready(stdout)?,
         UciCommand::UciNewGame => {
-            cancel_search(worker_tx, state);
+            worker.stop();
+            state.active_search_id = None;
             engine.reset();
         }
         UciCommand::Position(position) => {
-            cancel_search(worker_tx, state);
-            if let Err(err) = apply_position(position, engine) {
+            worker.stop();
+            state.active_search_id = None;
+            let result = match position.base {
+                PositionBase::StartPos => engine.set_startpos_with_moves(&position.moves),
+                PositionBase::Fen(fen) => engine.set_fen_with_moves(&fen, &position.moves),
+            };
+            if let Err(err) = result {
                 writeln!(stdout, "info string position error: {err}")?;
                 stdout.flush()?;
             }
         }
-        UciCommand::Go(request) => start_search(worker_tx, stdout, state, engine, request)?,
-        UciCommand::Stop => {
-            let _ = worker_tx.send(WorkerCommand::Stop);
+        UciCommand::Go(request) => {
+            let search_id = state.next_search_id;
+            state.next_search_id = state.next_search_id.saturating_add(1);
+            worker.start(engine.clone(), request, search_id);
+            state.active_search_id = Some(search_id);
         }
-        UciCommand::PonderHit => {
-            let _ = worker_tx.send(WorkerCommand::PonderHit);
-        }
+        UciCommand::Stop => worker.stop(),
+        UciCommand::PonderHit => worker.ponder_hit(),
         UciCommand::SetOption { name, value } => {
             handle_setoption(engine, stdout, state.debug_enabled, name, value)?
         }
@@ -130,7 +124,7 @@ fn handle_command(
         UciCommand::Eval => write_static_eval(stdout, engine)?,
         UciCommand::VerboseEval => write_verbose_eval(stdout, engine)?,
         UciCommand::Quit => {
-            let _ = worker_tx.send(WorkerCommand::Quit);
+            worker.stop();
             state.running = false;
         }
         UciCommand::Unknown => {
@@ -150,44 +144,6 @@ fn handle_command(
 fn write_ready(stdout: &mut io::Stdout) -> Result<()> {
     writeln!(stdout, "readyok")?;
     stdout.flush()?;
-    Ok(())
-}
-
-fn cancel_search(
-    worker_tx: &std::sync::mpsc::Sender<WorkerCommand>,
-    state: &mut UciLoopState,
-) {
-    cancel_active_search(
-        worker_tx,
-        &mut state.search_in_progress,
-        &mut state.active_search_id,
-    );
-}
-
-fn start_search(
-    worker_tx: &std::sync::mpsc::Sender<WorkerCommand>,
-    stdout: &mut io::Stdout,
-    state: &mut UciLoopState,
-    engine: &Engine,
-    request: sable_engine::SearchRequest,
-) -> Result<()> {
-    let search_id = state.next_search_id;
-    state.next_search_id = state.next_search_id.saturating_add(1);
-    if worker_tx
-        .send(WorkerCommand::Start {
-            engine: Box::new(engine.clone()),
-            request: Box::new(request),
-            search_id,
-        })
-        .is_err()
-    {
-        writeln!(stdout, "info string search worker unavailable")?;
-        writeln!(stdout, "bestmove 0000")?;
-        stdout.flush()?;
-    } else {
-        state.search_in_progress = true;
-        state.active_search_id = Some(search_id);
-    }
     Ok(())
 }
 
@@ -260,7 +216,11 @@ fn write_static_eval(stdout: &mut io::Stdout, engine: &Engine) -> Result<()> {
         Ok(eval) => {
             let score = format_static_eval_score(&eval);
             writeln!(stdout, "info string eval {score}")?;
-            writeln!(stdout, "info string eval source {}", eval_source_label(eval.source))?;
+            writeln!(
+                stdout,
+                "info string eval source {}",
+                eval_source_label(eval.source)
+            )?;
         }
         Err(err) => {
             writeln!(stdout, "info string eval error: {err}")?;

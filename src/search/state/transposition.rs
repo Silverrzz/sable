@@ -3,12 +3,10 @@ use std::sync::{
     atomic::{AtomicU8, AtomicU64, Ordering},
 };
 
-use crate::{
-    Move, Piece, Square,
-    evaluation::LOSS_SCORE,
-};
+use crate::{Move, Piece, Square, evaluation::LOSS_SCORE};
 
-use super::{constants::*, position_key::PositionKey};
+use super::position_key::PositionKey;
+use crate::search::constants::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::search) enum Bound {
@@ -137,10 +135,7 @@ impl TranspositionTable {
     pub(in crate::search) fn prefetch(&self, key: PositionKey) {
         #[cfg(target_arch = "x86_64")]
         unsafe {
-            let cluster = self
-                .inner
-                .clusters
-                .get_unchecked(self.cluster_index(key));
+            let cluster = self.inner.clusters.get_unchecked(self.cluster_index(key));
             core::arch::x86_64::_mm_prefetch(
                 (cluster as *const Cluster).cast::<i8>(),
                 core::arch::x86_64::_MM_HINT_T0,

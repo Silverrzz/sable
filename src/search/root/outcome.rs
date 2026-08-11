@@ -11,22 +11,15 @@ use crate::GameStatus;
 pub(in crate::search) struct SearchOutcome {
     pub(in crate::search) score: i32,
     pub(in crate::search) repetition_draw: bool,
-    pub(in crate::search) pv: Vec<PvMove>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::search) struct PvMove {
-    pub(in crate::search) mv: Move,
-}
-
-impl PvMove {
-    pub(in crate::search) fn new(_board: &Board, mv: Move, _chess960: bool) -> Self {
-        Self { mv }
-    }
+    pub(in crate::search) pv: Vec<Move>,
 }
 
 #[inline]
-pub(in crate::search) fn is_better_score(score: i32, repetition_draw: bool, best: &SearchOutcome) -> bool {
+pub(in crate::search) fn is_better_score(
+    score: i32,
+    repetition_draw: bool,
+    best: &SearchOutcome,
+) -> bool {
     if score != best.score {
         return score > best.score;
     }
@@ -97,17 +90,12 @@ pub(in crate::search) fn terminal_outcome(score: i32, repetition_draw: bool) -> 
     }
 }
 
-pub(in crate::search) fn parent_outcome(
-    board: &Board,
-    mv: Move,
-    child: SearchOutcome,
-    chess960: bool,
-) -> SearchOutcome {
+pub(in crate::search) fn parent_outcome(mv: Move, child: SearchOutcome) -> SearchOutcome {
     let mut pv = child.pv;
     if pv.len() >= MAX_PV_LENGTH {
         pv.remove(0);
     }
-    pv.push(PvMove::new(board, mv, chess960));
+    pv.push(mv);
     SearchOutcome {
         score: -child.score,
         repetition_draw: child.repetition_draw,
@@ -116,33 +104,33 @@ pub(in crate::search) fn parent_outcome(
 }
 
 #[cfg(debug_assertions)]
-pub(in crate::search) fn debug_validate_pv(board: &Board, pv: &[PvMove], tag: &str) {
+pub(in crate::search) fn debug_validate_pv(board: &Board, pv: &[Move], tag: &str) {
     let mut b = board.clone();
-    for (i, pm) in pv.iter().rev().enumerate() {
+    for (i, &mv) in pv.iter().rev().enumerate() {
         if crate::chess::status(&b) != GameStatus::Ongoing {
-            let seq: Vec<String> = pv.iter().rev().map(|p| p.mv.to_string()).collect();
+            let seq: Vec<String> = pv.iter().rev().map(ToString::to_string).collect();
             eprintln!(
                 "PVBUG[{tag}] move #{i} {} continues from terminal {} | pv: {}",
-                pm.mv,
-                b.to_string(),
+                mv,
+                b,
                 seq.join(" ")
             );
             return;
         }
-        if !crate::chess::is_legal(&b, pm.mv) {
-            let seq: Vec<String> = pv.iter().rev().map(|p| p.mv.to_string()).collect();
+        if !crate::chess::is_legal(&b, mv) {
+            let seq: Vec<String> = pv.iter().rev().map(ToString::to_string).collect();
             eprintln!(
                 "PVBUG[{tag}] illegal move #{i} {} from {} | pv: {}",
-                pm.mv,
-                b.to_string(),
+                mv,
+                b,
                 seq.join(" ")
             );
             return;
         }
-        crate::chess::play_unchecked(&mut b, pm.mv);
+        crate::chess::play_unchecked(&mut b, mv);
     }
 }
 
 #[cfg(not(debug_assertions))]
 #[inline]
-pub(in crate::search) fn debug_validate_pv(_board: &Board, _pv: &[PvMove], _tag: &str) {}
+pub(in crate::search) fn debug_validate_pv(_board: &Board, _pv: &[Move], _tag: &str) {}

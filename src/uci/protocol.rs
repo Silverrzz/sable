@@ -13,10 +13,19 @@ pub(super) fn write_uci_identification(stdout: &mut io::Stdout, engine: &Engine)
 
     writeln!(stdout, "id name Sable {}", env!("CARGO_PKG_VERSION"))?;
     writeln!(stdout, "id author Ellie Fulterer")?;
-    writeln!(stdout, "option name Hash type spin default 16 min 1 max 32768")?;
-    writeln!(stdout, "option name Threads type spin default 1 min 1 max 256")?;
+    writeln!(
+        stdout,
+        "option name Hash type spin default 16 min 1 max 32768"
+    )?;
+    writeln!(
+        stdout,
+        "option name Threads type spin default 1 min 1 max 256"
+    )?;
     writeln!(stdout, "option name Ponder type check default false")?;
-    writeln!(stdout, "option name MultiPV type spin default 1 min 1 max 256")?;
+    writeln!(
+        stdout,
+        "option name MultiPV type spin default 1 min 1 max 256"
+    )?;
     writeln!(stdout, "option name UseSoftNodes type check default false")?;
     writeln!(stdout, "option name UCI_Chess960 type check default false")?;
     writeln!(stdout, "option name UCI_ShowWDL type check default false")?;
@@ -76,10 +85,14 @@ fn write_eval_file_option(stdout: &mut io::Stdout, engine: &Engine) -> Result<()
     Ok(())
 }
 
-pub(crate) fn format_uci_info(info: &sable_engine::SearchInfo, show_wdl: bool) -> String {
-    let elapsed_ms = info.time_ms.unwrap_or(0);
-    let depth = info.depth.unwrap_or(1);
-    let seldepth = info.seldepth.unwrap_or(depth);
+pub(crate) fn format_uci_info(
+    engine: &Engine,
+    info: &sable_engine::SearchInfo,
+    show_wdl: bool,
+) -> String {
+    let elapsed_ms = info.time_ms;
+    let depth = info.depth;
+    let seldepth = info.seldepth;
     let score = format_uci_score(info);
     let multi_pv = info
         .multi_pv
@@ -91,10 +104,10 @@ pub(crate) fn format_uci_info(info: &sable_engine::SearchInfo, show_wdl: bool) -
     } else {
         String::new()
     };
-    let nodes = info.nodes.unwrap_or(0);
-    let nps = info.nps.unwrap_or(0);
-    let hashfull = info.hashfull.unwrap_or(0);
-    let pv = info.pv_uci.join(" ");
+    let nodes = info.nodes;
+    let nps = info.nps;
+    let hashfull = info.hashfull;
+    let pv = engine.format_uci_pv(&info.pv).join(" ");
     let pv = if pv.is_empty() {
         String::new()
     } else {
@@ -109,10 +122,7 @@ fn format_uci_score(info: &sable_engine::SearchInfo) -> String {
     if let Some(score_mate) = info.score_mate {
         format!("score mate {score_mate}")
     } else {
-        format!(
-            "score cp {}",
-            normalize_uci_cp(info.score_cp.unwrap_or(0))
-        )
+        format!("score cp {}", normalize_uci_cp(info.score_cp))
     }
 }
 
@@ -149,7 +159,7 @@ fn format_wdl(info: &sable_engine::SearchInfo) -> (u32, u32, u32) {
             (0, 1000, 0)
         };
     }
-    let cp = normalize_uci_cp(info.score_cp.unwrap_or(0)).clamp(-2000, 2000) as f64;
+    let cp = normalize_uci_cp(info.score_cp).clamp(-2000, 2000) as f64;
     let decisive = 1.0 / (1.0 + (-cp / 180.0).exp());
     let draw = (350.0 * (-cp.abs() / 400.0).exp()).round() as u32;
     let remaining = 1000_u32.saturating_sub(draw);
@@ -250,10 +260,7 @@ fn push_value_rank(out: &mut String, veval: &sable_engine::VerboseEval, rank: u8
     }
     out.push('\n');
 
-    fn verbose_piece_value_pawns(
-        veval: &sable_engine::VerboseEval,
-        sq_idx: usize,
-    ) -> Option<f32> {
+    fn verbose_piece_value_pawns(veval: &sable_engine::VerboseEval, sq_idx: usize) -> Option<f32> {
         veval
             .piece_contributions
             .iter()

@@ -1,22 +1,22 @@
-
-use crate::{
-    Board, Move,
-    chess::MoveGenState,
-    evaluation::LOSS_SCORE,
-};
+use crate::{Board, Move, chess::MoveGenState, evaluation::LOSS_SCORE};
 
 use super::{
-    constants::*,
-    context::SearchContext,
-    correction_history::CorrectionContext,
-    move_generation::{MoveFilter, collect_moves_into, priority_move_for_node},
-    move_ordering::MovePicker,
-    position_key::{PositionKey, position_key},
     pruning::{apply_mate_distance_pruning, should_q_delta_prune_capture},
-    root::{PvMove, SearchOutcome, is_better_score, parent_outcome, terminal_outcome},
     scoring::terminal_score,
-    see::move_gives_check,
-    transposition::{Bound, TranspositionEntry, score_from_tt},
+};
+use crate::search::{
+    constants::*,
+    moves::{
+        move_generation::{MoveFilter, collect_moves, priority_move_for_node},
+        see::move_gives_check,
+    },
+    root::outcome::{SearchOutcome, is_better_score, parent_outcome, terminal_outcome},
+    state::{
+        context::SearchContext,
+        correction_history::CorrectionContext,
+        position_key::{PositionKey, position_key},
+        transposition::{Bound, TranspositionEntry, score_from_tt},
+    },
 };
 
 pub(in crate::search) fn quiescence(
@@ -26,13 +26,13 @@ pub(in crate::search) fn quiescence(
     mut beta: i32,
     previous_move: Option<Move>,
     correction_context: CorrectionContext,
-    previous_pv: &[PvMove],
+    previous_pv: &[Move],
     context: &mut SearchContext<'_>,
     ply: u16,
 ) -> Option<SearchOutcome> {
     context.enter_node(ply);
     context.clear_static_eval_at_ply(ply);
-    if context.should_stop().is_some() {
+    if context.should_stop() {
         return None;
     }
     let movegen = MoveGenState::new(board);
@@ -51,14 +51,21 @@ pub(in crate::search) fn quiescence(
         None
     };
     if let Some(entry) = tt_entry
-        && let Some(outcome) = qsearch_tt_cutoff(board, entry, alpha, beta, ply, context)
+        && let Some(outcome) = qsearch_tt_cutoff(board, entry, alpha, beta, ply)
     {
         return Some(outcome);
     }
     let alpha_start = alpha;
-    if qsearch_at_safety_bound(ply) {
-        let (score, raw_static_eval) =
-            qsearch_safety_bound_score(board, in_check, correction_context, context, ply);
+    if ply as usize >= MAX_ORDERING_PLY {
+        let (score, raw_static_eval) = if in_check {
+            (LOSS_SCORE.saturating_add(ply as i32), None)
+        } else {
+            let raw = context.evaluate(board);
+            (
+                context.corrected_static_eval(board, raw, correction_context),
+                Some(raw),
+            )
+        };
         if raw_static_eval.is_some() {
             context.record_static_eval_at_ply(ply, score);
         }
@@ -103,7 +110,7 @@ pub(in crate::search) fn quiescence(
         Some(stand_pat)
     };
 
-    let pv_move = previous_pv.last().map(|pv| pv.mv);
+    let pv_move = previous_pv.last().copied();
     let tt_move = tt_entry.and_then(|entry| entry.best_move);
     let priority_move = priority_move_for_node(board, pv_move, tt_move, in_check);
     let filter = if in_check {
@@ -111,30 +118,18 @@ pub(in crate::search) fn quiescence(
     } else {
         MoveFilter::Tactical
     };
-    let mut moves = MovePicker::new();
-    collect_moves_into(
-        board,
-        &movegen,
-        filter,
-        priority_move,
-        previous_move,
-        ply,
-        &mut moves,
-    );
+    let mut moves = collect_moves(board, &movegen, filter, priority_move, previous_move, ply);
     let mut best = SearchOutcome {
         score: stand_pat.unwrap_or(i32::MIN),
         repetition_draw: false,
         pv: Vec::new(),
     };
-    let mut interrupted = false;
     let mut found_move = false;
     let mut searched_moves = 0_u32;
 
     while let Some(ordered) = moves.next(board, context.ordering()) {
         found_move = true;
-        if in_check
-            && searched_moves >= QSEARCH_MAX_EVASION_MOVES()
-            && Some(ordered.mv) != pv_move
+        if in_check && searched_moves >= QSEARCH_MAX_EVASION_MOVES() && Some(ordered.mv) != pv_move
         {
             continue;
         }
@@ -149,7 +144,12 @@ pub(in crate::search) fn quiescence(
                 ordered.mv.promotion,
                 ordered.moving_piece,
             )
-            && !move_gives_check(board, ordered.mv, ordered.moving_piece, Some(captured_piece))
+            && !move_gives_check(
+                board,
+                ordered.mv,
+                ordered.moving_piece,
+                Some(captured_piece),
+            )
         {
             continue;
         }
@@ -165,7 +165,6 @@ pub(in crate::search) fn quiescence(
         context.transposition_table().prefetch(next_key);
         let next_repetition = context.push_position(&next, next_key);
         context.push_eval_state(
-            board,
             &next,
             ordered.mv,
             ordered.moving_piece,
@@ -189,18 +188,17 @@ pub(in crate::search) fn quiescence(
             context,
             ply + 1,
         ) else {
-            context.pop_eval_state(board, ordered.mv);
+            context.pop_eval_state();
             context.pop_position(next_key);
-            interrupted = true;
-            break;
+            return None;
         };
         searched_moves += 1;
-        context.pop_eval_state(board, ordered.mv);
+        context.pop_eval_state();
         context.pop_position(next_key);
         let child_score = -child.score;
         let raised_alpha = is_better_score(child_score, child.repetition_draw, &best);
         if raised_alpha {
-            best = parent_outcome(board, ordered.mv, child, context.chess960());
+            best = parent_outcome(ordered.mv, child);
         }
         alpha = alpha.max(child_score);
         let caused_cutoff = alpha >= beta;
@@ -209,9 +207,7 @@ pub(in crate::search) fn quiescence(
         }
     }
 
-    if interrupted {
-        None
-    } else if found_move {
+    if found_move {
         if !best.repetition_draw {
             qsearch_store(
                 context,
@@ -220,7 +216,7 @@ pub(in crate::search) fn quiescence(
                 best.score,
                 alpha_start,
                 beta,
-                best.pv.last().map(|pv| pv.mv),
+                best.pv.last().copied(),
                 raw_static_eval.or(raw_stand_pat),
                 ply,
             );
@@ -256,13 +252,12 @@ pub(in crate::search) fn quiescence(
     }
 }
 
-pub(in crate::search) fn qsearch_tt_cutoff(
+fn qsearch_tt_cutoff(
     board: &Board,
     entry: TranspositionEntry,
     alpha: i32,
     beta: i32,
     ply: u16,
-    context: &mut SearchContext<'_>,
 ) -> Option<SearchOutcome> {
     let score = score_from_tt(entry.score, ply);
     match entry.bound {
@@ -270,7 +265,7 @@ pub(in crate::search) fn qsearch_tt_cutoff(
             let pv = entry
                 .best_move
                 .filter(|&mv| crate::chess::is_legal(board, mv))
-                .map(|mv| vec![PvMove::new(board, mv, context.chess960())])
+                .map(|mv| vec![mv])
                 .unwrap_or_default();
             Some(SearchOutcome {
                 score,
@@ -278,19 +273,13 @@ pub(in crate::search) fn qsearch_tt_cutoff(
                 pv,
             })
         }
-        Bound::Lower if score >= beta => {
-            Some(terminal_outcome(score, false))
-        }
-        Bound::Upper if score <= alpha => {
-            Some(terminal_outcome(score, false))
-        }
-        _ => {
-            None
-        }
+        Bound::Lower if score >= beta => Some(terminal_outcome(score, false)),
+        Bound::Upper if score <= alpha => Some(terminal_outcome(score, false)),
+        _ => None,
     }
 }
 
-pub(in crate::search) fn qsearch_store(
+fn qsearch_store(
     context: &mut SearchContext<'_>,
     use_tt: bool,
     key: PositionKey,
@@ -314,28 +303,4 @@ pub(in crate::search) fn qsearch_store(
     context
         .transposition_table()
         .store(key, 0, score, bound, best_move, static_eval, ply);
-}
-
-#[inline]
-pub(in crate::search) fn qsearch_at_safety_bound(ply: u16) -> bool {
-    ply as usize >= MAX_ORDERING_PLY
-}
-
-#[inline]
-pub(in crate::search) fn qsearch_safety_bound_score(
-    board: &Board,
-    in_check: bool,
-    correction_context: CorrectionContext,
-    context: &mut SearchContext<'_>,
-    ply: u16,
-) -> (i32, Option<i32>) {
-    if in_check {
-        (LOSS_SCORE.saturating_add(ply as i32), None)
-    } else {
-        let raw_eval = context.evaluate(board);
-        (
-            context.corrected_static_eval(board, raw_eval, correction_context),
-            Some(raw_eval),
-        )
-    }
 }

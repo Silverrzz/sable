@@ -26,7 +26,7 @@ BUILT_EXE := $(TARGET_DIR)/release/sable-engine$(BIN_SUFFIX)
 
 CARGO_ENV :=
 ifneq ($(strip $(EVALFILE)),)
-CARGO_ENV += SABLER_EVAL_FILE="$(EVALFILE)" SABLER_DEFAULT_EVAL=nnue
+CARGO_ENV += SABLE_EVAL_FILE="$(EVALFILE)"
 endif
 
 .PHONY: all build clean

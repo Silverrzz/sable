@@ -9,17 +9,14 @@ use crate::{Board, Move, evaluation::Evaluator};
 use super::super::{
     constants::ASPIRATION_MIN_DEPTH,
     state::{
-        context::PersistentSearchState,
-        position_key::PositionKey,
+        context::PersistentSearchState, position_key::PositionKey,
         transposition::TranspositionTable,
     },
     types::*,
     uci_info::nodes_per_second,
 };
-use super::outcome::{PvMove, debug_validate_pv};
-use super::{
-    RootSearchControls, RootSearchInput, RootSearchJob, RootSearchRuntime, run_search_single,
-};
+use super::driver::{RootSearchJob, run_search_single};
+use super::outcome::debug_validate_pv;
 
 #[derive(Debug)]
 struct LazySmpWorkerResult {
@@ -40,7 +37,6 @@ pub(in crate::search) fn run_lazy_smp_search<F>(
     evaluator: Evaluator,
     stop_flag: Option<&AtomicBool>,
     ponder_flag: Option<&AtomicBool>,
-    chess960: bool,
     started: Instant,
     mut observer: F,
 ) -> (SearchResult, PersistentSearchState)
@@ -76,29 +72,22 @@ where
                 }
                 let (result, _search_state) = run_search_single(
                     RootSearchJob {
-                        input: RootSearchInput {
-                            board,
-                            game_history,
-                            request,
-                            candidate_moves,
-                            max_depth,
-                            chess960,
-                        },
-                        runtime: RootSearchRuntime {
-                            budget,
-                            transposition_table,
-                            search_state,
-                            evaluator,
-                            started,
-                            worker_id,
-                            multi_pv: 1,
-                        },
-                        controls: RootSearchControls {
-                            stop_flag,
-                            ponder_flag,
-                            lazy_stop_flag: Some(lazy_stop),
-                            shared_nodes: Some(shared_nodes),
-                        },
+                        board,
+                        game_history,
+                        request,
+                        candidate_moves,
+                        max_depth,
+                        budget,
+                        transposition_table,
+                        search_state,
+                        evaluator,
+                        started,
+                        worker_id,
+                        multi_pv: 1,
+                        stop_flag,
+                        ponder_flag,
+                        lazy_stop_flag: Some(lazy_stop),
+                        shared_nodes: Some(shared_nodes),
                     },
                     |_| {},
                 );
@@ -108,32 +97,25 @@ where
 
         let (result, search_state) = run_search_single(
             RootSearchJob {
-                input: RootSearchInput {
-                    board,
-                    game_history,
-                    request,
-                    candidate_moves,
-                    max_depth,
-                    chess960,
-                },
-                runtime: RootSearchRuntime {
-                    budget,
-                    transposition_table: transposition_table.clone(),
-                    search_state: main_search_state,
-                    evaluator,
-                    started,
-                    worker_id: 0,
-                    multi_pv: 1,
-                },
-                controls: RootSearchControls {
-                    stop_flag,
-                    ponder_flag,
-                    lazy_stop_flag: Some(&lazy_stop),
-                    shared_nodes: Some(&shared_nodes),
-                },
+                board,
+                game_history,
+                request,
+                candidate_moves,
+                max_depth,
+                budget,
+                transposition_table: transposition_table.clone(),
+                search_state: main_search_state,
+                evaluator,
+                started,
+                worker_id: 0,
+                multi_pv: 1,
+                stop_flag,
+                ponder_flag,
+                lazy_stop_flag: Some(&lazy_stop),
+                shared_nodes: Some(&shared_nodes),
             },
             |info| {
-                if info.depth.unwrap_or(0) >= ASPIRATION_MIN_DEPTH() {
+                if info.depth >= ASPIRATION_MIN_DEPTH() {
                     helper_start.store(true, Ordering::Relaxed);
                 }
                 observer(info);
@@ -152,13 +134,7 @@ where
 
     let (best, search_state) = main_result.unwrap_or_default();
 
-    let pv: Vec<PvMove> = best
-        .info
-        .pv
-        .iter()
-        .rev()
-        .map(|&mv| PvMove::new(board, mv, chess960))
-        .collect();
+    let pv: Vec<Move> = best.info.pv.iter().rev().copied().collect();
     debug_validate_pv(board, &pv, "SMPFINAL");
 
     let best = refresh_lazy_smp_info(
@@ -172,7 +148,11 @@ where
     (best, search_state)
 }
 
-pub(in crate::search) fn lazy_smp_worker_depth(nominal_depth: u32, worker_id: usize, max_depth: u32) -> u32 {
+pub(in crate::search) fn lazy_smp_worker_depth(
+    nominal_depth: u32,
+    worker_id: usize,
+    max_depth: u32,
+) -> u32 {
     let offset = lazy_smp_worker_depth_offset(nominal_depth, worker_id);
     nominal_depth.saturating_add(offset).min(max_depth)
 }
@@ -181,7 +161,7 @@ fn lazy_smp_worker_depth_offset(nominal_depth: u32, worker_id: usize) -> u32 {
     if worker_id == 0 || nominal_depth <= ASPIRATION_MIN_DEPTH() {
         return 0;
     }
-    if worker_id % 2 == 0 { 2 } else { 1 }
+    if worker_id.is_multiple_of(2) { 2 } else { 1 }
 }
 
 fn wait_for_lazy_smp_start(
@@ -239,7 +219,7 @@ fn prefer_lazy_smp_result(
 }
 
 fn completed_depth(result: &SearchResult) -> u32 {
-    result.info.depth.unwrap_or(0)
+    result.info.depth
 }
 
 fn refresh_lazy_smp_info(
@@ -252,9 +232,9 @@ fn refresh_lazy_smp_info(
     let elapsed = started.elapsed();
     let elapsed_ns = elapsed.as_nanos();
     result.info.budget = budget.clone();
-    result.info.nodes = Some(nodes);
-    result.info.time_ms = Some(elapsed.as_millis().min(u128::from(u64::MAX)) as u64);
+    result.info.nodes = nodes;
+    result.info.time_ms = elapsed.as_millis().min(u128::from(u64::MAX)) as u64;
     result.info.nps = nodes_per_second(nodes, elapsed_ns);
-    result.info.hashfull = Some(transposition_table.hashfull());
+    result.info.hashfull = transposition_table.hashfull();
     result
 }

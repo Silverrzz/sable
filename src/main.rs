@@ -202,7 +202,10 @@ fn print_version_info() {
     println!("git_commit={git_commit}");
     println!("target={target}");
     println!("profile={profile}");
-    println!("embedded_eval={}", if has_embedded_eval() { "true" } else { "false" });
+    println!(
+        "embedded_eval={}",
+        if has_embedded_eval() { "true" } else { "false" }
+    );
     println!("embedded_eval_hash={embedded_eval_hash}");
     println!("embedded_eval_arch={embedded_eval_arch}");
     println!("default_eval_source={default_eval}");
@@ -210,7 +213,10 @@ fn print_version_info() {
 }
 
 fn nodes_per_second(nodes: u64, elapsed_ms: u64) -> u64 {
-    nodes.saturating_mul(1000).checked_div(elapsed_ms).unwrap_or(0)
+    nodes
+        .saturating_mul(1000)
+        .checked_div(elapsed_ms)
+        .unwrap_or(0)
 }
 
 fn run_perft(depth: u32, fen: Option<String>) -> Result<()> {
@@ -260,7 +266,6 @@ impl BenchResult {
 }
 
 fn run_bench_once() -> Result<BenchResult> {
-
     let request = SearchRequest {
         limits: SearchLimits {
             depth: Some(BENCH_DEPTH),
@@ -289,7 +294,7 @@ fn run_bench_once() -> Result<BenchResult> {
         let start_search = Instant::now();
         let result = engine.search(&request)?;
         let search_ms = start_search.elapsed().as_millis() as u64;
-        let nodes = result.info.nodes.unwrap_or(0);
+        let nodes = result.info.nodes;
         total_nodes = total_nodes.saturating_add(nodes);
         total_search_ms = total_search_ms.saturating_add(search_ms);
     }
@@ -324,8 +329,8 @@ fn run_verbose_bench(runs: usize) -> Result<()> {
         let result = run_bench_once()?;
         let current_nps = result.nps();
         nps_values.push(current_nps);
-        let average_nps = nps_values.iter().map(|&nps| u128::from(nps)).sum::<u128>()
-            / nps_values.len() as u128;
+        let average_nps =
+            nps_values.iter().map(|&nps| u128::from(nps)).sum::<u128>() / nps_values.len() as u128;
         let elapsed_secs = started.elapsed().as_secs();
         let eta_secs = elapsed_secs
             .saturating_mul((runs - completed) as u64)
@@ -343,8 +348,8 @@ fn run_verbose_bench(runs: usize) -> Result<()> {
     }
 
     println!();
-    let average_nps = nps_values.iter().map(|&nps| u128::from(nps)).sum::<u128>()
-        / nps_values.len() as u128;
+    let average_nps =
+        nps_values.iter().map(|&nps| u128::from(nps)).sum::<u128>() / nps_values.len() as u128;
     let min_nps = nps_values.iter().copied().min().unwrap_or(0);
     let max_nps = nps_values.iter().copied().max().unwrap_or(0);
     println!(
@@ -368,14 +373,18 @@ fn draw_bench_progress(
 ) -> Result<()> {
     let filled = completed.saturating_mul(bar_width) / runs;
     let bar = format!("{}{}", "#".repeat(filled), "-".repeat(bar_width - filled));
-    let eta = eta_secs.map(format_duration).unwrap_or_else(|| "--:--".to_owned());
+    let eta = eta_secs
+        .map(format_duration)
+        .unwrap_or_else(|| "--:--".to_owned());
     print!(
         "\r\x1b[2K[{bar}] {completed:>2}/{runs} | Current: {:>13} nps | Average: {:>13} nps | Elapsed: {} | ETA: {eta}",
         format_number(current_nps),
         format_number(average_nps),
         format_duration(elapsed_secs),
     );
-    io::stdout().flush().context("failed to update bench display")
+    io::stdout()
+        .flush()
+        .context("failed to update bench display")
 }
 
 fn format_number(value: u64) -> String {
@@ -407,7 +416,7 @@ fn run_bmt5k() -> Result<()> {
     };
 
     let result = engine.search_with_observer(&request, None, |info| {
-        println!("{}", uci::format_uci_info(info, false));
+        println!("{}", uci::format_uci_info(&engine, info, false));
     })?;
 
     match result.best_move {
