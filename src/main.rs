@@ -12,13 +12,27 @@ use std::io::{self, Write};
 use std::time::Instant;
 
 const BENCH_DEPTH: u32 = 15;
-const BENCH_POSITIONS: [&str; 6] = [
-    "startpos",
-    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-    "4rrk1/p1pb1ppp/1p1p1n2/8/2PP4/2N1P1P1/PP3PBP/R2R2K1 w - - 0 1",
-    "2r2rk1/pp3ppp/2n1bn2/q2p4/3P4/2P1PN2/PP1NBPPP/R2Q1RK1 w - - 0 10",
-    "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
-    "2k4r/8/5p2/p2p1P2/P2P4/P7/8/4K1R1 w - - 0 1",
+const BENCH_POSITIONS: [&str; 20] = [
+    "startpos", // Opening position.
+    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", // Kiwipete: castling, pins, and tactics.
+    "4rrk1/p1pb1ppp/1p1p1n2/8/2PP4/2N1P1P1/PP3PBP/R2R2K1 w - - 0 1", // Quiet queenless middlegame.
+    "2r2rk1/pp3ppp/2n1bn2/q2p4/3P4/2P1PN2/PP1NBPPP/R2Q1RK1 w - - 0 10", // Isolated queen and central tension.
+    "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", // Rook ending with passed pawns.
+    "2k4r/8/5p2/p2p1P2/P2P4/P7/8/4K1R1 w - - 0 1", // Opposed rooks and a fixed pawn chain.
+    "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1", // Promotions, castling, and exposed kings.
+    "rnbq1k1r/pp1Pbppp/2p2n2/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8", // Invasion on the seventh rank.
+    "r4rk1/1pp1qppp/p1np1n2/8/2B1P1b1/2NP1N2/PPP1QPPP/R1B2RK1 w - - 0 10", // Tactical development position.
+    "r1bq1rk1/pp2bppp/2np1n2/2p1p3/4P3/2NP1NP1/PPP2PBP/R1BQ1RK1 w - - 0 9", // Open Sicilian structure.
+    "r2q1rk1/ppp2ppp/2npbn2/8/2BPP3/2N2Q1P/PPP2PP1/2KR3R w - - 0 12", // Opposite-side king attack.
+    "r3r1k1/ppp2ppp/2np1n2/8/2B1P3/2N2P2/PPP3PP/R1B1R1K1 w - - 0 15", // Queenless minor-piece middlegame.
+    "8/5pk1/6p1/3Q4/8/6P1/5PK1/8 b - - 0 1", // Queen ending, black to move.
+    "8/4k3/3pp3/8/8/3PP3/4K3/R7 w - - 0 1",  // Rook versus connected pawns.
+    "8/5pk1/3p2p1/2pP4/2P1P3/4BN2/5PK1/6b1 w - - 0 1", // Mixed-minor-piece ending.
+    "8/1P4k1/8/8/8/8/5pK1/8 w - - 0 1",      // Mutual promotion race.
+    "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",     // Legal en-passant opportunity.
+    "4k3/8/8/8/8/8/4R3/4K3 b - - 0 1",       // Side to move begins in check.
+    "8/8/8/3k4/3P4/3K4/8/8 b - - 0 1",       // Pawn zugzwang.
+    "8/1p3pk1/p2p2p1/P2Pp2p/1P2P2P/5PP1/6K1/8 w - - 0 1", // Locked pawn fortress.
 ];
 
 #[derive(Parser, Debug)]
