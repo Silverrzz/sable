@@ -40,57 +40,35 @@ pub(in crate::search) fn late_move_reduction(
     improving: bool,
     move_score: i32,
 ) -> u32 {
-    if depth < LMR_MIN_DEPTH() || !is_quiet || move_score >= COUNTER_MOVE_SCORE {
+    let minimum_searched_moves = if is_pv_node { 3 } else { 1 };
+    if depth < LMR_MIN_DEPTH()
+        || searched_moves < minimum_searched_moves
+        || !is_quiet
+        || move_score >= COUNTER_MOVE_SCORE
+    {
         return 0;
     }
 
     let move_number = searched_moves.saturating_add(1);
-    let mut reduction: u32 = 1;
-    if depth >= 5 {
+    let mut reduction = 1 + depth.ilog2().saturating_mul(move_number.ilog2()) / 4;
+    if !is_pv_node {
         reduction += 1;
     }
-    if depth >= 8 {
+    if !in_check && !improving {
         reduction += 1;
-    }
-    if move_number >= 6 {
-        reduction += 1;
-    }
-    if move_number >= 12 {
-        reduction += 1;
-    }
-    if move_number >= 24 {
-        reduction += 1;
-    }
-    if !is_pv_node && depth >= 3 && move_number >= 3 {
-        reduction += 1;
-    }
-    if !is_pv_node && depth >= 4 && move_number >= 4 {
-        reduction += 1;
-    }
-    if !is_pv_node && depth >= 6 && move_number >= 8 && move_score < 0 {
-        reduction += 1;
-    }
-    if !is_pv_node && depth >= 10 && move_number >= 12 {
-        reduction += 1;
-    }
-    if !is_pv_node && depth >= 12 && move_number >= 16 {
-        reduction += 1;
-    }
-    if !is_pv_node && !in_check && !improving {
-        reduction += 1;
-    }
-
-    if is_pv_node {
-        reduction = reduction.saturating_sub(1);
-    }
-    if move_score > 0 {
-        reduction = reduction.saturating_sub(1);
     }
     if in_check {
         reduction = reduction.saturating_sub(1);
     }
     if gives_check {
         reduction = reduction.saturating_sub(SPARSE_ENDGAME_QUIET_CHECK_LMR_PROTECTION());
+    }
+
+    let history_adjustment = move_score / 4_000_000;
+    if history_adjustment > 0 {
+        reduction = reduction.saturating_sub(history_adjustment as u32);
+    } else {
+        reduction = reduction.saturating_add(history_adjustment.unsigned_abs());
     }
 
     reduction.min(depth.saturating_sub(1))

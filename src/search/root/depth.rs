@@ -6,7 +6,7 @@ use super::super::{
     state::{
         context::SearchContext, correction_history::CorrectionContext, position_key::position_key,
     },
-    tree::negamax::negamax,
+    tree::{negamax::negamax, pruning::late_move_reduction},
 };
 use super::outcome::{SearchOutcome, debug_validate_pv, is_better_root_score, parent_outcome};
 
@@ -146,10 +146,20 @@ pub(in crate::search) fn search_root_child(
     let child = if use_pvs {
         let scout_beta = alpha.saturating_neg();
         let scout_alpha = scout_beta.saturating_sub(1);
-        match negamax(
+        let reduction = late_move_reduction(
+            depth,
+            searched_moves,
+            true,
+            ordered.is_quiet,
+            !crate::chess::checkers(board).is_empty(),
+            !crate::chess::checkers(&next).is_empty(),
+            true,
+            ordered.score,
+        );
+        let mut scout = negamax(
             &next,
             next_repetition,
-            child_depth,
+            child_depth.saturating_sub(reduction),
             scout_alpha,
             scout_beta,
             &[],
@@ -159,8 +169,25 @@ pub(in crate::search) fn search_root_child(
             1,
             true,
             None,
-        ) {
-            Some(scout) if -scout.score > alpha && -scout.score < beta => negamax(
+        );
+        if reduction > 0 && scout.as_ref().is_some_and(|outcome| -outcome.score > alpha) {
+            scout = negamax(
+                &next,
+                next_repetition,
+                child_depth,
+                scout_alpha,
+                scout_beta,
+                &[],
+                Some(ordered.mv),
+                correction_context,
+                context,
+                1,
+                true,
+                None,
+            );
+        }
+        match scout {
+            Some(outcome) if -outcome.score > alpha && -outcome.score < beta => negamax(
                 &next,
                 next_repetition,
                 child_depth,
@@ -174,7 +201,7 @@ pub(in crate::search) fn search_root_child(
                 true,
                 None,
             ),
-            scout => scout,
+            outcome => outcome,
         }
     } else {
         negamax(
