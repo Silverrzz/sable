@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     Board, Move,
-    evaluation::{Evaluator, evaluate_position},
+    evaluation::{Evaluator, evaluate_position, scale_rule50_score},
 };
 
 use super::{
@@ -321,7 +321,10 @@ impl<'a> SearchContext<'a> {
             self.eval.evaluator.active_nnue_model(),
             self.eval.stack.get(self.eval.ply),
         ) {
-            return model.evaluate_for_side_to_move_with_accumulators(board, accumulators);
+            return scale_rule50_score(
+                board,
+                model.evaluate_for_side_to_move_with_accumulators(board, accumulators),
+            );
         }
         evaluate_position(board, &self.eval.evaluator)
     }

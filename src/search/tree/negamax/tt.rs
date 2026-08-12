@@ -6,7 +6,7 @@ use crate::search::{
     state::{
         context::SearchContext,
         position_key::{is_repetition, position_key},
-        transposition::{Bound, TranspositionEntry, score_from_tt},
+        transposition::{Bound, TranspositionEntry, rule50_safe_tt_score, score_from_tt},
     },
     tree::scoring::terminal_score,
 };
@@ -22,6 +22,9 @@ pub(super) fn tt_cutoff(
     ply: u16,
 ) -> Option<SearchOutcome> {
     let entry = tt_entry?;
+    if !rule50_safe_tt_score(entry.score, crate::chess::halfmove_clock(board)) {
+        return None;
+    }
     if u32::from(entry.depth) < depth {
         return None;
     }

@@ -16,7 +16,7 @@ use crate::search::{
         context::SearchContext,
         correction_history::CorrectionContext,
         position_key::{PositionKey, position_key},
-        transposition::{Bound, TranspositionEntry, score_from_tt},
+        transposition::{Bound, TranspositionEntry, rule50_safe_tt_score, score_from_tt},
     },
 };
 
@@ -269,6 +269,9 @@ fn qsearch_tt_cutoff(
     beta: i32,
     ply: u16,
 ) -> Option<SearchOutcome> {
+    if !rule50_safe_tt_score(entry.score, crate::chess::halfmove_clock(board)) {
+        return None;
+    }
     let score = score_from_tt(entry.score, ply);
     match entry.bound {
         Bound::Exact => {
