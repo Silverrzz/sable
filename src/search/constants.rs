@@ -128,7 +128,7 @@ define_tunable_parameters!(
     (PROBCUT_MARGIN, probcut_margin_parameter, i32, 233, 0, 500, 20.0),
     (PROBCUT_SEE_THRESHOLD, probcut_see_threshold_parameter, i32, 63, -300, 500, 20.0),
     (PROBCUT_DEPTH_REDUCTION, probcut_depth_reduction_parameter, u32, 7, 1, 8, 0.5),
-    (NULL_MOVE_MIN_DEPTH, null_move_min_depth_parameter, u32, 1, 1, 8, 0.5),
+    (NULL_MOVE_MIN_DEPTH, null_move_min_depth_parameter, u32, 3, 2, 8, 0.5),
     (NULL_MOVE_BASE_REDUCTION, null_move_base_reduction_parameter, u32, 4, 1, 8, 0.5),
     (NULL_MOVE_DEPTH_REDUCTION_DIVISOR, null_move_depth_reduction_divisor_parameter, u32, 3, 1, 16, 1.0),
     (NULL_MOVE_EVAL_MARGIN_PER_REDUCTION, null_move_eval_margin_per_reduction_parameter, i32, 272, 1, 600, 25.0),
