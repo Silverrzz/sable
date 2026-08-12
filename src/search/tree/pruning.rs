@@ -95,13 +95,14 @@ pub(in crate::search) fn null_move_reduction(
     static_eval: i32,
     beta: i32,
     sparse_pawnless_endgame: bool,
+    zugzwang_prone: bool,
 ) -> u32 {
     let eval_margin = static_eval.saturating_sub(beta).max(0);
     let eval_reduction = (eval_margin / NULL_MOVE_EVAL_MARGIN_PER_REDUCTION()) as u32;
     let mut reduction = NULL_MOVE_BASE_REDUCTION()
         .saturating_add(depth / NULL_MOVE_DEPTH_REDUCTION_DIVISOR())
         .saturating_add(eval_reduction.min(NULL_MOVE_MAX_EVAL_REDUCTION()));
-    if sparse_pawnless_endgame {
+    if sparse_pawnless_endgame || zugzwang_prone {
         reduction = reduction.saturating_sub(NULL_MOVE_SPARSE_ENDGAME_REDUCTION_PROTECTION());
     }
     reduction.min(depth.saturating_sub(1))
@@ -111,8 +112,21 @@ pub(in crate::search) fn null_move_reduction(
 pub(in crate::search) fn should_verify_null_move(
     depth: u32,
     sparse_pawnless_endgame: bool,
+    zugzwang_prone: bool,
 ) -> bool {
-    depth >= NULL_MOVE_VERIFICATION_MIN_DEPTH() || sparse_pawnless_endgame
+    depth >= NULL_MOVE_VERIFICATION_MIN_DEPTH() || sparse_pawnless_endgame || zugzwang_prone
+}
+
+pub(in crate::search) fn is_zugzwang_prone(board: &Board) -> bool {
+    let side = crate::chess::side_to_move(board);
+    let side_pieces = crate::chess::colors(board, side);
+    let pawns = side_pieces & crate::chess::pieces(board, Piece::Pawn);
+    let minors = side_pieces
+        & (crate::chess::pieces(board, Piece::Knight)
+            | crate::chess::pieces(board, Piece::Bishop));
+    let heavy = side_pieces
+        & (crate::chess::pieces(board, Piece::Rook) | crate::chess::pieces(board, Piece::Queen));
+    !pawns.is_empty() && heavy.is_empty() && minors.len() <= 1
 }
 
 pub(in crate::search) fn is_sparse_pawnless_endgame(board: &Board) -> bool {

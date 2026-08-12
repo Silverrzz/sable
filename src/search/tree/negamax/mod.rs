@@ -6,7 +6,7 @@ use super::{
     pruning::{
         apply_mate_distance_pruning, can_try_see_pruning, can_use_static_eval,
         can_use_static_eval_pruning, internal_iterative_reduction, is_see_prune_candidate,
-        is_sparse_pawnless_endgame, late_move_reduction, null_move_reduction,
+        is_sparse_pawnless_endgame, is_zugzwang_prone, late_move_reduction, null_move_reduction,
         requires_full_mate_search, should_futility_prune_quiet, should_prune_late_quiet,
         should_reverse_futility_prune, should_try_null_move, should_try_razoring,
         should_verify_null_move,
@@ -167,7 +167,9 @@ pub(in crate::search) fn negamax(
         && let Some(null_board) = crate::chess::null_move(board)
     {
         let sparse_endgame = is_sparse_pawnless_endgame(board);
-        let reduction = null_move_reduction(depth, null_eval, beta, sparse_endgame);
+        let zugzwang_prone = is_zugzwang_prone(board);
+        let reduction =
+            null_move_reduction(depth, null_eval, beta, sparse_endgame, zugzwang_prone);
         let null_depth = depth.saturating_sub(1 + reduction);
         let null_alpha = beta.saturating_neg();
         let null_beta = null_alpha.saturating_add(1);
@@ -189,7 +191,7 @@ pub(in crate::search) fn negamax(
         context.pop_null_eval_state();
         let null_result = null_result?;
         if -null_result.score >= beta {
-            let verified = if should_verify_null_move(depth, sparse_endgame) {
+            let verified = if should_verify_null_move(depth, sparse_endgame, zugzwang_prone) {
                 negamax(
                     board,
                     repetition,
