@@ -335,6 +335,17 @@ pub(in crate::search) fn is_mate_score(score: i32) -> bool {
     score >= -LOSS_SCORE - mate_score_ply_window || score <= LOSS_SCORE + mate_score_ply_window
 }
 
+pub(in crate::search) fn rule50_safe_tt_score(score: i32, halfmove_clock: u8) -> bool {
+    if halfmove_clock >= 96 {
+        return false;
+    }
+    if !is_mate_score(score) {
+        return true;
+    }
+    let mate_distance = (-LOSS_SCORE).saturating_sub(score.abs());
+    mate_distance <= 100_i32.saturating_sub(i32::from(halfmove_clock))
+}
+
 pub(in crate::search) fn score_to_tt(score: i32, ply: u16) -> i32 {
     if !is_mate_score(score) {
         return score;

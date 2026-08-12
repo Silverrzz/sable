@@ -18,6 +18,11 @@ pub(crate) fn evaluate_position(board: &crate::Board, evaluator: &Evaluator) -> 
     if material::is_board_drawn(board) {
         DRAW_SCORE
     } else {
-        evaluator.evaluate_for_side_to_move(board)
+        scale_rule50_score(board, evaluator.evaluate_for_side_to_move(board))
     }
+}
+
+pub(crate) fn scale_rule50_score(board: &crate::Board, score: i32) -> i32 {
+    let scale = 200_i32.saturating_sub(i32::from(crate::chess::halfmove_clock(board)));
+    score.saturating_mul(scale) / 200
 }
