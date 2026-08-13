@@ -80,3 +80,21 @@ pub(in crate::search) fn terminal_score(
         GameStatus::Won => Some(LOSS_SCORE.saturating_add(ply as i32)),
     }
 }
+
+pub(in crate::search) fn immediate_terminal_score(
+    board: &Board,
+    movegen: &MoveGenState,
+    repetition: bool,
+    ply: u16,
+) -> Option<i32> {
+    if repetition || is_board_drawn(board) {
+        return Some(DRAW_SCORE);
+    }
+    if crate::chess::halfmove_clock(board) < 100 {
+        return None;
+    }
+    match crate::chess::status_with_movegen(board, movegen) {
+        GameStatus::Won => Some(LOSS_SCORE.saturating_add(ply as i32)),
+        GameStatus::Ongoing | GameStatus::Drawn => Some(DRAW_SCORE),
+    }
+}

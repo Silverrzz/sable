@@ -1,8 +1,8 @@
-use crate::{Board, Move, chess::MoveGenState, evaluation::LOSS_SCORE};
+use crate::{Board, GameStatus, Move, chess::MoveGenState, evaluation::{DRAW_SCORE, LOSS_SCORE}};
 
 use super::{
     pruning::{apply_mate_distance_pruning, should_q_delta_prune_capture},
-    scoring::terminal_score,
+    scoring::immediate_terminal_score,
 };
 use crate::search::{
     constants::*,
@@ -37,7 +37,7 @@ pub(in crate::search) fn quiescence(
         return None;
     }
     let movegen = MoveGenState::new(board);
-    if let Some(score) = terminal_score(board, &movegen, repetition, ply) {
+    if let Some(score) = immediate_terminal_score(board, &movegen, repetition, ply) {
         return Some(terminal_outcome(score, repetition));
     }
     let in_check = movegen.in_check();
@@ -233,6 +233,9 @@ pub(in crate::search) fn quiescence(
         }
         Some(best)
     } else if let Some(stand_pat) = stand_pat {
+        if crate::chess::status_with_movegen(board, &movegen) == GameStatus::Drawn {
+            return Some(terminal_outcome(DRAW_SCORE, false));
+        }
         qsearch_store(
             context,
             use_tt,

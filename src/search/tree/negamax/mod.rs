@@ -12,7 +12,7 @@ use super::{
         should_verify_null_move,
     },
     quiescence::quiescence,
-    scoring::terminal_score,
+    scoring::immediate_terminal_score,
 };
 use crate::search::{
     constants::*,
@@ -76,7 +76,7 @@ pub(in crate::search) fn negamax(
         return None;
     }
     let movegen = MoveGenState::new(board);
-    if let Some(score) = terminal_score(board, &movegen, repetition, ply) {
+    if let Some(score) = immediate_terminal_score(board, &movegen, repetition, ply) {
         return Some(terminal_outcome(score, repetition));
     }
     let alpha_start = alpha;
@@ -354,11 +354,13 @@ pub(in crate::search) fn negamax(
     };
     let mut searched_moves = 0_u32;
     let mut captures_tried = 0_u32;
+    let mut found_move = false;
     let child_depth = depth - 1;
     while let Some(ordered) = moves.next(board, context.ordering()) {
         if Some(ordered.mv) == excluded_move {
             continue;
         }
+        found_move = true;
         let capture_prune = see_capture_prune(
             board,
             ordered,
@@ -580,6 +582,15 @@ pub(in crate::search) fn negamax(
             record_cutoff_and_failures(&moves, ordered, side, previous_move, depth, ply, context);
             break;
         }
+    }
+
+    if !found_move && excluded_move.is_none() {
+        let score = if in_check {
+            crate::evaluation::LOSS_SCORE.saturating_add(ply as i32)
+        } else {
+            crate::evaluation::DRAW_SCORE
+        };
+        return Some(terminal_outcome(score, false));
     }
 
     if excluded_move.is_some() && best.score == i32::MIN {
