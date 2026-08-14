@@ -122,6 +122,7 @@ define_tunable_parameters!(
     (SINGULAR_EXTENSION_TT_DEPTH_MARGIN, singular_extension_tt_depth_margin_parameter, u32, 1, 1, 8, 0.5),
     (SINGULAR_EXTENSION_BASE_MARGIN, singular_extension_base_margin_parameter, i32, 52, 0, 128, 8.0),
     (DOUBLE_SINGULAR_EXTENSION_BASE_MARGIN, double_singular_extension_base_margin_parameter, i32, 0, 0, 256, 16.0),
+    (TRIPLE_SINGULAR_EXTENSION_BASE_MARGIN, triple_singular_extension_base_margin_parameter, i32, 120, 0, 384, 16.0),
     (LMR_MIN_DEPTH, lmr_min_depth_parameter, u32, 3, 2, 8, 0.5),
     (SPARSE_ENDGAME_QUIET_CHECK_LMR_PROTECTION, sparse_endgame_quiet_check_lmr_protection_parameter, u32, 0, 0, 4, 0.5),
     (PROBCUT_MIN_DEPTH, probcut_min_depth_parameter, u32, 8, 2, 12, 1.0),
