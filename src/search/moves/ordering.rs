@@ -1,4 +1,4 @@
-use crate::{Board, Color, Move, Piece, Square};
+use crate::{Board, Color, Move, Piece, Square, chess::BoardParts};
 use arrayvec::ArrayVec;
 
 use super::{
@@ -25,7 +25,7 @@ impl Default for MoveOrdering {
     fn default() -> Self {
         Self {
             killers: [[None; KILLER_SLOTS]; MAX_ORDERING_PLY],
-            history: vec![0; 2 * 64 * 64],
+            history: vec![0; 2 * 2 * 2 * 64 * 64],
             continuation_history: vec![0; 2 * 64 * 64 * 64],
             capture_history: vec![0; 2 * 6 * 64 * 6],
             counter_moves: vec![None; 2 * 64 * 64],
@@ -44,8 +44,26 @@ impl MoveOrdering {
         decay_history_table(&mut self.capture_history);
     }
 
-    pub(in crate::search) fn history_index(side: usize, from: usize, to: usize) -> usize {
-        ((side * 64) + from) * 64 + to
+    pub(in crate::search) fn history_index(
+        side: usize,
+        from_threatened: usize,
+        to_threatened: usize,
+        from: usize,
+        to: usize,
+    ) -> usize {
+        (((((side * 2) + from_threatened) * 2 + to_threatened) * 64) + from) * 64 + to
+    }
+
+    fn quiet_history_index(board: &Board, side: Color, mv: Move) -> usize {
+        let parts = BoardParts::from_board(board);
+        let enemy = !side;
+        Self::history_index(
+            side as usize,
+            parts.is_square_attacked(mv.from, enemy) as usize,
+            parts.is_square_attacked(mv.to, enemy) as usize,
+            mv.from as usize,
+            mv.to as usize,
+        )
     }
 
     pub(in crate::search) fn continuation_index(
@@ -72,15 +90,14 @@ impl MoveOrdering {
 
     pub(in crate::search) fn quiet_score(
         &self,
+        board: &Board,
         side: Color,
         mv: Move,
         previous_move: Option<Move>,
         ply: u16,
     ) -> i32 {
         let ply = ordering_ply(ply);
-        let side = side as usize;
-        let from = mv.from as usize;
-        let to = mv.to as usize;
+        let side_index = side as usize;
         if self.killers[ply][0] == Some(mv) {
             return FIRST_KILLER_SCORE;
         }
@@ -89,18 +106,23 @@ impl MoveOrdering {
         }
         if let Some(previous_move) = previous_move
             && self.counter_moves[Self::counter_move_index(
-                side,
+                side_index,
                 previous_move.from as usize,
                 previous_move.to as usize,
             )] == Some(mv)
         {
             return COUNTER_MOVE_SCORE;
         }
-        let mut score = self.history[Self::history_index(side, from, to)];
+        let mut score = self.history[Self::quiet_history_index(board, side, mv)];
         if let Some(previous_move) = previous_move {
             let continuation_score = scaled_history_score(
                 self.continuation_history
-                    [Self::continuation_index(side, previous_move.to as usize, from, to)],
+                    [Self::continuation_index(
+                        side_index,
+                        previous_move.to as usize,
+                        mv.from as usize,
+                        mv.to as usize,
+                    )],
                 CONTINUATION_HISTORY_ORDERING_DIVISOR(),
             );
             score = score.saturating_add(continuation_score);
@@ -129,28 +151,29 @@ impl MoveOrdering {
 
     pub(in crate::search) fn record_quiet_cutoff(
         &mut self,
+        board: &Board,
         side: Color,
         mv: Move,
         previous_move: Option<Move>,
         depth: u32,
         ply: u16,
     ) {
-        let side = side as usize;
+        let side_index = side as usize;
         self.record_killer(mv, ply);
         if let Some(previous_move) = previous_move {
             let index = Self::counter_move_index(
-                side,
+                side_index,
                 previous_move.from as usize,
                 previous_move.to as usize,
             );
             self.counter_moves[index] = Some(mv);
         }
         let bonus = history_bonus(depth);
-        let history_index = Self::history_index(side, mv.from as usize, mv.to as usize);
+        let history_index = Self::quiet_history_index(board, side, mv);
         update_history_value(&mut self.history[history_index], bonus);
         if let Some(previous_move) = previous_move {
             let continuation_index = Self::continuation_index(
-                side,
+                side_index,
                 previous_move.to as usize,
                 mv.from as usize,
                 mv.to as usize,
@@ -161,18 +184,19 @@ impl MoveOrdering {
 
     pub(in crate::search) fn record_quiet_failure(
         &mut self,
+        board: &Board,
         side: Color,
         previous_move: Option<Move>,
         mv: Move,
         depth: u32,
     ) {
         let malus = -history_malus(depth);
-        let side = side as usize;
-        let history_index = Self::history_index(side, mv.from as usize, mv.to as usize);
+        let side_index = side as usize;
+        let history_index = Self::quiet_history_index(board, side, mv);
         update_history_value(&mut self.history[history_index], malus);
         if let Some(previous_move) = previous_move {
             let continuation_index = Self::continuation_index(
-                side,
+                side_index,
                 previous_move.to as usize,
                 mv.from as usize,
                 mv.to as usize,
@@ -265,7 +289,8 @@ struct QuietScoreContext {
     first_killer: Option<Move>,
     second_killer: Option<Move>,
     counter_move: Option<Move>,
-    history_base: usize,
+    board_parts: BoardParts,
+    side: Color,
     continuation_base: Option<usize>,
 }
 
@@ -420,7 +445,7 @@ impl MovePicker {
                 }
                 MovePickerStage::Quiet => {
                     if self.filter == MoveFilter::All
-                        && let Some((index, score)) = self.next_quiet(ordering)
+                        && let Some((index, score)) = self.next_quiet(board, ordering)
                     {
                         return Some(self.take_scored(index, score));
                     }
@@ -455,11 +480,12 @@ impl MovePicker {
 
     pub(in crate::search) fn next_quiet(
         &mut self,
+        board: &Board,
         ordering: &MoveOrdering,
     ) -> Option<(usize, i32)> {
         if !self.quiets_heapified {
             self.score_heap.clear();
-            let context = self.quiet_score_context(ordering);
+            let context = self.quiet_score_context(board, ordering);
             for position in 0..self.quiet_indices.len() {
                 let index = self.quiet_indices[position] as usize;
                 let candidate = self.get(index);
@@ -474,7 +500,7 @@ impl MovePicker {
     }
 
     #[inline]
-    fn quiet_score_context(&self, ordering: &MoveOrdering) -> QuietScoreContext {
+    fn quiet_score_context(&self, board: &Board, ordering: &MoveOrdering) -> QuietScoreContext {
         let ply = ordering_ply(self.ply);
         let side = self.side as usize;
         let previous_move = self.previous_move;
@@ -493,7 +519,8 @@ impl MovePicker {
             first_killer: ordering.killers[ply][0],
             second_killer: ordering.killers[ply][1],
             counter_move,
-            history_base: side * 64 * 64,
+            board_parts: BoardParts::from_board(board),
+            side: self.side,
             continuation_base: previous_move
                 .map(|previous_move| ((side * 64) + previous_move.to as usize) * 64 * 64),
         }
@@ -516,7 +543,15 @@ impl MovePicker {
             return COUNTER_MOVE_SCORE;
         }
         let move_offset = (mv.from as usize) * 64 + mv.to as usize;
-        let mut score = ordering.history[context.history_base + move_offset];
+        let enemy = !context.side;
+        let history_index = MoveOrdering::history_index(
+            context.side as usize,
+            context.board_parts.is_square_attacked(mv.from, enemy) as usize,
+            context.board_parts.is_square_attacked(mv.to, enemy) as usize,
+            mv.from as usize,
+            mv.to as usize,
+        );
+        let mut score = ordering.history[history_index];
         if let Some(continuation_base) = context.continuation_base {
             score = score.saturating_add(
                 ordering.continuation_history[continuation_base + move_offset]
