@@ -15,7 +15,7 @@ use super::super::{
     types::*,
     uci_info::nodes_per_second,
 };
-use super::driver::{RootSearchJob, run_search_single};
+use super::driver::{RootSearchJob, iterative_deepening};
 use super::outcome::debug_validate_pv;
 
 #[derive(Debug)]
@@ -70,7 +70,7 @@ where
                         result: SearchResult::default(),
                     };
                 }
-                let (result, _search_state) = run_search_single(
+                let (result, _search_state) = iterative_deepening(
                     RootSearchJob {
                         board,
                         game_history,
@@ -95,7 +95,7 @@ where
             }));
         }
 
-        let (result, search_state) = run_search_single(
+        let (result, search_state) = iterative_deepening(
             RootSearchJob {
                 board,
                 game_history,

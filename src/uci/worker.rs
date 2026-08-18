@@ -59,7 +59,7 @@ impl SearchWorker {
         let search_pondering = Arc::clone(&pondering);
         let event_tx = self.event_tx.clone();
         let handle = thread::spawn(move || {
-            run_search(
+            run_search_task(
                 engine,
                 request,
                 search_id,
@@ -146,7 +146,7 @@ impl SearchWorker {
     }
 }
 
-fn run_search(
+fn run_search_task(
     engine: Engine,
     request: SearchRequest,
     search_id: u64,

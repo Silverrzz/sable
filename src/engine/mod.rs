@@ -18,7 +18,7 @@ use crate::{
     search::{
         PersistentSearchState, PositionKey, SearchBudget, SearchInfo, SearchRequest, SearchResult,
         StaticEval, StaticEvalSource, TranspositionTable, is_claimable_repetition_draw,
-        max_depth_from_limits, position_key, run_search, select_candidate_moves,
+        dispatch_search, max_depth_from_limits, position_key, select_candidate_moves,
     },
 };
 
@@ -232,7 +232,7 @@ impl Engine {
         let persistent = self.options.multi_pv <= 1;
         let (search_state_generation, search_state) = self.search_state_for_request(persistent);
         let transposition_table = self.transposition_table_for_request(persistent);
-        let (result, search_state) = run_search(
+        let (result, search_state) = dispatch_search(
             &self.board,
             &self.game_history,
             &request,

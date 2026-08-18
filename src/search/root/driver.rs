@@ -23,7 +23,7 @@ use super::{
     time_manager::IterativeTimeManager,
 };
 
-pub(crate) fn run_search<F>(
+pub(crate) fn dispatch_search<F>(
     board: &Board,
     game_history: &[PositionKey],
     request: &SearchRequest,
@@ -66,7 +66,7 @@ where
         );
     }
 
-    run_search_single(
+    iterative_deepening(
         RootSearchJob {
             board,
             game_history,
@@ -114,7 +114,7 @@ pub(in crate::search) struct RootSearchJob<'a> {
     pub(in crate::search) shared_nodes: Option<&'a AtomicU64>,
 }
 
-pub(in crate::search) fn run_search_single<F>(
+pub(in crate::search) fn iterative_deepening<F>(
     job: RootSearchJob<'_>,
     mut observer: F,
 ) -> (SearchResult, PersistentSearchState)

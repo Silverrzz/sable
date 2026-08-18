@@ -12,7 +12,7 @@ pub(crate) use constants::{
 };
 pub use constants::{SpsaParameter, spsa_parameters};
 pub(crate) use root::candidates::select_candidate_moves;
-pub(crate) use root::driver::run_search;
+pub(crate) use root::driver::dispatch_search;
 pub(crate) use root::limits::max_depth_from_limits;
 pub(crate) use state::context::PersistentSearchState;
 pub(crate) use state::position_key::position_key;
