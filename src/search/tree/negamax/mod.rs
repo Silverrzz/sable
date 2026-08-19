@@ -443,6 +443,8 @@ pub(in crate::search) fn negamax(
                 }
             } else if !is_pv_node && singular_beta >= beta {
                 return Some(terminal_outcome(singular_beta, false));
+            } else if tt_score >= beta {
+               -2
             } else {
                 0
             }
@@ -466,7 +468,7 @@ pub(in crate::search) fn negamax(
         } else {
             &[]
         };
-        let full_depth = child_depth.saturating_add(extension);
+        let full_depth = child_depth.saturating_add_signed(extension);
         let reduction = if needs_full_mate_search {
             0
         } else {
