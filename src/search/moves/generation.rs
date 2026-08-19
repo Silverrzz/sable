@@ -46,6 +46,7 @@ pub(in crate::search) fn ordered_root_moves(
         moves.push(ScoredMove {
             mv: *mv,
             score: move_score(
+                board,
                 side,
                 moving_piece,
                 *mv,

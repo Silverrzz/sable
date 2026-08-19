@@ -13,6 +13,7 @@ use crate::search::{
 };
 
 pub(in crate::search) fn move_score(
+    board: &Board,
     side: Color,
     moving_piece: Piece,
     mv: Move,
@@ -51,7 +52,7 @@ pub(in crate::search) fn move_score(
         return PROMOTION_SCORE + promotion_value;
     }
 
-    ordering.quiet_score(side, mv, previous_move, ply)
+    ordering.quiet_score(board, side, mv, previous_move, ply)
 }
 
 pub(in crate::search) fn piece_value(piece: Piece) -> i32 {

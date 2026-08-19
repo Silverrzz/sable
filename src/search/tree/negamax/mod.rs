@@ -581,7 +581,16 @@ pub(in crate::search) fn negamax(
         }
         alpha = alpha.max(best.score);
         if alpha >= beta {
-            record_cutoff_and_failures(&moves, ordered, side, previous_move, depth, ply, context);
+            record_cutoff_and_failures(
+                board,
+                &moves,
+                ordered,
+                side,
+                previous_move,
+                depth,
+                ply,
+                context,
+            );
             break;
         }
     }
@@ -731,6 +740,7 @@ fn should_static_prune_quiet(
 }
 
 fn record_cutoff_and_failures(
+    board: &Board,
     moves: &MovePicker,
     ordered: ScoredMove,
     side: Color,
@@ -742,7 +752,7 @@ fn record_cutoff_and_failures(
     if ordered.is_quiet {
         context
             .ordering_mut()
-            .record_quiet_cutoff(side, ordered.mv, previous_move, depth, ply);
+            .record_quiet_cutoff(board, side, ordered.mv, previous_move, depth, ply);
     } else if let Some(captured_piece) = ordered.captured_piece {
         context.ordering_mut().record_capture_cutoff(
             side,
@@ -760,7 +770,7 @@ fn record_cutoff_and_failures(
         if candidate.is_quiet() {
             context
                 .ordering_mut()
-                .record_quiet_failure(side, previous_move, candidate.mv, depth);
+                .record_quiet_failure(board, side, previous_move, candidate.mv, depth);
         } else if let Some(captured_piece) = candidate.captured_piece {
             context.ordering_mut().record_capture_failure(
                 side,
