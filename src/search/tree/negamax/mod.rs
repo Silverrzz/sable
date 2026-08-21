@@ -436,7 +436,10 @@ pub(in crate::search) fn negamax(
             )?;
             if excluded.score < singular_beta {
                 let double_beta = tt_score.saturating_sub(DOUBLE_SINGULAR_EXTENSION_BASE_MARGIN());
-                if !is_pv_node && excluded.score < double_beta {
+                let triple_beta = tt_score.saturating_sub(TRIPLE_SINGULAR_EXTENSION_BASE_MARGIN());
+                if !is_pv_node && excluded.score < triple_beta {
+                    3
+                } else if !is_pv_node && excluded.score < double_beta {
                     2
                 } else {
                     1
