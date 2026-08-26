@@ -216,39 +216,46 @@ unsafe fn screlu_dot_i16_narrow_dual(
     unsafe {
         let zero = _mm256_setzero_si256();
         let qa_vec = _mm256_set1_epi16(qa);
-        let mut sum = _mm256_setzero_si256();
+        let mut left_sum = _mm256_setzero_si256();
+        let mut right_sum = _mm256_setzero_si256();
         let mut tail = 0_i64;
 
         let mut idx = 0_usize;
         while idx + 16 <= left_accumulator.len() {
-            let acc = _mm256_loadu_si256(left_accumulator.as_ptr().add(idx) as *const __m256i);
-            let clamped = _mm256_min_epi16(_mm256_max_epi16(acc, zero), qa_vec);
-            let weights = _mm256_loadu_si256(left_weights.as_ptr().add(idx) as *const __m256i);
-            let weighted = _mm256_mullo_epi16(clamped, weights);
-            sum = _mm256_add_epi32(sum, _mm256_madd_epi16(weighted, clamped));
-            idx += 16;
-        }
-        while idx < left_accumulator.len() {
-            let value = i64::from(*left_accumulator.get_unchecked(idx)).clamp(0, i64::from(qa));
-            tail += value * value * i64::from(*left_weights.get_unchecked(idx));
-            idx += 1;
-        }
+            let left_acc =
+                _mm256_loadu_si256(left_accumulator.as_ptr().add(idx) as *const __m256i);
+            let left_clamped = _mm256_min_epi16(_mm256_max_epi16(left_acc, zero), qa_vec);
+            let left_weight =
+                _mm256_loadu_si256(left_weights.as_ptr().add(idx) as *const __m256i);
+            let left_weighted = _mm256_mullo_epi16(left_clamped, left_weight);
+            left_sum = _mm256_add_epi32(
+                left_sum,
+                _mm256_madd_epi16(left_weighted, left_clamped),
+            );
 
-        idx = 0;
-        while idx + 16 <= right_accumulator.len() {
-            let acc = _mm256_loadu_si256(right_accumulator.as_ptr().add(idx) as *const __m256i);
-            let clamped = _mm256_min_epi16(_mm256_max_epi16(acc, zero), qa_vec);
-            let weights = _mm256_loadu_si256(right_weights.as_ptr().add(idx) as *const __m256i);
-            let weighted = _mm256_mullo_epi16(clamped, weights);
-            sum = _mm256_add_epi32(sum, _mm256_madd_epi16(weighted, clamped));
+            let right_acc =
+                _mm256_loadu_si256(right_accumulator.as_ptr().add(idx) as *const __m256i);
+            let right_clamped = _mm256_min_epi16(_mm256_max_epi16(right_acc, zero), qa_vec);
+            let right_weight =
+                _mm256_loadu_si256(right_weights.as_ptr().add(idx) as *const __m256i);
+            let right_weighted = _mm256_mullo_epi16(right_clamped, right_weight);
+            right_sum = _mm256_add_epi32(
+                right_sum,
+                _mm256_madd_epi16(right_weighted, right_clamped),
+            );
             idx += 16;
         }
         while idx < right_accumulator.len() {
-            let value = i64::from(*right_accumulator.get_unchecked(idx)).clamp(0, i64::from(qa));
-            tail += value * value * i64::from(*right_weights.get_unchecked(idx));
+            let left =
+                i64::from(*left_accumulator.get_unchecked(idx)).clamp(0, i64::from(qa));
+            let right =
+                i64::from(*right_accumulator.get_unchecked(idx)).clamp(0, i64::from(qa));
+            tail += left * left * i64::from(*left_weights.get_unchecked(idx));
+            tail += right * right * i64::from(*right_weights.get_unchecked(idx));
             idx += 1;
         }
 
+        let sum = _mm256_add_epi32(left_sum, right_sum);
         let low = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(sum));
         let high = _mm256_cvtepi32_epi64(_mm256_extracti128_si256(sum, 1));
         tail + horizontal_sum_i64(_mm256_add_epi64(low, high))

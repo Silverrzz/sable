@@ -1,4 +1,4 @@
-use crate::{Board, Color, Move, Piece, Square, chess::BoardParts};
+use crate::{Board, Color, Move, Piece, Square, chess::{BitBoard, BoardParts}};
 use arrayvec::ArrayVec;
 
 use super::{
@@ -289,7 +289,7 @@ struct QuietScoreContext {
     first_killer: Option<Move>,
     second_killer: Option<Move>,
     counter_move: Option<Move>,
-    board_parts: BoardParts,
+    enemy_attacks: BitBoard,
     side: Color,
     continuation_base: Option<usize>,
 }
@@ -519,7 +519,7 @@ impl MovePicker {
             first_killer: ordering.killers[ply][0],
             second_killer: ordering.killers[ply][1],
             counter_move,
-            board_parts: BoardParts::from_board(board),
+            enemy_attacks: BoardParts::from_board(board).attacked_squares(!self.side),
             side: self.side,
             continuation_base: previous_move
                 .map(|previous_move| ((side * 64) + previous_move.to as usize) * 64 * 64),
@@ -543,11 +543,10 @@ impl MovePicker {
             return COUNTER_MOVE_SCORE;
         }
         let move_offset = (mv.from as usize) * 64 + mv.to as usize;
-        let enemy = !context.side;
         let history_index = MoveOrdering::history_index(
             context.side as usize,
-            context.board_parts.is_square_attacked(mv.from, enemy) as usize,
-            context.board_parts.is_square_attacked(mv.to, enemy) as usize,
+            context.enemy_attacks.has(mv.from) as usize,
+            context.enemy_attacks.has(mv.to) as usize,
             mv.from as usize,
             mv.to as usize,
         );

@@ -397,6 +397,25 @@ impl BoardParts {
     }
 
     #[inline]
+    pub(crate) fn attacked_squares(&self, attacker: Color) -> BitBoard {
+        let attacker_pieces = self.color(attacker);
+        let mut attacks = BitBoard::EMPTY;
+        for piece in ALL_PIECES {
+            for square in self.piece(piece) & attacker_pieces {
+                attacks |= match piece {
+                    Piece::Pawn => get_pawn_attacks(square, attacker),
+                    Piece::Knight => get_knight_moves(square),
+                    Piece::Bishop => get_bishop_moves(square, self.occupied),
+                    Piece::Rook => get_rook_moves(square, self.occupied),
+                    Piece::Queen => get_queen_moves(square, self.occupied),
+                    Piece::King => get_king_moves(square),
+                };
+            }
+        }
+        attacks
+    }
+
+    #[inline]
     pub(crate) fn is_square_attacked(&self, square: Square, attacker: Color) -> bool {
         let attacker_pieces = self.color(attacker);
         if !(get_pawn_attacks(square, !attacker) & self.piece(Piece::Pawn) & attacker_pieces).is_empty() {
@@ -957,16 +976,12 @@ fn legal_targets_for_piece(
 }
 
 fn legal_king_targets(board: &Board, side: Color, from: Square, target_filter: BitBoard) -> BitBoard {
-    let mut legal = BitBoard::EMPTY;
     let own = colors(board, side);
     let enemy_king = colored_pieces(board, !side, Piece::King);
     let mut parts = BoardParts::from_board(board);
     parts.remove_piece(side, Piece::King, from);
-    for to in ((get_king_moves(from) - own) - enemy_king) & target_filter {
-        if !parts.is_square_attacked(to, !side) {
-            legal |= to.bitboard();
-        }
-    }
+    let enemy_attacks = parts.attacked_squares(!side);
+    let mut legal = (((get_king_moves(from) - own) - enemy_king) - enemy_attacks) & target_filter;
     for to in pseudo_castling_targets(board, side, from) & target_filter {
         let mv = Move {
             from,
@@ -1092,29 +1107,19 @@ fn pseudo_targets(
 }
 
 fn pseudo_pawn_targets(board: &Board, state: &MoveGenState, side: Color, from: Square) -> BitBoard {
-    let mut targets = BitBoard::EMPTY;
-    let forward = if side == Color::White { 1 } else { -1 };
-    let from_rank = from.rank() as i8;
-    let one_rank = from_rank + forward;
-    if (0..8).contains(&one_rank) {
-        let one = Square::new(
-            from.file(),
-            Rank::try_index(one_rank as usize).expect("pawn single push rank is on board"),
-        );
-        if !state.occupied.has(one) {
-            targets |= one.bitboard();
-            let two_rank = from_rank + forward * 2;
-            if from.rank() == Rank::Second.relative_to(side) && (0..8).contains(&two_rank) {
-                let two = Square::new(
-                    from.file(),
-                    Rank::try_index(two_rank as usize).expect("pawn double push rank is on board"),
-                );
-                if !state.occupied.has(two) {
-                    targets |= two.bitboard();
-                }
-            }
+    let from_bit = from.bitboard().0;
+    let empty = !state.occupied.0;
+    let (one, two) = match side {
+        Color::White => {
+            let one = (from_bit << 8) & empty;
+            (one, ((one & Rank::Third.bitboard().0) << 8) & empty)
         }
-    }
+        Color::Black => {
+            let one = (from_bit >> 8) & empty;
+            (one, ((one & Rank::Sixth.bitboard().0) >> 8) & empty)
+        }
+    };
+    let mut targets = BitBoard(one | two);
 
     let attacks = get_pawn_attacks(from, side);
     targets |= attacks & state.enemy;
