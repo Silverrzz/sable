@@ -1,13 +1,12 @@
 use std::{
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
     thread,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use crate::{Board, Move, evaluation::Evaluator};
 
 use super::super::{
-    constants::ASPIRATION_MIN_DEPTH,
     state::{
         context::PersistentSearchState, position_key::PositionKey,
         transposition::TranspositionTable,
@@ -45,7 +44,6 @@ where
 {
     let worker_count = (threads as usize).max(1);
     let lazy_stop = AtomicBool::new(false);
-    let helper_start = AtomicBool::new(false);
     let shared_nodes = AtomicU64::new(0);
     let report_budget = budget.clone();
     let mut main_result = None;
@@ -60,16 +58,9 @@ where
             let search_state = search_state.clone();
             let mut budget = budget.clone();
             budget.soft_time_ms = None;
-            let helper_start = &helper_start;
             let lazy_stop = &lazy_stop;
             let shared_nodes = &shared_nodes;
             worker_handles.push(scope.spawn(move || {
-                if !wait_for_lazy_smp_start(helper_start, lazy_stop, stop_flag) {
-                    return LazySmpWorkerResult {
-                        worker_id,
-                        result: SearchResult::default(),
-                    };
-                }
                 let (result, _search_state) = iterative_deepening(
                     RootSearchJob {
                         board,
@@ -114,14 +105,8 @@ where
                 lazy_stop_flag: Some(&lazy_stop),
                 shared_nodes: Some(&shared_nodes),
             },
-            |info| {
-                if info.depth >= ASPIRATION_MIN_DEPTH() {
-                    helper_start.store(true, Ordering::Relaxed);
-                }
-                observer(info);
-            },
+            |info| observer(info),
         );
-        helper_start.store(true, Ordering::Relaxed);
         lazy_stop.store(true, Ordering::Relaxed);
         for handle in worker_handles {
             if let Ok(result) = handle.join() {
@@ -158,28 +143,14 @@ pub(in crate::search) fn lazy_smp_worker_depth(
 }
 
 fn lazy_smp_worker_depth_offset(nominal_depth: u32, worker_id: usize) -> u32 {
-    if worker_id == 0 || nominal_depth <= ASPIRATION_MIN_DEPTH() {
+    if worker_id == 0 {
         return 0;
     }
-    if worker_id.is_multiple_of(2) { 2 } else { 1 }
-}
-
-fn wait_for_lazy_smp_start(
-    helper_start: &AtomicBool,
-    lazy_stop: &AtomicBool,
-    stop_flag: Option<&AtomicBool>,
-) -> bool {
-    while !helper_start.load(Ordering::Relaxed) {
-        if lazy_stop.load(Ordering::Relaxed)
-            || stop_flag
-                .map(|flag| flag.load(Ordering::Relaxed))
-                .unwrap_or(false)
-        {
-            return false;
-        }
-        thread::sleep(Duration::from_millis(1));
+    if (worker_id + nominal_depth as usize).is_multiple_of(3) {
+        2
+    } else {
+        1
     }
-    true
 }
 
 fn select_lazy_smp_result(
