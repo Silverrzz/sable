@@ -99,7 +99,7 @@ impl<'a> SearchContext<'a> {
     }
 
     pub(in crate::search) fn enter_node(&mut self, ply: u16) {
-        self.counters.nodes = self.counters.nodes.saturating_add(1);
+        self.counters.nodes = self.counters.nodes.wrapping_add(1);
         self.counters.seldepth = self.counters.seldepth.max(ply as u32);
     }
 
@@ -143,6 +143,11 @@ impl<'a> SearchContext<'a> {
                 return true;
             }
         }
+        if self.counters.nodes < self.counters.next_stop_check_node {
+            return false;
+        }
+        self.counters.next_stop_check_node =
+            self.counters.nodes.saturating_add(STOP_CHECK_NODE_INTERVAL);
         if self
             .controls
             .stop_flag
@@ -150,11 +155,6 @@ impl<'a> SearchContext<'a> {
         {
             return true;
         }
-        if self.counters.nodes < self.counters.next_stop_check_node {
-            return false;
-        }
-        self.counters.next_stop_check_node =
-            self.counters.nodes.saturating_add(STOP_CHECK_NODE_INTERVAL);
         if self.is_pondering() {
             return false;
         }

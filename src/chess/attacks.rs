@@ -31,7 +31,8 @@ pub(crate) fn get_bishop_moves(square: Square, occupied: BitBoard) -> BitBoard {
     let square = square as usize;
     let mask = BISHOP_RELEVANT_MASKS[square];
     let index = BISHOP_ATTACK_OFFSETS[square] as usize + slider_index(occupied.0, mask);
-    BitBoard(BISHOP_ATTACKS[index])
+    debug_assert!(index < BISHOP_ATTACKS.len());
+    BitBoard(unsafe { *BISHOP_ATTACKS.get_unchecked(index) })
 }
 
 #[inline]
@@ -39,7 +40,8 @@ pub(crate) fn get_rook_moves(square: Square, occupied: BitBoard) -> BitBoard {
     let square = square as usize;
     let mask = ROOK_RELEVANT_MASKS[square];
     let index = ROOK_ATTACK_OFFSETS[square] as usize + slider_index(occupied.0, mask);
-    BitBoard(ROOK_ATTACKS[index])
+    debug_assert!(index < ROOK_ATTACKS.len());
+    BitBoard(unsafe { *ROOK_ATTACKS.get_unchecked(index) })
 }
 
 #[inline]
