@@ -9,7 +9,7 @@ mod protocol;
 mod search;
 mod simd;
 
-pub const SPSA_UCI_OPTIONS_ENABLED: bool = false;
+pub const SPSA_UCI_OPTIONS_ENABLED: bool = true;
 
 pub(crate) use chess::Square;
 pub use chess::{Board, Color, GameStatus, Move, Piece};

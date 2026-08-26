@@ -19,7 +19,7 @@ pub(super) fn build_search_info(
     SearchInfo {
         budget: budget.clone(),
         depth,
-        seldepth: context.seldepth().max(depth),
+        seldepth: context.seldepth(),
         nodes,
         time_ms: elapsed_ms,
         nps,
