@@ -1,4 +1,7 @@
-use crate::{Board, Color, Move, Piece, Square, chess::{BitBoard, BoardParts}};
+use crate::{
+    Board, Color, Move, Piece, Square,
+    chess::{BitBoard, BoardParts},
+};
 use arrayvec::ArrayVec;
 
 use super::{
@@ -6,6 +9,10 @@ use super::{
     see::static_exchange_eval_for_move,
 };
 use crate::search::constants::*;
+use crate::search::state::move_context::{ContextMove, MoveContext};
+
+const CONTINUATION_HISTORY_PLY_COUNT: usize = 2;
+const CONTINUATION_HISTORY_SIZE: usize = CONTINUATION_HISTORY_PLY_COUNT * 6 * 64 * 6 * 64;
 
 #[derive(Clone, Debug)]
 pub(in crate::search) struct MoveOrdering {
@@ -26,7 +33,7 @@ impl Default for MoveOrdering {
         Self {
             killers: [[None; KILLER_SLOTS]; MAX_ORDERING_PLY],
             history: vec![0; 2 * 2 * 2 * 64 * 64],
-            continuation_history: vec![0; 2 * 64 * 64 * 64],
+            continuation_history: vec![0; CONTINUATION_HISTORY_SIZE],
             capture_history: vec![0; 2 * 6 * 64 * 6],
             counter_moves: vec![None; 2 * 64 * 64],
         }
@@ -67,12 +74,25 @@ impl MoveOrdering {
     }
 
     pub(in crate::search) fn continuation_index(
-        side: usize,
+        distance_index: usize,
+        previous_piece: usize,
         previous_to: usize,
-        from: usize,
-        to: usize,
+        moving_piece: usize,
+        move_to: usize,
     ) -> usize {
-        (((side * 64) + previous_to) * 64 + from) * 64 + to
+        (((((distance_index * 6) + previous_piece) * 64 + previous_to) * 6 + moving_piece) * 64)
+            + move_to
+    }
+
+    #[inline]
+    fn continuation_base(distance_index: usize, previous: ContextMove) -> usize {
+        Self::continuation_index(
+            distance_index,
+            previous.piece as usize,
+            previous.mv.to as usize,
+            0,
+            0,
+        )
     }
 
     pub(in crate::search) fn capture_index(
@@ -93,7 +113,7 @@ impl MoveOrdering {
         board: &Board,
         side: Color,
         mv: Move,
-        previous_move: Option<Move>,
+        move_context: MoveContext,
         ply: u16,
     ) -> i32 {
         let ply = ordering_ply(ply);
@@ -104,7 +124,7 @@ impl MoveOrdering {
         if self.killers[ply][1] == Some(mv) {
             return SECOND_KILLER_SCORE;
         }
-        if let Some(previous_move) = previous_move
+        if let Some(previous_move) = move_context.previous_move()
             && self.counter_moves[Self::counter_move_index(
                 side_index,
                 previous_move.from as usize,
@@ -113,21 +133,47 @@ impl MoveOrdering {
         {
             return COUNTER_MOVE_SCORE;
         }
+        let moving_piece = crate::chess::piece_on(board, mv.from).unwrap_or(Piece::Pawn);
         let mut score = self.history[Self::quiet_history_index(board, side, mv)];
-        if let Some(previous_move) = previous_move {
-            let continuation_score = scaled_history_score(
-                self.continuation_history
-                    [Self::continuation_index(
-                        side_index,
-                        previous_move.to as usize,
-                        mv.from as usize,
-                        mv.to as usize,
-                    )],
-                CONTINUATION_HISTORY_ORDERING_DIVISOR(),
-            );
-            score = score.saturating_add(continuation_score);
-        }
+        score = score.saturating_add(self.continuation_score(move_context, moving_piece, mv));
         score.clamp(-MAX_HISTORY_SCORE, MAX_HISTORY_SCORE)
+    }
+
+    fn continuation_score(&self, move_context: MoveContext, moving_piece: Piece, mv: Move) -> i32 {
+        let move_offset = moving_piece as usize * 64 + mv.to as usize;
+        let previous = move_context.previous.map(|previous| {
+            scaled_history_score(
+                self.continuation_history[Self::continuation_base(0, previous) + move_offset],
+                CONTINUATION_HISTORY_ORDERING_DIVISOR(),
+            )
+        });
+        let previous_same_side = move_context.previous_same_side.map(|previous| {
+            scaled_history_score(
+                self.continuation_history[Self::continuation_base(1, previous) + move_offset],
+                CONTINUATION_HISTORY_SAME_SIDE_ORDERING_DIVISOR(),
+            )
+        });
+        previous
+            .unwrap_or(0)
+            .saturating_add(previous_same_side.unwrap_or(0))
+    }
+
+    fn update_continuation_history(
+        &mut self,
+        move_context: MoveContext,
+        moving_piece: Piece,
+        mv: Move,
+        delta: i32,
+    ) {
+        let move_offset = moving_piece as usize * 64 + mv.to as usize;
+        if let Some(previous) = move_context.previous {
+            let index = Self::continuation_base(0, previous) + move_offset;
+            update_history_value(&mut self.continuation_history[index], delta);
+        }
+        if let Some(previous) = move_context.previous_same_side {
+            let index = Self::continuation_base(1, previous) + move_offset;
+            update_history_value(&mut self.continuation_history[index], delta);
+        }
     }
 
     pub(in crate::search) fn capture_score(
@@ -154,13 +200,13 @@ impl MoveOrdering {
         board: &Board,
         side: Color,
         mv: Move,
-        previous_move: Option<Move>,
+        move_context: MoveContext,
         depth: u32,
         ply: u16,
     ) {
         let side_index = side as usize;
         self.record_killer(mv, ply);
-        if let Some(previous_move) = previous_move {
+        if let Some(previous_move) = move_context.previous_move() {
             let index = Self::counter_move_index(
                 side_index,
                 previous_move.from as usize,
@@ -171,38 +217,23 @@ impl MoveOrdering {
         let bonus = history_bonus(depth);
         let history_index = Self::quiet_history_index(board, side, mv);
         update_history_value(&mut self.history[history_index], bonus);
-        if let Some(previous_move) = previous_move {
-            let continuation_index = Self::continuation_index(
-                side_index,
-                previous_move.to as usize,
-                mv.from as usize,
-                mv.to as usize,
-            );
-            update_history_value(&mut self.continuation_history[continuation_index], bonus);
-        }
+        let moving_piece = crate::chess::piece_on(board, mv.from).unwrap_or(Piece::Pawn);
+        self.update_continuation_history(move_context, moving_piece, mv, bonus);
     }
 
     pub(in crate::search) fn record_quiet_failure(
         &mut self,
         board: &Board,
         side: Color,
-        previous_move: Option<Move>,
+        move_context: MoveContext,
         mv: Move,
+        moving_piece: Piece,
         depth: u32,
     ) {
         let malus = -history_malus(depth);
-        let side_index = side as usize;
         let history_index = Self::quiet_history_index(board, side, mv);
         update_history_value(&mut self.history[history_index], malus);
-        if let Some(previous_move) = previous_move {
-            let continuation_index = Self::continuation_index(
-                side_index,
-                previous_move.to as usize,
-                mv.from as usize,
-                mv.to as usize,
-            );
-            update_history_value(&mut self.continuation_history[continuation_index], malus);
-        }
+        self.update_continuation_history(move_context, moving_piece, mv, malus);
     }
 
     pub(in crate::search) fn record_capture_cutoff(
@@ -291,7 +322,7 @@ struct QuietScoreContext {
     counter_move: Option<Move>,
     enemy_attacks: BitBoard,
     side: Color,
-    continuation_base: Option<usize>,
+    continuation_bases: [Option<usize>; CONTINUATION_HISTORY_PLY_COUNT],
 }
 
 impl CandidateMove {
@@ -324,7 +355,7 @@ pub(in crate::search) struct MovePicker {
     stage: MovePickerStage,
     priority_move: Option<Move>,
     side: Color,
-    previous_move: Option<Move>,
+    move_context: MoveContext,
     ply: u16,
     filter: MoveFilter,
     good_tacticals_heapified: bool,
@@ -345,7 +376,7 @@ impl MovePicker {
             stage: MovePickerStage::Done,
             priority_move: None,
             side: Color::White,
-            previous_move: None,
+            move_context: MoveContext::default(),
             ply: 0,
             filter: MoveFilter::All,
             good_tacticals_heapified: false,
@@ -358,7 +389,7 @@ impl MovePicker {
         &mut self,
         priority_move: Option<Move>,
         side: Color,
-        previous_move: Option<Move>,
+        move_context: MoveContext,
         ply: u16,
         filter: MoveFilter,
     ) {
@@ -372,7 +403,7 @@ impl MovePicker {
         self.stage = MovePickerStage::Priority;
         self.priority_move = priority_move;
         self.side = side;
-        self.previous_move = previous_move;
+        self.move_context = move_context;
         self.ply = ply;
         self.filter = filter;
         self.good_tacticals_heapified = false;
@@ -503,7 +534,7 @@ impl MovePicker {
     fn quiet_score_context(&self, board: &Board, ordering: &MoveOrdering) -> QuietScoreContext {
         let ply = ordering_ply(self.ply);
         let side = self.side as usize;
-        let previous_move = self.previous_move;
+        let previous_move = self.move_context.previous_move();
         let counter_move = previous_move.and_then(|previous_move| {
             ordering
                 .counter_moves
@@ -521,8 +552,14 @@ impl MovePicker {
             counter_move,
             enemy_attacks: BoardParts::from_board(board).attacked_squares(!self.side),
             side: self.side,
-            continuation_base: previous_move
-                .map(|previous_move| ((side * 64) + previous_move.to as usize) * 64 * 64),
+            continuation_bases: [
+                self.move_context
+                    .previous
+                    .map(|previous| MoveOrdering::continuation_base(0, previous)),
+                self.move_context
+                    .previous_same_side
+                    .map(|previous| MoveOrdering::continuation_base(1, previous)),
+            ],
         }
     }
 
@@ -542,7 +579,7 @@ impl MovePicker {
         if context.counter_move == Some(mv) {
             return COUNTER_MOVE_SCORE;
         }
-        let move_offset = (mv.from as usize) * 64 + mv.to as usize;
+        let move_offset = candidate.moving_piece as usize * 64 + mv.to as usize;
         let history_index = MoveOrdering::history_index(
             context.side as usize,
             context.enemy_attacks.has(mv.from) as usize,
@@ -551,11 +588,17 @@ impl MovePicker {
             mv.to as usize,
         );
         let mut score = ordering.history[history_index];
-        if let Some(continuation_base) = context.continuation_base {
-            score = score.saturating_add(
-                ordering.continuation_history[continuation_base + move_offset]
-                    / CONTINUATION_HISTORY_ORDERING_DIVISOR(),
-            );
+        if let Some(continuation_base) = context.continuation_bases[0] {
+            score = score.saturating_add(scaled_history_score(
+                ordering.continuation_history[continuation_base + move_offset],
+                CONTINUATION_HISTORY_ORDERING_DIVISOR(),
+            ));
+        }
+        if let Some(continuation_base) = context.continuation_bases[1] {
+            score = score.saturating_add(scaled_history_score(
+                ordering.continuation_history[continuation_base + move_offset],
+                CONTINUATION_HISTORY_SAME_SIDE_ORDERING_DIVISOR(),
+            ));
         }
         score.clamp(-MAX_HISTORY_SCORE, MAX_HISTORY_SCORE)
     }
@@ -711,4 +754,71 @@ pub(in crate::search) fn decay_history_table(values: &mut [i32]) {
 
 pub(in crate::search) fn scaled_history_score(score: i32, divisor: i32) -> i32 {
     if divisor <= 0 { 0 } else { score / divisor }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn quiet_move(from: Square, to: Square) -> Move {
+        Move {
+            from,
+            to,
+            promotion: None,
+        }
+    }
+
+    #[test]
+    fn continuation_history_combines_previous_and_same_side_contexts() {
+        let previous = ContextMove::new(quiet_move(Square::E7, Square::E5), Piece::Pawn);
+        let previous_same_side =
+            ContextMove::new(quiet_move(Square::G1, Square::F3), Piece::Knight);
+        let move_context = MoveContext {
+            previous: Some(previous),
+            previous_same_side: Some(previous_same_side),
+        };
+        let mv = quiet_move(Square::F1, Square::B5);
+        let mut ordering = MoveOrdering::default();
+        let move_offset = Piece::Bishop as usize * 64 + mv.to as usize;
+        let previous_index = MoveOrdering::continuation_base(0, previous) + move_offset;
+        let same_side_index = MoveOrdering::continuation_base(1, previous_same_side) + move_offset;
+        ordering.continuation_history[previous_index] = 120;
+        ordering.continuation_history[same_side_index] = 80;
+
+        let expected = scaled_history_score(120, CONTINUATION_HISTORY_ORDERING_DIVISOR())
+            + scaled_history_score(80, CONTINUATION_HISTORY_SAME_SIDE_ORDERING_DIVISOR());
+        assert_eq!(
+            ordering.continuation_score(move_context, Piece::Bishop, mv),
+            expected
+        );
+    }
+
+    #[test]
+    fn continuation_history_separates_distance_and_piece_context() {
+        let one_ply = MoveOrdering::continuation_index(
+            0,
+            Piece::Pawn as usize,
+            Square::E5 as usize,
+            Piece::Bishop as usize,
+            Square::B5 as usize,
+        );
+        let two_ply = MoveOrdering::continuation_index(
+            1,
+            Piece::Pawn as usize,
+            Square::E5 as usize,
+            Piece::Bishop as usize,
+            Square::B5 as usize,
+        );
+        let different_piece = MoveOrdering::continuation_index(
+            0,
+            Piece::Knight as usize,
+            Square::E5 as usize,
+            Piece::Bishop as usize,
+            Square::B5 as usize,
+        );
+
+        assert_ne!(one_ply, two_ply);
+        assert_ne!(one_ply, different_piece);
+        assert!(two_ply < CONTINUATION_HISTORY_SIZE);
+    }
 }

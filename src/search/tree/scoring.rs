@@ -10,6 +10,7 @@ use crate::search::{
         move_generation::tactical_move_score_with_history,
         move_ordering::{CandidateMove, MoveOrdering, compact_see},
     },
+    state::move_context::MoveContext,
 };
 
 pub(in crate::search) fn move_score(
@@ -21,7 +22,6 @@ pub(in crate::search) fn move_score(
     capture_see: Option<i32>,
     is_capture: bool,
     pv_move: Option<Move>,
-    previous_move: Option<Move>,
     ply: u16,
     ordering: &MoveOrdering,
 ) -> i32 {
@@ -52,7 +52,7 @@ pub(in crate::search) fn move_score(
         return PROMOTION_SCORE + promotion_value;
     }
 
-    ordering.quiet_score(board, side, mv, previous_move, ply)
+    ordering.quiet_score(board, side, mv, MoveContext::default(), ply)
 }
 
 pub(in crate::search) fn piece_value(piece: Piece) -> i32 {

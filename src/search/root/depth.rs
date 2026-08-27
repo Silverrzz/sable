@@ -3,9 +3,7 @@ use crate::{Board, Move};
 use super::super::{
     constants::*,
     moves::{move_generation::ordered_root_moves, move_ordering::ScoredMove},
-    state::{
-        context::SearchContext, correction_history::CorrectionContext, position_key::position_key,
-    },
+    state::{context::SearchContext, move_context::MoveContext, position_key::position_key},
     tree::{negamax::negamax, pruning::late_move_reduction},
 };
 use super::outcome::{SearchOutcome, debug_validate_pv, is_better_root_score, parent_outcome};
@@ -34,7 +32,7 @@ pub(in crate::search) fn search_root_iteration(
     };
 
     loop {
-        context.refresh_static_eval_at_ply(board, CorrectionContext::default(), 0);
+        context.refresh_static_eval_at_ply(board, MoveContext::default(), 0);
         let root_repetitions = context.actual_game_repetition_count(board);
         let mut best_move = None;
         let mut best_outcome = SearchOutcome {
@@ -140,8 +138,7 @@ pub(in crate::search) fn search_root_child(
         &[]
     };
     let child_depth = depth - 1;
-    let correction_context =
-        CorrectionContext::default().after_move(ordered.mv, ordered.moving_piece);
+    let move_context = MoveContext::default().after_move(ordered.mv, ordered.moving_piece);
     let use_pvs = is_pv_node && searched_moves > 0 && beta > alpha.saturating_add(1);
     let child = if use_pvs {
         let scout_beta = alpha.saturating_neg();
@@ -163,8 +160,7 @@ pub(in crate::search) fn search_root_child(
             scout_alpha,
             scout_beta,
             &[],
-            Some(ordered.mv),
-            correction_context,
+            move_context,
             context,
             1,
             true,
@@ -178,8 +174,7 @@ pub(in crate::search) fn search_root_child(
                 scout_alpha,
                 scout_beta,
                 &[],
-                Some(ordered.mv),
-                correction_context,
+                move_context,
                 context,
                 1,
                 true,
@@ -194,8 +189,7 @@ pub(in crate::search) fn search_root_child(
                 beta.saturating_neg(),
                 alpha.saturating_neg(),
                 child_pv,
-                Some(ordered.mv),
-                correction_context,
+                move_context,
                 context,
                 1,
                 true,
@@ -211,8 +205,7 @@ pub(in crate::search) fn search_root_child(
             beta.saturating_neg(),
             alpha.saturating_neg(),
             child_pv,
-            Some(ordered.mv),
-            correction_context,
+            move_context,
             context,
             1,
             true,

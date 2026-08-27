@@ -111,6 +111,7 @@ define_tunable_parameters!(
     (CORRECTION_HISTORY_PREVIOUS_UPDATE_SCALE, correction_history_previous_update_scale_parameter, i32, 136, 109, 181, 15.0),
     (CORRECTION_HISTORY_SAME_SIDE_UPDATE_SCALE, correction_history_same_side_update_scale_parameter, i32, 72, 55, 91, 7.0),
     (CONTINUATION_HISTORY_ORDERING_DIVISOR, continuation_history_ordering_divisor_parameter, i32, 2, 1, 16, 0.5),
+    (CONTINUATION_HISTORY_SAME_SIDE_ORDERING_DIVISOR, continuation_history_same_side_ordering_divisor_parameter, i32, 4, 1, 16, 0.5),
     (CAPTURE_HISTORY_ORDERING_DIVISOR, capture_history_ordering_divisor_parameter, i32, 2, 1, 16, 0.5),
     (ASPIRATION_MIN_DEPTH, aspiration_min_depth_parameter, u32, 3, 1, 12, 0.5),
     (ASPIRATION_INITIAL_WINDOW, aspiration_initial_window_parameter, i32, 20, 14, 24, 2.0),

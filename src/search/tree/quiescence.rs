@@ -14,7 +14,7 @@ use crate::search::{
     root::outcome::{SearchOutcome, is_better_score, parent_outcome, terminal_outcome},
     state::{
         context::SearchContext,
-        correction_history::CorrectionContext,
+        move_context::MoveContext,
         position_key::{PositionKey, position_key},
         transposition::{Bound, TranspositionEntry, rule50_safe_tt_score, score_from_tt},
     },
@@ -25,8 +25,7 @@ pub(in crate::search) fn quiescence(
     repetition: bool,
     mut alpha: i32,
     mut beta: i32,
-    previous_move: Option<Move>,
-    correction_context: CorrectionContext,
+    move_context: MoveContext,
     previous_pv: &[Move],
     context: &mut SearchContext<'_>,
     ply: u16,
@@ -63,7 +62,7 @@ pub(in crate::search) fn quiescence(
         } else {
             let raw = context.evaluate(board);
             (
-                context.corrected_static_eval(board, raw, correction_context),
+                context.corrected_static_eval(board, raw, move_context),
                 Some(raw),
             )
         };
@@ -91,7 +90,7 @@ pub(in crate::search) fn quiescence(
     } else {
         let raw_eval = raw_static_eval.unwrap_or_else(|| context.evaluate(board));
         raw_stand_pat = Some(raw_eval);
-        let stand_pat = context.corrected_static_eval(board, raw_eval, correction_context);
+        let stand_pat = context.corrected_static_eval(board, raw_eval, move_context);
         context.record_static_eval_at_ply(ply, stand_pat);
         if stand_pat >= beta {
             qsearch_store(
@@ -125,7 +124,7 @@ pub(in crate::search) fn quiescence(
         &movegen,
         filter,
         priority_move,
-        previous_move,
+        move_context,
         ply,
         &mut moves,
     );
@@ -180,8 +179,7 @@ pub(in crate::search) fn quiescence(
             ordered.moving_piece,
             ordered.captured_piece,
         );
-        let child_correction_context =
-            correction_context.after_move(ordered.mv, ordered.moving_piece);
+        let child_move_context = move_context.after_move(ordered.mv, ordered.moving_piece);
         let child_pv = if Some(ordered.mv) == pv_move && !previous_pv.is_empty() {
             &previous_pv[..previous_pv.len() - 1]
         } else {
@@ -192,8 +190,7 @@ pub(in crate::search) fn quiescence(
             next_repetition,
             -beta,
             -alpha,
-            Some(ordered.mv),
-            child_correction_context,
+            child_move_context,
             child_pv,
             context,
             ply + 1,

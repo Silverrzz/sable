@@ -1,6 +1,6 @@
 mod tt;
 
-use crate::{Board, Color, Move, chess::MoveGenState};
+use crate::{Board, Move, chess::MoveGenState};
 
 use super::{
     pruning::{
@@ -26,7 +26,8 @@ use crate::search::{
     root::outcome::{SearchOutcome, is_better_score, parent_outcome, terminal_outcome},
     state::{
         context::SearchContext,
-        correction_history::{CorrectionContext, should_update_correction_history},
+        correction_history::should_update_correction_history,
+        move_context::MoveContext,
         position_key::position_key,
         transposition::{Bound, is_mate_score, score_from_tt},
     },
@@ -49,8 +50,7 @@ pub(in crate::search) fn negamax(
     mut alpha: i32,
     mut beta: i32,
     previous_pv: &[Move],
-    previous_move: Option<Move>,
-    correction_context: CorrectionContext,
+    move_context: MoveContext,
     context: &mut SearchContext<'_>,
     ply: u16,
     allow_null_move: bool,
@@ -62,8 +62,7 @@ pub(in crate::search) fn negamax(
             repetition,
             alpha,
             beta,
-            previous_move,
-            correction_context,
+            move_context,
             previous_pv,
             context,
             ply,
@@ -124,7 +123,7 @@ pub(in crate::search) fn negamax(
             .unwrap_or_else(|| context.evaluate(board))
     });
     let corrected_static_eval =
-        raw_static_eval.map(|raw| context.corrected_static_eval(board, raw, correction_context));
+        raw_static_eval.map(|raw| context.corrected_static_eval(board, raw, move_context));
     let improving =
         corrected_static_eval.is_some_and(|eval| context.is_static_eval_improving(ply, eval));
     if let Some(eval) = corrected_static_eval {
@@ -149,8 +148,7 @@ pub(in crate::search) fn negamax(
                 repetition,
                 alpha,
                 beta,
-                previous_move,
-                correction_context,
+                move_context,
                 &[],
                 context,
                 ply,
@@ -181,8 +179,7 @@ pub(in crate::search) fn negamax(
             null_alpha,
             null_beta,
             &[],
-            None,
-            correction_context.without_move_context(),
+            move_context.without_moves(),
             context,
             ply + 1,
             false,
@@ -199,8 +196,7 @@ pub(in crate::search) fn negamax(
                     beta.saturating_sub(1),
                     beta,
                     &[],
-                    None,
-                    correction_context,
+                    move_context,
                     context,
                     ply,
                     false,
@@ -236,7 +232,7 @@ pub(in crate::search) fn negamax(
             &movegen,
             MoveFilter::Tactical,
             tt_move,
-            previous_move,
+            move_context,
             ply,
             &mut moves,
         );
@@ -270,16 +266,14 @@ pub(in crate::search) fn negamax(
                 ordered.moving_piece,
                 ordered.captured_piece,
             );
-            let child_correction_context =
-                correction_context.after_move(ordered.mv, ordered.moving_piece);
+            let child_move_context = move_context.after_move(ordered.mv, ordered.moving_piece);
 
             let qsearch = quiescence(
                 &next,
                 next_repetition,
                 child_alpha,
                 child_beta,
-                Some(ordered.mv),
-                child_correction_context,
+                child_move_context,
                 &[],
                 context,
                 ply + 1,
@@ -302,8 +296,7 @@ pub(in crate::search) fn negamax(
                 child_alpha,
                 child_beta,
                 &[],
-                Some(ordered.mv),
-                child_correction_context,
+                child_move_context,
                 context,
                 ply + 1,
                 true,
@@ -333,7 +326,6 @@ pub(in crate::search) fn negamax(
         }
     }
 
-    let side = crate::chess::side_to_move(board);
     let pv_move = previous_pv.last().copied();
     let tt_move = tt_entry.and_then(|entry| entry.best_move);
     let priority_move = priority_move_for_node(board, pv_move, tt_move, in_check);
@@ -343,7 +335,7 @@ pub(in crate::search) fn negamax(
         &movegen,
         MoveFilter::All,
         priority_move,
-        previous_move,
+        move_context,
         ply,
         &mut moves,
     );
@@ -427,8 +419,7 @@ pub(in crate::search) fn negamax(
                 singular_beta.saturating_sub(1),
                 singular_beta,
                 &[],
-                previous_move,
-                correction_context,
+                move_context,
                 context,
                 ply,
                 false,
@@ -464,8 +455,7 @@ pub(in crate::search) fn negamax(
             ordered.moving_piece,
             ordered.captured_piece,
         );
-        let child_correction_context =
-            correction_context.after_move(ordered.mv, ordered.moving_piece);
+        let child_move_context = move_context.after_move(ordered.mv, ordered.moving_piece);
         let child_pv = if Some(ordered.mv) == pv_move && !previous_pv.is_empty() {
             &previous_pv[..previous_pv.len() - 1]
         } else {
@@ -496,8 +486,7 @@ pub(in crate::search) fn negamax(
                 scout_alpha,
                 scout_beta,
                 &[],
-                Some(ordered.mv),
-                child_correction_context,
+                child_move_context,
                 context,
                 ply + 1,
                 true,
@@ -511,8 +500,7 @@ pub(in crate::search) fn negamax(
                     beta.saturating_neg(),
                     alpha.saturating_neg(),
                     child_pv,
-                    Some(ordered.mv),
-                    child_correction_context,
+                    child_move_context,
                     context,
                     ply + 1,
                     true,
@@ -528,8 +516,7 @@ pub(in crate::search) fn negamax(
                 scout_alpha,
                 scout_beta,
                 &[],
-                Some(ordered.mv),
-                child_correction_context,
+                child_move_context,
                 context,
                 ply + 1,
                 true,
@@ -542,8 +529,7 @@ pub(in crate::search) fn negamax(
                     beta.saturating_neg(),
                     alpha.saturating_neg(),
                     child_pv,
-                    Some(ordered.mv),
-                    child_correction_context,
+                    child_move_context,
                     context,
                     ply + 1,
                     true,
@@ -559,8 +545,7 @@ pub(in crate::search) fn negamax(
                 beta.saturating_neg(),
                 alpha.saturating_neg(),
                 child_pv,
-                Some(ordered.mv),
-                child_correction_context,
+                child_move_context,
                 context,
                 ply + 1,
                 true,
@@ -588,8 +573,7 @@ pub(in crate::search) fn negamax(
                 board,
                 &moves,
                 ordered,
-                side,
-                previous_move,
+                move_context,
                 depth,
                 ply,
                 context,
@@ -625,7 +609,7 @@ pub(in crate::search) fn negamax(
         && let Some(corrected_eval) = static_eval.corrected
         && should_update_correction_history(board, best_move, bound, corrected_eval, best.score)
     {
-        context.update_correction_history(board, correction_context, raw_eval, best.score, depth);
+        context.update_correction_history(board, move_context, raw_eval, best.score, depth);
     }
     if use_tt && !best.repetition_draw {
         context.transposition_table().store(
@@ -746,16 +730,16 @@ fn record_cutoff_and_failures(
     board: &Board,
     moves: &MovePicker,
     ordered: ScoredMove,
-    side: Color,
-    previous_move: Option<Move>,
+    move_context: MoveContext,
     depth: u32,
     ply: u16,
     context: &mut SearchContext<'_>,
 ) {
+    let side = crate::chess::side_to_move(board);
     if ordered.is_quiet {
         context
             .ordering_mut()
-            .record_quiet_cutoff(board, side, ordered.mv, previous_move, depth, ply);
+            .record_quiet_cutoff(board, side, ordered.mv, move_context, depth, ply);
     } else if let Some(captured_piece) = ordered.captured_piece {
         context.ordering_mut().record_capture_cutoff(
             side,
@@ -773,7 +757,14 @@ fn record_cutoff_and_failures(
         if candidate.is_quiet() {
             context
                 .ordering_mut()
-                .record_quiet_failure(board, side, previous_move, candidate.mv, depth);
+                .record_quiet_failure(
+                    board,
+                    side,
+                    move_context,
+                    candidate.mv,
+                    candidate.moving_piece,
+                    depth,
+                );
         } else if let Some(captured_piece) = candidate.captured_piece {
             context.ordering_mut().record_capture_failure(
                 side,

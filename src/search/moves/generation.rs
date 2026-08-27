@@ -14,6 +14,7 @@ use super::{
 };
 use crate::search::{
     constants::*,
+    state::move_context::MoveContext,
     tree::scoring::{move_score, piece_value},
 };
 
@@ -54,7 +55,6 @@ pub(in crate::search) fn ordered_root_moves(
                 see,
                 is_capture,
                 pv_move,
-                None,
                 0,
                 ordering,
             ),
@@ -74,14 +74,14 @@ pub(in crate::search) fn collect_moves_into(
     movegen: &MoveGenState,
     filter: MoveFilter,
     pv_move: Option<Move>,
-    previous_move: Option<Move>,
+    move_context: MoveContext,
     ply: u16,
     moves: &mut MovePicker,
 ) {
     let side = crate::chess::side_to_move(board);
     let enemy_occupancy = crate::chess::colors(board, !side);
     let ep_target = en_passant_target(board, side);
-    moves.reset(pv_move, side, previous_move, ply, filter);
+    moves.reset(pv_move, side, move_context, ply, filter);
     match filter {
         MoveFilter::All => {
             collect_all_moves_into(board, movegen, enemy_occupancy, ep_target, moves)

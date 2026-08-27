@@ -1,6 +1,9 @@
 use crate::{Board, Color, Move, Piece, evaluation::LOSS_SCORE};
 
-use super::transposition::{Bound, is_mate_score};
+use super::{
+    move_context::{ContextMove, MoveContext},
+    transposition::{Bound, is_mate_score},
+};
 use crate::search::{
     constants::*,
     moves::board_moves::{en_passant_target, is_en_passant},
@@ -8,37 +11,6 @@ use crate::search::{
 
 const CORRECTION_CONTINUATION_SIZE: usize = 2 * 6 * 64;
 const CORRECTION_UPDATE_SCALE_DIVISOR: i32 = 128;
-
-#[derive(Clone, Copy, Debug)]
-pub(in crate::search) struct CorrectionMove {
-    mv: Move,
-    piece: Piece,
-}
-
-impl CorrectionMove {
-    pub(in crate::search) fn new(mv: Move, piece: Piece) -> Self {
-        Self { mv, piece }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub(in crate::search) struct CorrectionContext {
-    previous: Option<CorrectionMove>,
-    previous_same_side: Option<CorrectionMove>,
-}
-
-impl CorrectionContext {
-    pub(in crate::search) fn after_move(self, mv: Move, piece: Piece) -> Self {
-        Self {
-            previous: Some(CorrectionMove::new(mv, piece)),
-            previous_same_side: self.previous,
-        }
-    }
-
-    pub(in crate::search) fn without_move_context(self) -> Self {
-        Self::default()
-    }
-}
 
 #[derive(Clone, Debug)]
 pub(in crate::search) struct CorrectionHistory {
@@ -77,9 +49,9 @@ impl CorrectionHistory {
         &self,
         board: &Board,
         raw_eval: i32,
-        correction_context: CorrectionContext,
+        move_context: MoveContext,
     ) -> i32 {
-        let corrected = raw_eval.saturating_add(self.correction(board, correction_context));
+        let corrected = raw_eval.saturating_add(self.correction(board, move_context));
         corrected.clamp(
             LOSS_SCORE + MATE_PRUNING_GUARD,
             -LOSS_SCORE - MATE_PRUNING_GUARD,
@@ -89,7 +61,7 @@ impl CorrectionHistory {
     pub(in crate::search) fn update(
         &mut self,
         board: &Board,
-        correction_context: CorrectionContext,
+        move_context: MoveContext,
         raw_eval: i32,
         score: i32,
         depth: u32,
@@ -121,14 +93,14 @@ impl CorrectionHistory {
             target,
             scaled_update_weight(weight, CORRECTION_HISTORY_NON_PAWN_UPDATE_SCALE()),
         );
-        if let Some(previous) = correction_context.previous {
+        if let Some(previous) = move_context.previous {
             update_correction_value(
                 &mut self.continuation_previous[continuation_correction_index(side, previous)],
                 target,
                 scaled_update_weight(weight, CORRECTION_HISTORY_PREVIOUS_UPDATE_SCALE()),
             );
         }
-        if let Some(previous_same_side) = correction_context.previous_same_side {
+        if let Some(previous_same_side) = move_context.previous_same_side {
             update_correction_value(
                 &mut self.continuation_same_side
                     [continuation_correction_index(side, previous_same_side)],
@@ -138,11 +110,7 @@ impl CorrectionHistory {
         }
     }
 
-    pub(in crate::search) fn correction(
-        &self,
-        board: &Board,
-        correction_context: CorrectionContext,
-    ) -> i32 {
+    pub(in crate::search) fn correction(&self, board: &Board, move_context: MoveContext) -> i32 {
         let side = crate::chess::side_to_move(board) as usize;
         let mut sum = 0_i32;
         let mut weight_sum = 0_i32;
@@ -170,7 +138,7 @@ impl CorrectionHistory {
             self.non_pawn_black[non_pawn_correction_index(board, side, Color::Black)],
             CORRECTION_HISTORY_NON_PAWN_WEIGHT(),
         );
-        if let Some(previous) = correction_context.previous {
+        if let Some(previous) = move_context.previous {
             add_weighted_correction(
                 &mut sum,
                 &mut weight_sum,
@@ -178,7 +146,7 @@ impl CorrectionHistory {
                 CORRECTION_HISTORY_PREVIOUS_WEIGHT(),
             );
         }
-        if let Some(previous_same_side) = correction_context.previous_same_side {
+        if let Some(previous_same_side) = move_context.previous_same_side {
             add_weighted_correction(
                 &mut sum,
                 &mut weight_sum,
@@ -272,7 +240,7 @@ pub(in crate::search) fn non_pawn_correction_index(
 
 pub(in crate::search) fn continuation_correction_index(
     side: usize,
-    previous: CorrectionMove,
+    previous: ContextMove,
 ) -> usize {
     ((side * 6) + previous.piece as usize) * 64 + previous.mv.to as usize
 }

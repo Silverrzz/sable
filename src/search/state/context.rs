@@ -9,7 +9,8 @@ use crate::{
 };
 
 use super::{
-    correction_history::{CorrectionContext, CorrectionHistory},
+    correction_history::CorrectionHistory,
+    move_context::MoveContext,
     position_key::{PositionKey, actual_game_repetition_count, is_repetition, position_key},
     transposition::TranspositionTable,
 };
@@ -177,7 +178,7 @@ impl<'a> SearchContext<'a> {
                 transposition_table,
             },
         };
-        context.refresh_static_eval_at_ply(root_board, CorrectionContext::default(), 0);
+        context.refresh_static_eval_at_ply(root_board, MoveContext::default(), 0);
         context
     }
 
@@ -332,11 +333,11 @@ impl<'a> SearchContext<'a> {
     pub(in crate::search) fn refresh_static_eval_at_ply(
         &mut self,
         board: &Board,
-        correction_context: CorrectionContext,
+        move_context: MoveContext,
         ply: u16,
     ) -> i32 {
         let raw_eval = self.evaluate(board);
-        let static_eval = self.corrected_static_eval(board, raw_eval, correction_context);
+        let static_eval = self.corrected_static_eval(board, raw_eval, move_context);
         self.record_static_eval_at_ply(ply, static_eval);
         static_eval
     }
@@ -374,28 +375,24 @@ impl<'a> SearchContext<'a> {
         &self,
         board: &Board,
         raw_eval: i32,
-        correction_context: CorrectionContext,
+        move_context: MoveContext,
     ) -> i32 {
         self.heuristics
             .correction_history
-            .corrected_eval(board, raw_eval, correction_context)
+            .corrected_eval(board, raw_eval, move_context)
     }
 
     pub(in crate::search) fn update_correction_history(
         &mut self,
         board: &Board,
-        correction_context: CorrectionContext,
+        move_context: MoveContext,
         raw_eval: i32,
         score: i32,
         depth: u32,
     ) {
-        self.heuristics.correction_history.update(
-            board,
-            correction_context,
-            raw_eval,
-            score,
-            depth,
-        );
+        self.heuristics
+            .correction_history
+            .update(board, move_context, raw_eval, score, depth);
     }
 
     /// moves persistent tables out without cloning
