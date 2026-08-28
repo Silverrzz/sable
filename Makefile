@@ -3,7 +3,6 @@ ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 EXE ?= $(ROOT)/sable
 CARGO ?= cargo
 CC ?= cc
-EVALFILE ?=
 MANIFEST := $(ROOT)/Cargo.toml
 TARGET_DIR ?= $(ROOT)/target
 unexport CC
@@ -24,17 +23,12 @@ endif
 
 BUILT_EXE := $(TARGET_DIR)/release/sable-engine$(BIN_SUFFIX)
 
-CARGO_ENV :=
-ifneq ($(strip $(EVALFILE)),)
-CARGO_ENV += SABLE_EVAL_FILE="$(EVALFILE)"
-endif
-
 .PHONY: all build clean
 
 all: build
 
 build:
-	$(CARGO_ENV) $(CARGO) build --release --manifest-path "$(MANIFEST)" --target-dir "$(TARGET_DIR)"
+	$(CARGO) build --release --manifest-path "$(MANIFEST)" --target-dir "$(TARGET_DIR)"
 	$(call COPY,$(BUILT_EXE),$(EXE))
 
 clean:

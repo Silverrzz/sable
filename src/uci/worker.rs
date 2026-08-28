@@ -161,7 +161,12 @@ fn run_search_task(
         |info| {
             let _ = event_tx.send(WorkerEvent::Info {
                 search_id,
-                line: format_uci_info(&engine, info, engine.show_wdl_option_value()),
+                line: format_uci_info(
+                    &engine,
+                    info,
+                    engine.show_wdl_option_value(),
+                    engine.show_uncertainty_option_value(),
+                ),
             });
         },
     ) {
@@ -181,7 +186,12 @@ fn run_search_task(
 
     let _ = event_tx.send(WorkerEvent::Info {
         search_id,
-        line: format_uci_info(&engine, &result.info, engine.show_wdl_option_value()),
+        line: format_uci_info(
+            &engine,
+            &result.info,
+            engine.show_wdl_option_value(),
+            engine.show_uncertainty_option_value(),
+        ),
     });
     let best = result
         .best_move

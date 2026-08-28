@@ -13,10 +13,10 @@ pub const SPSA_UCI_OPTIONS_ENABLED: bool = true;
 
 pub(crate) use chess::Square;
 pub use chess::{Board, Color, GameStatus, Move, Piece};
-pub use engine::{Engine, VerboseEval, VerboseEvalSquare};
+pub use engine::{Engine, PvLeafOutput, VerboseEval, VerboseEvalSquare};
 pub use error::EngineError;
 pub use evaluation::{
-    NnueArchitectureId, PieceContribution, embedded_eval_hash, embedded_eval_label,
+    NnueArchitectureId, NnueOutput, PieceContribution, embedded_eval_hash, embedded_eval_label,
     has_embedded_eval,
 };
 pub(crate) use options::EngineOptions;

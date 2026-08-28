@@ -6,11 +6,18 @@ use std::sync::{Arc, atomic::AtomicBool};
 
 pub use verbose_eval::{VerboseEval, VerboseEvalSquare};
 
+#[derive(Clone, Copy, Debug)]
+pub enum PvLeafOutput {
+    Nnue(NnueOutput),
+    Terminal([u32; 3]),
+}
+
 use crate::{
     Board, Color, EngineError, EngineOptions, GameStatus, Move,
     chess::{board_from_fen, generate_moves},
     evaluation::{
-        DRAW_SCORE, Evaluator, LOSS_SCORE, NnueArchitectureId, NnueModel, is_board_drawn,
+        DRAW_SCORE, Evaluator, LOSS_SCORE, NnueArchitectureId, NnueModel, NnueOutput,
+        is_board_drawn,
     },
     options::apply_engine_option,
     perft::perft,
@@ -339,8 +346,45 @@ impl Engine {
         self.options.uci_show_wdl
     }
 
+    pub fn show_uncertainty_option_value(&self) -> bool {
+        self.options.uci_show_uncertainty
+    }
+
     pub fn startup_warnings(&self) -> &[String] {
         &self.startup_warnings
+    }
+
+    pub fn pv_leaf_output(&self, pv: &[Move]) -> Option<PvLeafOutput> {
+        let root_side = crate::chess::side_to_move(&self.board);
+        let mut board = self.board.clone();
+        let mut history = self.game_history.clone();
+        for &mv in pv {
+            if crate::chess::status(&board) != GameStatus::Ongoing
+                || !crate::chess::is_legal(&board, mv)
+            {
+                break;
+            }
+            crate::chess::play_unchecked(&mut board, mv);
+            history.push(position_key(&board));
+        }
+
+        let leaf_side = crate::chess::side_to_move(&board);
+        let flip = leaf_side != root_side;
+        if is_claimable_repetition_draw(&board, &history) || is_board_drawn(&board) {
+            return Some(PvLeafOutput::Terminal([0, 1000, 0]));
+        }
+        match crate::chess::status(&board) {
+            GameStatus::Drawn => Some(PvLeafOutput::Terminal([0, 1000, 0])),
+            GameStatus::Won => Some(PvLeafOutput::Terminal(if flip {
+                [1000, 0, 0]
+            } else {
+                [0, 0, 1000]
+            })),
+            GameStatus::Ongoing => self.evaluator.active_nnue_model().map(|model| {
+                let output = model.output(&board);
+                PvLeafOutput::Nnue(if flip { output.flipped() } else { output })
+            }),
+        }
     }
 
     pub fn verbose_eval(&self) -> Result<VerboseEval, EngineError> {

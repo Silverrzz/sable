@@ -24,68 +24,57 @@ impl NnueModel {
     }
 
     fn from_bytes(path: &Path, bytes: &[u8]) -> Result<Self, EngineError> {
-        let Some(hidden_size) = shard_hidden_size(bytes) else {
+        let Some(hidden_size) = bullet_hidden_size(bytes) else {
             return Err(invalid_eval_file(
                 path,
-                "expected a single-hidden-layer shard SABLENET layout",
+                "expected a default Bullet quantised network",
             ));
         };
-        let Some(tensor_bytes) = shard_tensor_bytes(hidden_size) else {
-            return Err(invalid_eval_file(path, "shard tensor dimensions overflow"));
-        };
-        let Some(file_max_bytes) = tensor_bytes.checked_add(SHARD_FILE_PADDING_BYTES) else {
-            return Err(invalid_eval_file(path, "shard file dimensions overflow"));
-        };
-        if bytes.len() < tensor_bytes || bytes.len() > file_max_bytes {
+        let tensor_bytes = bullet_tensor_bytes(hidden_size)
+            .ok_or_else(|| invalid_eval_file(path, "Bullet tensor dimensions overflow"))?;
+        let padding = &bytes[tensor_bytes..];
+        if !padding
+            .iter()
+            .enumerate()
+            .all(|(index, &byte)| byte == b"bullet"[index % b"bullet".len()])
+        {
             return Err(invalid_eval_file(
                 path,
-                "shard file size does not match its declared hidden width",
+                "invalid default Bullet file padding",
             ));
         }
 
-        let feature_weight_count = SHARD_INPUT_FEATURES * hidden_size;
-        let i16_end = SHARD_HEADER_BYTES + (feature_weight_count + hidden_size) * 2;
-        let mut chunks = bytes[SHARD_HEADER_BYTES..i16_end]
+        let mut values = bytes[..tensor_bytes]
             .chunks_exact(2)
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]));
+        let feature_weight_count = SHARD_INPUT_FEATURES * hidden_size;
         let mut feature_weights = Vec::with_capacity(feature_weight_count);
         for _ in 0..feature_weight_count {
-            feature_weights.push(
-                chunks
-                    .next()
-                    .expect("shard feature weights are present"),
-            );
+            feature_weights.push(values.next().expect("Bullet feature weights are present"));
         }
 
         let mut bias = vec![0; hidden_size];
         for value in &mut bias {
-            *value = chunks
-                .next()
-                .expect("shard accumulator bias is present");
+            *value = values.next().expect("Bullet accumulator bias is present");
         }
-        debug_assert!(chunks.next().is_none());
 
-        let mut chunks = bytes[i16_end..tensor_bytes]
-            .chunks_exact(4)
-            .map(|chunk| i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-        let output_weight_count = hidden_size * 2 * SHARD_OUTPUT_BUCKETS;
+        let output_weight_count = hidden_size * 2 * SHARD_OUTPUT_HEADS;
         let mut output_weights = Vec::with_capacity(output_weight_count);
         for _ in 0..output_weight_count {
-            let weight = chunks.next().expect("shard output weights are present");
-            output_weights.push(i16::try_from(weight).map_err(|_| {
-                invalid_eval_file(path, "shard output weight does not fit the SIMD evaluator")
-            })?);
+            output_weights.push(values.next().expect("Bullet output weights are present"));
         }
-        let mut output_bias = [0; SHARD_OUTPUT_BUCKETS];
-        for value in &mut output_bias {
-            *value = chunks.next().expect("shard output biases are present");
-        }
-        debug_assert!(chunks.next().is_none());
-        let narrow_output_weights = output_weights.iter().all(|&weight| {
-            i32::from(weight).abs() * i32::from(SHARD_QA) <= i32::from(i16::MAX)
-        });
 
+        let mut output_bias = [0; SHARD_OUTPUT_HEADS];
+        for value in &mut output_bias {
+            *value = i32::from(values.next().expect("Bullet output biases are present"));
+        }
+        debug_assert!(values.next().is_none());
+
+        let narrow_output_weights = output_weights
+            .iter()
+            .all(|&weight| i32::from(weight).abs() * i32::from(SHARD_QA) <= i32::from(i16::MAX));
         validate_i16_accumulator_range(path, &bias, &feature_weights, hidden_size)?;
+
         Ok(Self {
             feature_weights: feature_weights.into_boxed_slice(),
             bias: bias.into_boxed_slice(),
@@ -454,36 +443,51 @@ impl NnueModel {
         board: &Board,
         accumulators: &NnueAccumulators,
     ) -> i32 {
-        self.evaluate_output_bucket_with_accumulators(
-            board,
-            accumulators,
-            output_bucket(board),
-        )
+        let output = self.evaluate_output_head_quantised(board, accumulators, SHARD_VALUE_HEAD);
+        quantised_output_to_cp(output)
     }
 
-    pub fn output_bucket_values(&self, board: &Board) -> [i32; SHARD_OUTPUT_BUCKETS] {
+    pub fn output(&self, board: &Board) -> NnueOutput {
         let accumulators = self
             .initial_accumulators(board)
             .expect("valid shard NNUE model should produce accumulators");
-        std::array::from_fn(|bucket| {
-            self.evaluate_output_bucket_with_accumulators(board, &accumulators, bucket)
-        })
+        self.output_with_accumulators(board, &accumulators)
     }
 
-    fn evaluate_output_bucket_with_accumulators(
+    pub fn output_with_accumulators(
         &self,
         board: &Board,
         accumulators: &NnueAccumulators,
-        bucket: usize,
-    ) -> i32 {
+    ) -> NnueOutput {
+        let value = self.evaluate_output_head_quantised(board, accumulators, SHARD_VALUE_HEAD);
+        let uncertainty =
+            self.evaluate_output_head_quantised(board, accumulators, SHARD_UNCERTAINTY_HEAD);
+        let logits = [
+            self.evaluate_output_head_quantised(board, accumulators, SHARD_WIN_HEAD),
+            self.evaluate_output_head_quantised(board, accumulators, SHARD_DRAW_HEAD),
+            self.evaluate_output_head_quantised(board, accumulators, SHARD_LOSS_HEAD),
+        ];
+        NnueOutput {
+            value_cp: quantised_output_to_cp(value),
+            uncertainty_mse: dequantise_output(uncertainty, SHARD_UNCERTAINTY_QB),
+            wdl: softmax_outputs(logits),
+        }
+    }
+
+    fn evaluate_output_head_quantised(
+        &self,
+        board: &Board,
+        accumulators: &NnueAccumulators,
+        head: usize,
+    ) -> i64 {
         let (stm, ntm) = match crate::chess::side_to_move(board) {
             Color::White => (&accumulators.white, &accumulators.black),
             Color::Black => (&accumulators.black, &accumulators.white),
         };
         let hidden_size = self.hidden_size();
-        let outputs_per_bucket = hidden_size * 2;
-        let start = bucket * outputs_per_bucket;
-        let weights = &self.output_weights[start..start + outputs_per_bucket];
+        let outputs_per_head = hidden_size * 2;
+        let start = head * outputs_per_head;
+        let weights = &self.output_weights[start..start + outputs_per_head];
         let mut output = crate::simd::screlu_dot_i16_dual(
             stm,
             &weights[..hidden_size],
@@ -494,10 +498,8 @@ impl NnueModel {
         );
         let qa = i64::from(SHARD_QA);
         output /= qa;
-        output += i64::from(self.output_bias[bucket]);
-        output *= i64::from(SHARD_OUTPUT_SCALE);
-        output /= qa * i64::from(SHARD_QB);
-        output.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+        output += i64::from(self.output_bias[head]);
+        output
     }
 
     pub fn evaluate_for_side_to_move(&self, board: &Board) -> i32 {
@@ -610,75 +612,50 @@ fn piece_bitboard_index(color: Color, piece: Piece) -> usize {
     color as usize * 6 + piece as usize
 }
 
-fn output_bucket(board: &Board) -> usize {
-    let piece_count = crate::chess::colors(board, Color::White).len()
-        + crate::chess::colors(board, Color::Black).len();
-    ((piece_count.saturating_sub(2) / 4) as usize).min(SHARD_OUTPUT_BUCKETS - 1)
+fn quantised_output_to_cp(mut output: i64) -> i32 {
+    output *= i64::from(SHARD_OUTPUT_SCALE);
+    output /= i64::from(SHARD_QA) * i64::from(SHARD_QB);
+    output.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
 }
 
-fn shard_hidden_size(bytes: &[u8]) -> Option<usize> {
-    let hidden_size = usize::try_from(read_u32(bytes, 64)?).ok()?;
-    let doubled_hidden = u32::try_from(hidden_size.checked_mul(2)?).ok()?;
-    let valid = bytes.get(..8) == Some(&b"SABLENET"[..])
-        && read_u32(bytes, 8) == Some(1)
-        && read_u32(bytes, 12) == Some(3)
-        && read_u32(bytes, 16) == Some(SHARD_HEADER_BYTES as u32)
-        && read_u32(bytes, 20) == Some(SHARD_INPUT_FEATURES as u32)
-        && read_u32(bytes, 24) == Some(1)
-        && read_u32(bytes, 28) == Some(SHARD_OUTPUT_BUCKETS as u32)
-        && read_u32(bytes, 32) == Some(SHARD_OUTPUT_SCALE as u32)
-        && read_u32(bytes, 36) == Some(SHARD_QA as u32)
-        && read_u32(bytes, 40) == Some(SHARD_QB as u32)
-        && read_u32(bytes, 44) == Some(3)
-        && read_u32(bytes, 48) == Some(1)
-        && read_u32(bytes, 52) == Some(4)
-        && hidden_size > 0
-        && read_u32(bytes, 68) == Some(1)
-        && read_u32(bytes, 72) == Some(SHARD_INPUT_FEATURES as u32)
-        && read_u32(bytes, 76) == Some(2)
-        && read_u32(bytes, 80) == Some(SHARD_QA as u32)
-        && read_u32(bytes, 84) == Some(1)
-        && read_u32(bytes, 88) == Some(1)
-        && read_u32(bytes, 92) == Some(SHARD_INPUT_FEATURES as u32)
-        && read_u32(bytes, 96) == Some(hidden_size as u32)
-        && read_u32(bytes, 100) == Some(2)
-        && read_u32(bytes, 104) == Some(SHARD_QA as u32)
-        && read_u32(bytes, 108) == Some(2)
-        && read_u32(bytes, 112) == Some(1)
-        && read_u32(bytes, 116) == Some(1)
-        && read_u32(bytes, 120) == Some(hidden_size as u32)
-        && read_u32(bytes, 124) == Some(2)
-        && read_u32(bytes, 128) == Some(SHARD_QA as u32)
-        && read_u32(bytes, 132) == Some(5)
-        && read_u32(bytes, 136) == Some(2)
-        && read_u32(bytes, 140) == Some(doubled_hidden)
-        && read_u32(bytes, 144) == Some(1)
-        && read_u32(bytes, 148) == Some(4)
-        && read_u32(bytes, 152) == Some(SHARD_QB as u32)
-        && read_u32(bytes, 156) == Some(6)
-        && read_u32(bytes, 160) == Some(2)
-        && read_u32(bytes, 164) == Some(1)
-        && read_u32(bytes, 168) == Some(1)
-        && read_u32(bytes, 172) == Some(4)
-        && read_u32(bytes, 176) == Some((i32::from(SHARD_QA) * i32::from(SHARD_QB)) as u32);
-    valid.then_some(hidden_size)
+fn dequantise_output(output: i64, qb: i16) -> f32 {
+    output as f32 / f32::from(SHARD_QA) / f32::from(qb)
 }
 
-fn shard_tensor_bytes(hidden_size: usize) -> Option<usize> {
+fn softmax_outputs(outputs: [i64; 3]) -> [f32; 3] {
+    let logits = outputs.map(|output| dequantise_output(output, SHARD_QB));
+    let max = logits.into_iter().fold(f32::NEG_INFINITY, f32::max);
+    let exponents = logits.map(|value| (value - max).exp());
+    let sum = exponents.into_iter().sum::<f32>();
+    exponents.map(|value| value / sum)
+}
+
+fn bullet_hidden_size(bytes: &[u8]) -> Option<usize> {
+    let fixed_bytes = SHARD_OUTPUT_HEADS.checked_mul(size_of::<i16>())?;
+    let bytes_per_hidden = SHARD_INPUT_FEATURES
+        .checked_add(1)?
+        .checked_add(SHARD_OUTPUT_HEADS.checked_mul(2)?)?
+        .checked_mul(size_of::<i16>())?;
+    let available = bytes.len().checked_sub(fixed_bytes)?;
+    let hidden_size = available / bytes_per_hidden;
+    if hidden_size == 0 {
+        return None;
+    }
+    let tensor_bytes = bullet_tensor_bytes(hidden_size)?;
+    let padding_bytes = bytes.len().checked_sub(tensor_bytes)?;
+    (padding_bytes <= SHARD_FILE_PADDING_BYTES).then_some(hidden_size)
+}
+
+fn bullet_tensor_bytes(hidden_size: usize) -> Option<usize> {
     let feature_weights = SHARD_INPUT_FEATURES.checked_mul(hidden_size)?;
-    let i16_values = feature_weights.checked_add(hidden_size)?;
     let output_weights = hidden_size
         .checked_mul(2)?
-        .checked_mul(SHARD_OUTPUT_BUCKETS)?;
-    let i32_values = output_weights.checked_add(SHARD_OUTPUT_BUCKETS)?;
-    SHARD_HEADER_BYTES
-        .checked_add(i16_values.checked_mul(2)?)?
-        .checked_add(i32_values.checked_mul(4)?)
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
-    let value = bytes.get(offset..offset + 4)?;
-    Some(u32::from_le_bytes(value.try_into().ok()?))
+        .checked_mul(SHARD_OUTPUT_HEADS)?;
+    feature_weights
+        .checked_add(hidden_size)?
+        .checked_add(output_weights)?
+        .checked_add(SHARD_OUTPUT_HEADS)?
+        .checked_mul(size_of::<i16>())
 }
 
 fn invalid_eval_file(path: &Path, message: &str) -> EngineError {

@@ -13,12 +13,17 @@ pub(super) const QUEEN_VALUE: i32 = 900;
 pub(super) const PIECE_SQUARE_FEATURES: usize = 768;
 pub(super) const KING_SQUARES: usize = 64;
 pub(super) const SHARD_KING_BUCKETS: usize = 16;
-pub const SHARD_OUTPUT_BUCKETS: usize = 8;
+pub const SHARD_OUTPUT_HEADS: usize = 5;
+pub(super) const SHARD_VALUE_HEAD: usize = 0;
+pub(super) const SHARD_UNCERTAINTY_HEAD: usize = 1;
+pub(super) const SHARD_WIN_HEAD: usize = 2;
+pub(super) const SHARD_DRAW_HEAD: usize = 3;
+pub(super) const SHARD_LOSS_HEAD: usize = 4;
 pub(super) const SHARD_INPUT_FEATURES: usize = PIECE_SQUARE_FEATURES * SHARD_KING_BUCKETS;
-pub(super) const SHARD_HEADER_BYTES: usize = 180;
 pub(super) const SHARD_FILE_PADDING_BYTES: usize = 63;
 pub(super) const SHARD_QA: i16 = 255;
 pub(super) const SHARD_QB: i16 = 64;
+pub(super) const SHARD_UNCERTAINTY_QB: i16 = SHARD_QB * 16;
 pub(super) const SHARD_OUTPUT_SCALE: i32 = 400;
 pub(super) const MAX_MOVE_FEATURE_UPDATES: usize = 3;
 pub(super) const FINNY_TABLE_ENTRIES: usize = KING_SQUARES * 2;
@@ -47,7 +52,60 @@ pub struct NnueModel {
     pub(super) bias: Box<[i16]>,
     pub(super) output_weights: Box<[i16]>,
     pub(super) narrow_output_weights: bool,
-    pub(super) output_bias: [i32; SHARD_OUTPUT_BUCKETS],
+    pub(super) output_bias: [i32; SHARD_OUTPUT_HEADS],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct NnueOutput {
+    pub value_cp: i32,
+    pub uncertainty_mse: f32,
+    pub wdl: [f32; 3],
+}
+
+impl NnueOutput {
+    pub fn uncertainty_cp(self) -> u32 {
+        let rmse = f64::from(self.uncertainty_mse.max(0.0)).sqrt();
+        if rmse == 0.0 {
+            return 0;
+        }
+
+        let value_cp = f64::from(self.value_cp);
+        let value_logit = value_cp / f64::from(SHARD_OUTPUT_SCALE);
+        let probability = 1.0 / (1.0 + (-value_logit).exp());
+        let lower_error = if rmse >= probability {
+            f64::from(WIN_SCORE)
+        } else {
+            let lower_probability = probability - rmse;
+            let lower_logit = (lower_probability / (1.0 - lower_probability)).ln();
+            value_cp - lower_logit * f64::from(SHARD_OUTPUT_SCALE)
+        };
+        let upper_error = if rmse >= 1.0 - probability {
+            f64::from(WIN_SCORE)
+        } else {
+            let upper_probability = probability + rmse;
+            let upper_logit = (upper_probability / (1.0 - upper_probability)).ln();
+            upper_logit * f64::from(SHARD_OUTPUT_SCALE) - value_cp
+        };
+
+        lower_error
+            .max(upper_error)
+            .round()
+            .clamp(0.0, f64::from(WIN_SCORE)) as u32
+    }
+
+    pub fn wdl_permille(self) -> [u32; 3] {
+        let win = (self.wdl[0] * 1000.0).round().clamp(0.0, 1000.0) as u32;
+        let draw = (self.wdl[1] * 1000.0)
+            .round()
+            .clamp(0.0, (1000 - win) as f32) as u32;
+        [win, draw, 1000 - win - draw]
+    }
+
+    pub fn flipped(mut self) -> Self {
+        self.value_cp = -self.value_cp;
+        self.wdl.swap(0, 2);
+        self
+    }
 }
 
 #[derive(Clone, Debug)]

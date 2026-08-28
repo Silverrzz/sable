@@ -9,6 +9,7 @@ pub struct EngineOptions {
     pub use_soft_nodes: bool,
     pub uci_chess960: bool,
     pub uci_show_wdl: bool,
+    pub uci_show_uncertainty: bool,
     pub move_overhead_ms: u64,
     pub eval_file: Option<String>,
 }
@@ -23,6 +24,7 @@ impl Default for EngineOptions {
             use_soft_nodes: false,
             uci_chess960: false,
             uci_show_wdl: false,
+            uci_show_uncertainty: false,
             move_overhead_ms: 100,
             eval_file: None,
         }
@@ -45,6 +47,9 @@ pub(crate) fn apply_engine_option(
         EngineOption::UseSoftNodes => options.use_soft_nodes = parse_bool_option(name, value)?,
         EngineOption::UciChess960 => options.uci_chess960 = parse_bool_option(name, value)?,
         EngineOption::UciShowWdl => options.uci_show_wdl = parse_bool_option(name, value)?,
+        EngineOption::UciShowUncertainty => {
+            options.uci_show_uncertainty = parse_bool_option(name, value)?;
+        }
         EngineOption::MoveOverhead => {
             options.move_overhead_ms = u64::from(parse_u32_option(name, value, 0, 10_000)?);
         }
@@ -64,6 +69,7 @@ enum EngineOption {
     UseSoftNodes,
     UciChess960,
     UciShowWdl,
+    UciShowUncertainty,
     MoveOverhead,
     EvalFile,
 }
@@ -78,6 +84,7 @@ impl EngineOption {
             "usesoftnodes" => Ok(Self::UseSoftNodes),
             "uci_chess960" => Ok(Self::UciChess960),
             "uci_showwdl" => Ok(Self::UciShowWdl),
+            "uci_showuncertainty" => Ok(Self::UciShowUncertainty),
             "moveoverhead" => Ok(Self::MoveOverhead),
             "evalfile" => Ok(Self::EvalFile),
             _ => Err(EngineError::InvalidOption(name.to_owned())),
