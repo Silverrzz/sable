@@ -460,7 +460,7 @@ impl NnueModel {
         accumulators: &NnueAccumulators,
     ) -> NnueOutput {
         let value = self.evaluate_output_head_quantised(board, accumulators, SHARD_VALUE_HEAD);
-        let uncertainty =
+        let log_variance =
             self.evaluate_output_head_quantised(board, accumulators, SHARD_UNCERTAINTY_HEAD);
         let logits = [
             self.evaluate_output_head_quantised(board, accumulators, SHARD_WIN_HEAD),
@@ -469,7 +469,12 @@ impl NnueModel {
         ];
         NnueOutput {
             value_cp: quantised_output_to_cp(value),
-            uncertainty_mse: dequantise_output(uncertainty, SHARD_UNCERTAINTY_QB),
+            uncertainty_logit_variance: dequantise_output(
+                log_variance,
+                SHARD_UNCERTAINTY_QB,
+            )
+                .clamp(SHARD_MIN_LOG_VARIANCE, SHARD_MAX_LOG_VARIANCE)
+                .exp(),
             wdl: softmax_outputs(logits),
         }
     }

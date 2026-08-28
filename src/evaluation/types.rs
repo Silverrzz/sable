@@ -23,8 +23,10 @@ pub(super) const SHARD_INPUT_FEATURES: usize = PIECE_SQUARE_FEATURES * SHARD_KIN
 pub(super) const SHARD_FILE_PADDING_BYTES: usize = 63;
 pub(super) const SHARD_QA: i16 = 255;
 pub(super) const SHARD_QB: i16 = 64;
-pub(super) const SHARD_UNCERTAINTY_QB: i16 = SHARD_QB * 16;
+pub(super) const SHARD_UNCERTAINTY_QB: i16 = SHARD_QB / 4;
 pub(super) const SHARD_OUTPUT_SCALE: i32 = 400;
+pub(super) const SHARD_MIN_LOG_VARIANCE: f32 = -12.0;
+pub(super) const SHARD_MAX_LOG_VARIANCE: f32 = 8.0;
 pub(super) const MAX_MOVE_FEATURE_UPDATES: usize = 3;
 pub(super) const FINNY_TABLE_ENTRIES: usize = KING_SQUARES * 2;
 pub(super) const FINNY_PIECE_BITBOARDS: usize = 12;
@@ -58,37 +60,14 @@ pub struct NnueModel {
 #[derive(Clone, Copy, Debug)]
 pub struct NnueOutput {
     pub value_cp: i32,
-    pub uncertainty_mse: f32,
+    pub uncertainty_logit_variance: f32,
     pub wdl: [f32; 3],
 }
 
 impl NnueOutput {
     pub fn uncertainty_cp(self) -> u32 {
-        let rmse = f64::from(self.uncertainty_mse.max(0.0)).sqrt();
-        if rmse == 0.0 {
-            return 0;
-        }
-
-        let value_cp = f64::from(self.value_cp);
-        let value_logit = value_cp / f64::from(SHARD_OUTPUT_SCALE);
-        let probability = 1.0 / (1.0 + (-value_logit).exp());
-        let lower_error = if rmse >= probability {
-            f64::from(WIN_SCORE)
-        } else {
-            let lower_probability = probability - rmse;
-            let lower_logit = (lower_probability / (1.0 - lower_probability)).ln();
-            value_cp - lower_logit * f64::from(SHARD_OUTPUT_SCALE)
-        };
-        let upper_error = if rmse >= 1.0 - probability {
-            f64::from(WIN_SCORE)
-        } else {
-            let upper_probability = probability + rmse;
-            let upper_logit = (upper_probability / (1.0 - upper_probability)).ln();
-            upper_logit * f64::from(SHARD_OUTPUT_SCALE) - value_cp
-        };
-
-        lower_error
-            .max(upper_error)
+        (f64::from(self.uncertainty_logit_variance).sqrt()
+            * f64::from(SHARD_OUTPUT_SCALE))
             .round()
             .clamp(0.0, f64::from(WIN_SCORE)) as u32
     }
