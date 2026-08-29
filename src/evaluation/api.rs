@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+
 use super::types::NnueModel;
 
 pub(crate) type SharedNnueModel = Arc<NnueModel>;

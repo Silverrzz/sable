@@ -430,7 +430,7 @@ fn run_bmt5k() -> Result<()> {
     };
 
     let result = engine.search_with_observer(&request, None, |info| {
-        println!("{}", uci::format_uci_info(&engine, info, false, false));
+        println!("{}", uci::format_uci_info(&engine, info, false));
     })?;
 
     match result.best_move {

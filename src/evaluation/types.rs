@@ -13,18 +13,18 @@ pub(super) const QUEEN_VALUE: i32 = 900;
 pub(super) const PIECE_SQUARE_FEATURES: usize = 768;
 pub(super) const KING_SQUARES: usize = 64;
 pub(super) const SHARD_KING_BUCKETS: usize = 16;
-pub const SHARD_OUTPUT_HEADS: usize = 5;
-pub(super) const SHARD_VALUE_HEAD: usize = 0;
-pub(super) const SHARD_UNCERTAINTY_HEAD: usize = 1;
-pub(super) const SHARD_WIN_HEAD: usize = 2;
-pub(super) const SHARD_DRAW_HEAD: usize = 3;
-pub(super) const SHARD_LOSS_HEAD: usize = 4;
+pub const SHARD_OUTPUT_BUCKETS: usize = 8;
+pub(super) const SHARD_OUTPUT_HEADS: usize = 12;
+pub(super) const SHARD_UNCERTAINTY_HEAD: usize = 8;
+pub(super) const SHARD_WIN_HEAD: usize = 9;
+pub(super) const SHARD_DRAW_HEAD: usize = 10;
+pub(super) const SHARD_LOSS_HEAD: usize = 11;
 pub(super) const SHARD_INPUT_FEATURES: usize = PIECE_SQUARE_FEATURES * SHARD_KING_BUCKETS;
 pub(super) const SHARD_FILE_PADDING_BYTES: usize = 63;
 pub(super) const SHARD_QA: i16 = 255;
 pub(super) const SHARD_QB: i16 = 64;
-pub(super) const SHARD_UNCERTAINTY_QB: i16 = SHARD_QB / 4;
 pub(super) const SHARD_OUTPUT_SCALE: i32 = 400;
+pub(super) const SHARD_UNCERTAINTY_SCALE: i32 = 100;
 pub(super) const SHARD_MIN_LOG_VARIANCE: f32 = -12.0;
 pub(super) const SHARD_MAX_LOG_VARIANCE: f32 = 8.0;
 pub(super) const MAX_MOVE_FEATURE_UPDATES: usize = 3;
@@ -59,15 +59,14 @@ pub struct NnueModel {
 
 #[derive(Clone, Copy, Debug)]
 pub struct NnueOutput {
-    pub value_cp: i32,
-    pub uncertainty_logit_variance: f32,
-    pub wdl: [f32; 3],
+    pub(super) uncertainty_log_variance: f32,
+    pub(super) wdl: [f32; 3],
 }
 
 impl NnueOutput {
     pub fn uncertainty_cp(self) -> u32 {
-        (f64::from(self.uncertainty_logit_variance).sqrt()
-            * f64::from(SHARD_OUTPUT_SCALE))
+        ((f64::from(self.uncertainty_log_variance) * 0.5).exp()
+            * f64::from(SHARD_UNCERTAINTY_SCALE))
             .round()
             .clamp(0.0, f64::from(WIN_SCORE)) as u32
     }
@@ -81,7 +80,6 @@ impl NnueOutput {
     }
 
     pub fn flipped(mut self) -> Self {
-        self.value_cp = -self.value_cp;
         self.wdl.swap(0, 2);
         self
     }

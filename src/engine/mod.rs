@@ -6,12 +6,6 @@ use std::sync::{Arc, atomic::AtomicBool};
 
 pub use verbose_eval::{VerboseEval, VerboseEvalSquare};
 
-#[derive(Clone, Copy, Debug)]
-pub enum PvLeafOutput {
-    Nnue(NnueOutput),
-    Terminal([u32; 3]),
-}
-
 use crate::{
     Board, Color, EngineError, EngineOptions, GameStatus, Move,
     chess::{board_from_fen, generate_moves},
@@ -32,6 +26,12 @@ use crate::{
 use shared_state::SharedSearchState;
 use time_budget::compute_search_budget;
 use verbose_eval::build_verbose_eval;
+
+#[derive(Clone, Copy, Debug)]
+pub enum PvLeafOutput {
+    Nnue(NnueOutput),
+    Terminal([u32; 3]),
+}
 
 #[derive(Clone, Debug)]
 pub struct Engine {

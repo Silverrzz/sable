@@ -1,7 +1,7 @@
 use anyhow::Result;
 use sable_engine::{
-    Engine, SPSA_UCI_OPTIONS_ENABLED, embedded_eval_hash, embedded_eval_label, has_embedded_eval,
-    spsa_parameters,
+    Engine, PvLeafOutput, SPSA_UCI_OPTIONS_ENABLED, embedded_eval_hash, embedded_eval_label,
+    has_embedded_eval, spsa_parameters,
 };
 use std::io::{self, Write};
 
@@ -29,10 +29,7 @@ pub(super) fn write_uci_identification(stdout: &mut io::Stdout, engine: &Engine)
     writeln!(stdout, "option name UseSoftNodes type check default false")?;
     writeln!(stdout, "option name UCI_Chess960 type check default false")?;
     writeln!(stdout, "option name UCI_ShowWDL type check default false")?;
-    writeln!(
-        stdout,
-        "option name UCI_ShowUncertainty type check default false"
-    )?;
+    writeln!(stdout, "option name UCI_ShowUncertainty type check default false")?;
     if SPSA_UCI_OPTIONS_ENABLED {
         for parameter in spsa_parameters() {
             writeln!(
@@ -93,8 +90,8 @@ pub(crate) fn format_uci_info(
     engine: &Engine,
     info: &sable_engine::SearchInfo,
     show_wdl: bool,
-    show_uncertainty: bool,
 ) -> String {
+    let show_uncertainty = engine.show_uncertainty_option_value();
     let elapsed_ms = info.time_ms;
     let depth = info.depth;
     let seldepth = info.seldepth;
@@ -115,8 +112,8 @@ pub(crate) fn format_uci_info(
         .then_some(leaf_output)
         .flatten()
         .and_then(|output| match output {
-            sable_engine::PvLeafOutput::Nnue(output) => Some(output.uncertainty_cp()),
-            sable_engine::PvLeafOutput::Terminal(_) => None,
+            PvLeafOutput::Nnue(output) => Some(output.uncertainty_cp()),
+            PvLeafOutput::Terminal(_) => None,
         })
         .map(|uncertainty| format!(" unc {uncertainty}"))
         .unwrap_or_default();
@@ -167,7 +164,7 @@ pub(super) fn eval_source_label(source: sable_engine::StaticEvalSource) -> &'sta
 
 fn format_wdl(
     info: &sable_engine::SearchInfo,
-    leaf_output: Option<sable_engine::PvLeafOutput>,
+    leaf_output: Option<PvLeafOutput>,
 ) -> Option<[u32; 3]> {
     if let Some(mate) = info.score_mate {
         return Some(if mate > 0 {
@@ -179,8 +176,8 @@ fn format_wdl(
         });
     }
     leaf_output.map(|output| match output {
-        sable_engine::PvLeafOutput::Nnue(output) => output.wdl_permille(),
-        sable_engine::PvLeafOutput::Terminal(wdl) => wdl,
+        PvLeafOutput::Nnue(output) => output.wdl_permille(),
+        PvLeafOutput::Terminal(wdl) => wdl,
     })
 }
 
@@ -216,8 +213,30 @@ pub(super) fn format_verbose_eval(veval: &sable_engine::VerboseEval) -> String {
         push_value_rank(&mut out, veval, rank);
     }
     out.push_str(sep);
+    push_output_bucket_values(&mut out, veval);
     push_verbose_eval_summary(&mut out, veval);
     out
+}
+
+fn push_output_bucket_values(out: &mut String, veval: &sable_engine::VerboseEval) {
+    let Some(values) = veval.nnue_output_bucket_values_white_cp else {
+        return;
+    };
+    let piece_count = veval.squares.iter().flatten().count();
+    let active = (piece_count.saturating_sub(2) / 4).min(values.len() - 1);
+
+    out.push_str("\n NNUE output buckets (white side):\n");
+    out.push_str(" +--------+------------+--------+\n");
+    out.push_str(" | Bucket | Evaluation | Active |\n");
+    out.push_str(" +--------+------------+--------+\n");
+    for (bucket, value_cp) in values.into_iter().enumerate() {
+        let value_pawns = value_cp as f32 / 100.0;
+        let marker = if bucket == active { "yes" } else { "" };
+        out.push_str(&format!(
+            " | {bucket:>6} | {value_pawns:>+10.2} | {marker:^6} |\n"
+        ));
+    }
+    out.push_str(" +--------+------------+--------+\n");
 }
 
 fn push_piece_rank(out: &mut String, veval: &sable_engine::VerboseEval, rank: u8) {

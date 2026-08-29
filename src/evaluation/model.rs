@@ -443,7 +443,7 @@ impl NnueModel {
         board: &Board,
         accumulators: &NnueAccumulators,
     ) -> i32 {
-        let output = self.evaluate_output_head_quantised(board, accumulators, SHARD_VALUE_HEAD);
+        let output = self.evaluate_output_head_quantised(board, accumulators, output_bucket(board));
         quantised_output_to_cp(output)
     }
 
@@ -454,12 +454,20 @@ impl NnueModel {
         self.output_with_accumulators(board, &accumulators)
     }
 
-    pub fn output_with_accumulators(
+    pub fn output_bucket_values(&self, board: &Board) -> [i32; SHARD_OUTPUT_BUCKETS] {
+        let accumulators = self
+            .initial_accumulators(board)
+            .expect("valid shard NNUE model should produce accumulators");
+        std::array::from_fn(|head| {
+            quantised_output_to_cp(self.evaluate_output_head_quantised(board, &accumulators, head))
+        })
+    }
+
+    fn output_with_accumulators(
         &self,
         board: &Board,
         accumulators: &NnueAccumulators,
     ) -> NnueOutput {
-        let value = self.evaluate_output_head_quantised(board, accumulators, SHARD_VALUE_HEAD);
         let log_variance =
             self.evaluate_output_head_quantised(board, accumulators, SHARD_UNCERTAINTY_HEAD);
         let logits = [
@@ -468,13 +476,8 @@ impl NnueModel {
             self.evaluate_output_head_quantised(board, accumulators, SHARD_LOSS_HEAD),
         ];
         NnueOutput {
-            value_cp: quantised_output_to_cp(value),
-            uncertainty_logit_variance: dequantise_output(
-                log_variance,
-                SHARD_UNCERTAINTY_QB,
-            )
-                .clamp(SHARD_MIN_LOG_VARIANCE, SHARD_MAX_LOG_VARIANCE)
-                .exp(),
+            uncertainty_log_variance: dequantise_output(log_variance, SHARD_QB)
+                .clamp(SHARD_MIN_LOG_VARIANCE, SHARD_MAX_LOG_VARIANCE),
             wdl: softmax_outputs(logits),
         }
     }
@@ -621,6 +624,12 @@ fn quantised_output_to_cp(mut output: i64) -> i32 {
     output *= i64::from(SHARD_OUTPUT_SCALE);
     output /= i64::from(SHARD_QA) * i64::from(SHARD_QB);
     output.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+}
+
+fn output_bucket(board: &Board) -> usize {
+    let piece_count = crate::chess::colors(board, Color::White).len()
+        + crate::chess::colors(board, Color::Black).len();
+    ((piece_count.saturating_sub(2) / 4) as usize).min(SHARD_OUTPUT_BUCKETS - 1)
 }
 
 fn dequantise_output(output: i64, qb: i16) -> f32 {

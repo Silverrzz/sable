@@ -8,6 +8,7 @@ mod types;
 pub use api::{embedded_eval_hash, embedded_eval_label, has_embedded_eval};
 pub use types::{
     NnueAccumulators, NnueArchitectureId, NnueModel, NnueOutput, PieceContribution,
+    SHARD_OUTPUT_BUCKETS,
 };
 
 pub(crate) use evaluator::Evaluator;
