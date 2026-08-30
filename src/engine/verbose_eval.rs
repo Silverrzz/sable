@@ -1,6 +1,9 @@
 use crate::{
     Board, Color, Piece,
-    evaluation::{Evaluator, PieceContribution, SHARD_OUTPUT_BUCKETS, material_score_for_white},
+    evaluation::{
+        Evaluator, NnueOutput, PieceContribution, SHARD_OUTPUT_BUCKETS,
+        material_score_for_white,
+    },
     pieces::ALL_PIECES,
     search::{StaticEval, StaticEvalSource},
 };
@@ -19,6 +22,7 @@ pub struct VerboseEval {
     pub material_score_white_cp: i32,
     pub nnue_score_white_cp: Option<i32>,
     pub nnue_output_bucket_values_white_cp: Option<[i32; SHARD_OUTPUT_BUCKETS]>,
+    pub nnue_output: Option<NnueOutput>,
     pub final_score_stm_cp: i32,
     pub side_to_move: Color,
     pub source: StaticEvalSource,
@@ -37,6 +41,10 @@ pub(super) fn build_verbose_eval(
     let nnue_score_white_cp = nnue_score_for_white(board, static_eval);
     let nnue_output_bucket_values_white_cp =
         nnue_output_bucket_values_for_white(board, evaluator, static_eval.source);
+    let nnue_output = evaluator
+        .active_nnue_model()
+        .filter(|_| static_eval.source == StaticEvalSource::Nnue)
+        .map(|model| model.output(board));
     let piece_contributions = nnue_piece_contributions(board, evaluator, static_eval.source);
 
     VerboseEval {
@@ -46,6 +54,7 @@ pub(super) fn build_verbose_eval(
         material_score_white_cp,
         nnue_score_white_cp,
         nnue_output_bucket_values_white_cp,
+        nnue_output,
         final_score_stm_cp: static_eval.score_cp,
         side_to_move: crate::chess::side_to_move(board),
         source: static_eval.source,

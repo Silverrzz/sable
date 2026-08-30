@@ -14,12 +14,19 @@ pub(super) const PIECE_SQUARE_FEATURES: usize = 768;
 pub(super) const KING_SQUARES: usize = 64;
 pub(super) const SHARD_KING_BUCKETS: usize = 16;
 pub const SHARD_OUTPUT_BUCKETS: usize = 8;
+pub(super) const SHARD_OUTPUT_HEADS: usize = 12;
+pub(super) const SHARD_UNCERTAINTY_HEAD: usize = 8;
+pub(super) const SHARD_WIN_HEAD: usize = 9;
+pub(super) const SHARD_DRAW_HEAD: usize = 10;
+pub(super) const SHARD_LOSS_HEAD: usize = 11;
 pub(super) const SHARD_INPUT_FEATURES: usize = PIECE_SQUARE_FEATURES * SHARD_KING_BUCKETS;
-pub(super) const SHARD_HEADER_BYTES: usize = 180;
 pub(super) const SHARD_FILE_PADDING_BYTES: usize = 63;
 pub(super) const SHARD_QA: i16 = 255;
 pub(super) const SHARD_QB: i16 = 64;
 pub(super) const SHARD_OUTPUT_SCALE: i32 = 400;
+pub(super) const SHARD_UNCERTAINTY_SCALE: i32 = 100;
+pub(super) const SHARD_MIN_LOG_VARIANCE: f32 = -12.0;
+pub(super) const SHARD_MAX_LOG_VARIANCE: f32 = 8.0;
 pub(super) const MAX_MOVE_FEATURE_UPDATES: usize = 3;
 pub(super) const FINNY_TABLE_ENTRIES: usize = KING_SQUARES * 2;
 pub(super) const FINNY_PIECE_BITBOARDS: usize = 12;
@@ -47,7 +54,35 @@ pub struct NnueModel {
     pub(super) bias: Box<[i16]>,
     pub(super) output_weights: Box<[i16]>,
     pub(super) narrow_output_weights: bool,
-    pub(super) output_bias: [i32; SHARD_OUTPUT_BUCKETS],
+    pub(super) output_bias: [i32; SHARD_OUTPUT_HEADS],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct NnueOutput {
+    pub(super) uncertainty_log_variance: f32,
+    pub(super) wdl: [f32; 3],
+}
+
+impl NnueOutput {
+    pub fn uncertainty_cp(self) -> u32 {
+        ((f64::from(self.uncertainty_log_variance) * 0.5).exp()
+            * f64::from(SHARD_UNCERTAINTY_SCALE))
+            .round()
+            .clamp(0.0, f64::from(WIN_SCORE)) as u32
+    }
+
+    pub fn wdl_permille(self) -> [u32; 3] {
+        let win = (self.wdl[0] * 1000.0).round().clamp(0.0, 1000.0) as u32;
+        let draw = (self.wdl[1] * 1000.0)
+            .round()
+            .clamp(0.0, (1000 - win) as f32) as u32;
+        [win, draw, 1000 - win - draw]
+    }
+
+    pub fn flipped(mut self) -> Self {
+        self.wdl.swap(0, 2);
+        self
+    }
 }
 
 #[derive(Clone, Debug)]

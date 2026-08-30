@@ -1,7 +1,7 @@
 use anyhow::Result;
 use sable_engine::{
-    Engine, SPSA_UCI_OPTIONS_ENABLED, embedded_eval_hash, embedded_eval_label, has_embedded_eval,
-    spsa_parameters,
+    Engine, PvLeafOutput, SPSA_UCI_OPTIONS_ENABLED, embedded_eval_hash, embedded_eval_label,
+    has_embedded_eval, spsa_parameters,
 };
 use std::io::{self, Write};
 
@@ -29,6 +29,7 @@ pub(super) fn write_uci_identification(stdout: &mut io::Stdout, engine: &Engine)
     writeln!(stdout, "option name UseSoftNodes type check default false")?;
     writeln!(stdout, "option name UCI_Chess960 type check default false")?;
     writeln!(stdout, "option name UCI_ShowWDL type check default false")?;
+    writeln!(stdout, "option name UCI_ShowUncertainty type check default false")?;
     if SPSA_UCI_OPTIONS_ENABLED {
         for parameter in spsa_parameters() {
             writeln!(
@@ -90,6 +91,7 @@ pub(crate) fn format_uci_info(
     info: &sable_engine::SearchInfo,
     show_wdl: bool,
 ) -> String {
+    let show_uncertainty = engine.show_uncertainty_option_value();
     let elapsed_ms = info.time_ms;
     let depth = info.depth;
     let seldepth = info.seldepth;
@@ -98,12 +100,23 @@ pub(crate) fn format_uci_info(
         .multi_pv
         .map(|idx| format!(" multipv {idx}"))
         .unwrap_or_default();
-    let wdl = if show_wdl {
-        let (win, draw, loss) = format_wdl(info);
-        format!(" wdl {win} {draw} {loss}")
-    } else {
-        String::new()
-    };
+    let leaf_output = (show_wdl || show_uncertainty)
+        .then(|| engine.pv_leaf_output(&info.pv))
+        .flatten();
+    let wdl = show_wdl
+        .then(|| format_wdl(info, leaf_output))
+        .flatten()
+        .map(|[win, draw, loss]| format!(" wdl {win} {draw} {loss}"))
+        .unwrap_or_default();
+    let uncertainty = show_uncertainty
+        .then_some(leaf_output)
+        .flatten()
+        .and_then(|output| match output {
+            PvLeafOutput::Nnue(output) => Some(output.uncertainty_cp()),
+            PvLeafOutput::Terminal(_) => None,
+        })
+        .map(|uncertainty| format!(" unc {uncertainty}"))
+        .unwrap_or_default();
     let nodes = info.nodes;
     let nps = info.nps;
     let hashfull = info.hashfull;
@@ -114,7 +127,7 @@ pub(crate) fn format_uci_info(
         format!(" pv {pv}")
     };
     format!(
-        "info depth {depth} seldepth {seldepth}{multi_pv} {score}{wdl} nodes {nodes} nps {nps} tbhits 0 hashfull {hashfull} time {elapsed_ms}{pv}",
+        "info depth {depth} seldepth {seldepth}{multi_pv} {score}{wdl}{uncertainty} nodes {nodes} nps {nps} tbhits 0 hashfull {hashfull} time {elapsed_ms}{pv}",
     )
 }
 
@@ -149,23 +162,23 @@ pub(super) fn eval_source_label(source: sable_engine::StaticEvalSource) -> &'sta
     }
 }
 
-fn format_wdl(info: &sable_engine::SearchInfo) -> (u32, u32, u32) {
+fn format_wdl(
+    info: &sable_engine::SearchInfo,
+    leaf_output: Option<PvLeafOutput>,
+) -> Option<[u32; 3]> {
     if let Some(mate) = info.score_mate {
-        return if mate > 0 {
-            (1000, 0, 0)
+        return Some(if mate > 0 {
+            [1000, 0, 0]
         } else if mate < 0 {
-            (0, 0, 1000)
+            [0, 0, 1000]
         } else {
-            (0, 1000, 0)
-        };
+            [0, 1000, 0]
+        });
     }
-    let cp = normalize_uci_cp(info.score_cp).clamp(-2000, 2000) as f64;
-    let decisive = 1.0 / (1.0 + (-cp / 180.0).exp());
-    let draw = (350.0 * (-cp.abs() / 400.0).exp()).round() as u32;
-    let remaining = 1000_u32.saturating_sub(draw);
-    let win = ((remaining as f64) * decisive).round() as u32;
-    let loss = 1000_u32.saturating_sub(draw).saturating_sub(win);
-    (win, draw, loss)
+    leaf_output.map(|output| match output {
+        PvLeafOutput::Nnue(output) => output.wdl_permille(),
+        PvLeafOutput::Terminal(wdl) => wdl,
+    })
 }
 
 fn piece_letter(piece: sable_engine::Piece, color: sable_engine::Color) -> char {
@@ -295,6 +308,17 @@ fn push_verbose_eval_summary(out: &mut String, veval: &sable_engine::VerboseEval
         let nnue_pawns = nnue_cp as f32 / 100.0;
         out.push_str(&format!(
             " NNUE evaluation     {nnue_pawns:+.2} (white side)\n"
+        ));
+    }
+
+    if let Some(nnue_output) = veval.nnue_output {
+        let [win, draw, loss] = nnue_output.wdl_permille();
+        out.push_str(&format!(
+            " NNUE uncertainty    +/-{} cp (estimated error range, side to move)\n",
+            nnue_output.uncertainty_cp()
+        ));
+        out.push_str(&format!(
+            " NNUE WDL            {win} {draw} {loss} (side to move)\n"
         ));
     }
 
