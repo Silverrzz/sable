@@ -130,6 +130,43 @@ impl MoveOrdering {
         score.clamp(-MAX_HISTORY_SCORE, MAX_HISTORY_SCORE)
     }
 
+    pub(in crate::search) fn reduction_adjustment(
+        &self,
+        board: &Board,
+        mv: Move,
+        previous_move: Option<Move>,
+        ply: u16,
+    ) -> i32 {
+        let side = crate::chess::side_to_move(board);
+        let history = self.history[Self::quiet_history_index(board, side, mv)];
+        let continuation = previous_move.map_or(0, |previous| {
+            self.continuation_history[Self::continuation_index(
+                side as usize,
+                previous.to as usize,
+                mv.from as usize,
+                mv.to as usize,
+            )]
+        });
+        let history_adjustment = (i64::from(history) * i64::from(LMR_HISTORY_WEIGHT())
+            + i64::from(continuation) * i64::from(LMR_CONTINUATION_HISTORY_WEIGHT()))
+            / i64::from(LMR_HISTORY_DIVISOR());
+        let limit = i64::from(LMR_HISTORY_MAX_ADJUSTMENT());
+        let mut adjustment = history_adjustment.clamp(-limit, limit) as i32;
+        if self.killers[ordering_ply(ply)].contains(&Some(mv)) {
+            adjustment += LMR_KILLER_PROTECTION();
+        }
+        if let Some(previous) = previous_move
+            && self.counter_moves[Self::counter_move_index(
+                side as usize,
+                previous.from as usize,
+                previous.to as usize,
+            )] == Some(mv)
+        {
+            adjustment += LMR_COUNTER_MOVE_PROTECTION();
+        }
+        adjustment
+    }
+
     pub(in crate::search) fn capture_score(
         &self,
         side: Color,
@@ -464,8 +501,11 @@ impl MovePicker {
         }
     }
 
-    pub(in crate::search) fn take_scored(&mut self, index: usize, score: i32) -> ScoredMove {
+    pub(in crate::search) fn record_searched(&mut self, index: usize) {
         self.searched_indices.push(index as u8);
+    }
+
+    pub(in crate::search) fn take_scored(&self, index: usize, score: i32) -> ScoredMove {
         let candidate = self.get(index);
         ScoredMove {
             mv: candidate.mv,

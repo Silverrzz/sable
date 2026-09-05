@@ -483,7 +483,9 @@ pub(in crate::search) fn negamax(
                 in_check,
                 gives_check,
                 static_eval.improving,
-                ordered.score,
+                || {
+                    context.ordering().reduction_adjustment(board, ordered.mv, previous_move, ply)
+                },
             )
         };
         let scout_beta = alpha.saturating_neg();
@@ -578,6 +580,7 @@ pub(in crate::search) fn negamax(
             captures_tried += 1;
         }
         searched_moves += 1;
+        moves.record_searched(ordered.ordinal);
         let child_score = -child.score;
         if is_better_score(child_score, child.repetition_draw, &best) {
             best = parent_outcome(ordered.mv, child);
