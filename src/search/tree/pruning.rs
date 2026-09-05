@@ -38,39 +38,34 @@ pub(in crate::search) fn late_move_reduction(
     in_check: bool,
     gives_check: bool,
     improving: bool,
-    move_score: i32,
+    history_adjustment: impl FnOnce() -> i32,
 ) -> u32 {
     let minimum_searched_moves = if is_pv_node { 3 } else { 1 };
     if depth < LMR_MIN_DEPTH()
         || searched_moves < minimum_searched_moves
         || !is_quiet
-        || move_score >= COUNTER_MOVE_SCORE
     {
         return 0;
     }
 
     let move_number = searched_moves.saturating_add(1);
-    let mut reduction = 1 + depth.ilog2().saturating_mul(move_number.ilog2()) / 4;
+    let mut reduction = LMR_BASE()
+        + depth.ilog2() as i32 * move_number.ilog2() as i32 * LMR_DEPTH_MOVE_WEIGHT();
     if !is_pv_node {
-        reduction += 1;
+        reduction += LMR_SCALE;
     }
     if !in_check && !improving {
-        reduction += 1;
+        reduction += LMR_SCALE;
     }
     if in_check {
-        reduction = reduction.saturating_sub(1);
+        reduction -= LMR_SCALE;
     }
     if gives_check {
-        reduction = reduction.saturating_sub(SPARSE_ENDGAME_QUIET_CHECK_LMR_PROTECTION());
+        reduction -= SPARSE_ENDGAME_QUIET_CHECK_LMR_PROTECTION() as i32 * LMR_SCALE;
     }
 
-    let history_adjustment = move_score / 4_000_000;
-    if history_adjustment > 0 {
-        reduction = reduction.saturating_sub(history_adjustment as u32);
-    } else {
-        reduction = reduction.saturating_add(history_adjustment.unsigned_abs());
-    }
-
+    reduction -= history_adjustment();
+    let reduction = ((reduction.max(0) + LMR_SCALE / 2) / LMR_SCALE) as u32;
     reduction.min(depth.saturating_sub(1))
 }
 

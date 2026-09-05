@@ -15,6 +15,7 @@ pub(super) const FIRST_KILLER_SCORE: i32 = 800_000_000;
 pub(super) const SECOND_KILLER_SCORE: i32 = 799_000_000;
 pub(super) const COUNTER_MOVE_SCORE: i32 = 790_000_000;
 pub(super) const MAX_HISTORY_SCORE: i32 = 8_000_000;
+pub(super) const LMR_SCALE: i32 = 1024;
 pub(super) const CORRECTION_HISTORY_UPDATE_DIVISOR: i32 = 466;
 pub(super) const CORRECTION_HISTORY_PAWN_WEIGHT: i32 = 262;
 pub(super) const CORRECTION_HISTORY_BUCKETS: usize = 16_384;
@@ -122,6 +123,14 @@ define_tunable_parameters!(
     (DOUBLE_SINGULAR_EXTENSION_BASE_MARGIN, double_singular_extension_base_margin_parameter, i32, 0, 0, 256, 16.0),
     (TRIPLE_SINGULAR_EXTENSION_BASE_MARGIN, triple_singular_extension_base_margin_parameter, i32, 118, 90, 150, 12.0),
     (LMR_MIN_DEPTH, lmr_min_depth_parameter, u32, 3, 2, 8, 0.5),
+    (LMR_BASE, lmr_base_parameter, i32, 1024, 0, 2048, 64.0),
+    (LMR_DEPTH_MOVE_WEIGHT, lmr_depth_move_weight_parameter, i32, 256, 0, 512, 16.0),
+    (LMR_HISTORY_WEIGHT, lmr_history_weight_parameter, i32, 1024, 0, 2048, 64.0),
+    (LMR_CONTINUATION_HISTORY_WEIGHT, lmr_continuation_history_weight_parameter, i32, 512, 0, 2048, 64.0),
+    (LMR_HISTORY_DIVISOR, lmr_history_divisor_parameter, i32, 2048, 512, 8192, 128.0),
+    (LMR_HISTORY_MAX_ADJUSTMENT, lmr_history_max_adjustment_parameter, i32, 2048, 0, 4096, 128.0),
+    (LMR_KILLER_PROTECTION, lmr_killer_protection_parameter, i32, 512, 0, 2048, 64.0),
+    (LMR_COUNTER_MOVE_PROTECTION, lmr_counter_move_protection_parameter, i32, 256, 0, 2048, 64.0),
     (SPARSE_ENDGAME_QUIET_CHECK_LMR_PROTECTION, sparse_endgame_quiet_check_lmr_protection_parameter, u32, 0, 0, 4, 0.5),
     (PROBCUT_MIN_DEPTH, probcut_min_depth_parameter, u32, 8, 2, 12, 1.0),
     (PROBCUT_MARGIN, probcut_margin_parameter, i32, 233, 0, 500, 20.0),
@@ -197,6 +206,14 @@ static SPSA_PARAMETERS: &[fn() -> &'static TunableParameter] = &[
     correction_history_previous_update_scale_parameter,
     correction_history_same_side_update_scale_parameter,
     aspiration_initial_window_parameter,
+    lmr_base_parameter,
+    lmr_depth_move_weight_parameter,
+    lmr_history_weight_parameter,
+    lmr_continuation_history_weight_parameter,
+    lmr_history_divisor_parameter,
+    lmr_history_max_adjustment_parameter,
+    lmr_killer_protection_parameter,
+    lmr_counter_move_protection_parameter,
     singular_extension_base_margin_parameter,
     triple_singular_extension_base_margin_parameter,
     q_delta_pruning_margin_parameter,
