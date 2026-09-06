@@ -13,6 +13,7 @@ const PAWN_ATTACKS: [[u64; 64]; 2] = build_pawn_attacks();
 const KNIGHT_ATTACKS: [u64; 64] = build_knight_attacks();
 const KING_ATTACKS: [u64; 64] = build_king_attacks();
 static BETWEEN: [[u64; 64]; 64] = build_between();
+static LINES: [[u64; 64]; 64] = build_lines();
 
 include!(concat!(env!("OUT_DIR"), "/attack_tables.rs"));
 
@@ -61,12 +62,7 @@ pub(crate) fn between_squares(a: Square, b: Square) -> BitBoard {
 
 #[inline]
 pub(crate) fn line_squares(a: Square, b: Square) -> BitBoard {
-    let between = BETWEEN[a as usize][b as usize];
-    if between != 0 || a == b || same_line(a as usize, b as usize) {
-        BitBoard(between | a.bitboard().0 | b.bitboard().0)
-    } else {
-        BitBoard::EMPTY
-    }
+    BitBoard(LINES[a as usize][b as usize])
 }
 
 #[inline]
@@ -176,6 +172,38 @@ const fn build_between() -> [[u64; 64]; 64] {
         from += 1;
     }
     between
+}
+
+const fn build_lines() -> [[u64; 64]; 64] {
+    let mut lines = [[0u64; 64]; 64];
+    let mut from = 0;
+    while from < 64 {
+        let mut to = 0;
+        while to < 64 {
+            if from == to {
+                lines[from][to] = 1u64 << from;
+            } else if same_line(from, to) {
+                let from_file = (from & 7) as i8;
+                let from_rank = (from >> 3) as i8;
+                let df = signum((to & 7) as i8 - from_file);
+                let dr = signum((to >> 3) as i8 - from_rank);
+                let mut file = from_file;
+                let mut rank = from_rank;
+                while file - df >= 0 && file - df < 8 && rank - dr >= 0 && rank - dr < 8 {
+                    file -= df;
+                    rank -= dr;
+                }
+                while file >= 0 && file < 8 && rank >= 0 && rank < 8 {
+                    lines[from][to] |= 1u64 << (rank as usize * 8 + file as usize);
+                    file += df;
+                    rank += dr;
+                }
+            }
+            to += 1;
+        }
+        from += 1;
+    }
+    lines
 }
 
 const fn build_between_pair(from: usize, to: usize) -> u64 {

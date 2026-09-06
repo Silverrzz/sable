@@ -859,22 +859,49 @@ where
     F: FnMut(PieceMoves) -> bool,
     T: Fn(Piece, Square) -> BitBoard,
 {
+    if movegen.checker_count < 2
+        && (generate_piece_moves(board, movegen, Piece::Pawn, &target_filter, &mut listener)
+            || generate_piece_moves(board, movegen, Piece::Knight, &target_filter, &mut listener)
+            || generate_piece_moves(board, movegen, Piece::Bishop, &target_filter, &mut listener)
+            || generate_piece_moves(board, movegen, Piece::Rook, &target_filter, &mut listener)
+            || generate_piece_moves(board, movegen, Piece::Queen, &target_filter, &mut listener))
+    {
+        return;
+    }
+    generate_piece_moves(board, movegen, Piece::King, &target_filter, &mut listener);
+}
+
+#[inline(always)]
+fn generate_piece_moves<F, T>(
+    board: &Board,
+    movegen: &MoveGenState,
+    piece: Piece,
+    target_filter: &T,
+    listener: &mut F,
+) -> bool
+where
+    F: FnMut(PieceMoves) -> bool,
+    T: Fn(Piece, Square) -> BitBoard,
+{
     let side = board.side_to_move;
-    for piece in ALL_PIECES {
-        for from in colored_pieces(board, side, piece) {
-            let legal_targets =
-                legal_targets_for_piece(board, movegen, side, piece, from, target_filter(piece, from));
-            if !legal_targets.is_empty()
-                && listener(PieceMoves {
-                    piece,
-                    from,
-                    to: legal_targets,
-                })
-            {
-                return;
-            }
+    let mut sources = colored_pieces(board, side, piece);
+    if piece == Piece::Knight {
+        sources -= movegen.pinned;
+    }
+    for from in sources {
+        let legal_targets =
+            legal_targets_for_piece(board, movegen, side, piece, from, target_filter(piece, from));
+        if !legal_targets.is_empty()
+            && listener(PieceMoves {
+                piece,
+                from,
+                to: legal_targets,
+            })
+        {
+            return true;
         }
     }
+    false
 }
 
 pub(crate) struct MoveGenState {
@@ -884,7 +911,7 @@ pub(crate) struct MoveGenState {
     enemy_king: BitBoard,
     checker_count: u32,
     evasion_mask: BitBoard,
-    pin_masks: PinMasks,
+    pinned: BitBoard,
 }
 
 impl MoveGenState {
@@ -902,7 +929,7 @@ impl MoveGenState {
             enemy_king: colored_pieces(board, !side, Piece::King),
             checker_count: king_state.checker_count,
             evasion_mask: king_state.evasion_mask,
-            pin_masks: king_state.pin_masks,
+            pinned: king_state.pinned,
         }
     }
 
@@ -915,7 +942,7 @@ impl MoveGenState {
 struct KingSafetyState {
     checker_count: u32,
     evasion_mask: BitBoard,
-    pin_masks: PinMasks,
+    pinned: BitBoard,
 }
 
 impl KingSafetyState {
@@ -935,19 +962,20 @@ impl KingSafetyState {
         } else {
             BitBoard::FULL
         };
-        let pin_masks = if checker_count >= 2 {
-            PinMasks::default()
+        let pinned = if checker_count >= 2 {
+            BitBoard::EMPTY
         } else {
-            build_pin_masks(board, king_square, occupied, own, enemy)
+            pinned_pieces(board, king_square, occupied, own, enemy)
         };
         Self {
             checker_count,
             evasion_mask,
-            pin_masks,
+            pinned,
         }
     }
 }
 
+#[inline(always)]
 fn legal_targets_for_piece(
     board: &Board,
     state: &MoveGenState,
@@ -968,9 +996,8 @@ fn legal_targets_for_piece(
     targets -= ep_candidates;
     let ep_targets = en_passant_legal_targets(board, from, ep_candidates);
     targets &= state.evasion_mask;
-    let pin_mask = state.pin_masks.mask_for(from);
-    if !pin_mask.is_empty() {
-        targets &= pin_mask;
+    if state.pinned.has(from) {
+        targets &= line_squares(king(board, side), from);
     }
     targets | ep_targets
 }
@@ -978,10 +1005,17 @@ fn legal_targets_for_piece(
 fn legal_king_targets(board: &Board, side: Color, from: Square, target_filter: BitBoard) -> BitBoard {
     let own = colors(board, side);
     let enemy_king = colored_pieces(board, !side, Piece::King);
-    let mut parts = BoardParts::from_board(board);
-    parts.remove_piece(side, Piece::King, from);
-    let enemy_attacks = parts.attacked_squares(!side);
-    let mut legal = (((get_king_moves(from) - own) - enemy_king) - enemy_attacks) & target_filter;
+    let candidates = ((get_king_moves(from) - own) - enemy_king) & target_filter;
+    let mut legal = BitBoard::EMPTY;
+    if !candidates.is_empty() {
+        let mut parts = BoardParts::from_board(board);
+        parts.remove_piece(side, Piece::King, from);
+        for to in candidates {
+            if !parts.is_square_attacked(to, !side) {
+                legal |= to.bitboard();
+            }
+        }
+    }
     for to in pseudo_castling_targets(board, side, from) & target_filter {
         let mv = Move {
             from,
@@ -1020,53 +1054,15 @@ fn en_passant_legal_targets(board: &Board, from: Square, ep_candidates: BitBoard
     legal
 }
 
-#[derive(Clone, Copy)]
-struct PinMasks {
-    squares: [Square; 8],
-    masks: [BitBoard; 8],
-    len: u8,
-}
-
-impl Default for PinMasks {
-    fn default() -> Self {
-        Self {
-            squares: [Square::A1; 8],
-            masks: [BitBoard::EMPTY; 8],
-            len: 0,
-        }
-    }
-}
-
-impl PinMasks {
-    #[inline]
-    fn push(&mut self, square: Square, mask: BitBoard) {
-        debug_assert!((self.len as usize) < self.squares.len());
-        let index = self.len as usize;
-        self.squares[index] = square;
-        self.masks[index] = mask;
-        self.len += 1;
-    }
-
-    #[inline]
-    fn mask_for(&self, square: Square) -> BitBoard {
-        for index in 0..self.len as usize {
-            if self.squares[index] == square {
-                return self.masks[index];
-            }
-        }
-        BitBoard::EMPTY
-    }
-}
-
 #[inline]
-fn build_pin_masks(
+fn pinned_pieces(
     board: &Board,
     king_square: Square,
     occupied: BitBoard,
     own: BitBoard,
     enemy: BitBoard,
-) -> PinMasks {
-    let mut masks = PinMasks::default();
+) -> BitBoard {
+    let mut pinned = BitBoard::EMPTY;
     let enemy_orthogonal_sliders =
         enemy & (pieces(board, Piece::Rook) | pieces(board, Piece::Queen));
     let enemy_diagonal_sliders =
@@ -1076,19 +1072,14 @@ fn build_pin_masks(
         | (get_bishop_moves(king_square, xray_occupied) & enemy_diagonal_sliders);
     for sniper in snipers {
         let blockers = between_squares(king_square, sniper) & occupied;
-        if blockers.len() != 1 {
-            continue;
-        }
-        let pinned = blockers
-            .next_square()
-            .expect("single blocker is present for pin candidate");
-        if own.has(pinned) {
-            masks.push(pinned, line_squares(king_square, sniper) - king_square.bitboard());
+        if blockers.0 != 0 && blockers.0 & blockers.0.wrapping_sub(1) == 0 {
+            pinned |= blockers & own;
         }
     }
-    masks
+    pinned
 }
 
+#[inline(always)]
 fn pseudo_targets(
     board: &Board,
     state: &MoveGenState,
@@ -1376,9 +1367,6 @@ fn castling_move(
 
 fn is_castle_path_safe(board: &Board, side: Color, castle: CastleMove) -> bool {
     let enemy = !side;
-    if is_square_attacked(board, king(board, side), enemy) {
-        return false;
-    }
     if !is_castle_path_clear(board, side, castle) {
         return false;
     }
@@ -1413,36 +1401,12 @@ fn is_castle_path_clear(board: &Board, side: Color, castle: CastleMove) -> bool 
         },
         king_from.rank(),
     );
-    castle_line_clear(board, king_from, castle.king_to, king_from, castle.rook)
-        && castle_line_clear(board, castle.rook, rook_to, king_from, castle.rook)
-}
-
-fn castle_line_clear(
-    board: &Board,
-    from: Square,
-    to: Square,
-    king_from: Square,
-    rook_from: Square,
-) -> bool {
-    let from_file = from.file() as i8;
-    let to_file = to.file() as i8;
-    if from_file == to_file {
-        return true;
-    }
-    let step = if to_file > from_file { 1 } else { -1 };
-    let rank = from.rank();
-    let mut file_idx = from_file + step;
-    while file_idx != to_file + step {
-        let Some(file) = File::try_index(file_idx as usize) else {
-            return false;
-        };
-        let square = Square::new(file, rank);
-        if square != king_from && square != rook_from && piece_on(board, square).is_some() {
-            return false;
-        }
-        file_idx += step;
-    }
-    true
+    let paths = between_squares(king_from, castle.king_to)
+        | castle.king_to.bitboard()
+        | between_squares(castle.rook, rook_to)
+        | rook_to.bitboard();
+    let blockers = occupied(board) - king_from.bitboard() - castle.rook.bitboard();
+    paths.is_disjoint(blockers)
 }
 
 fn parse_piece_placement(board: &mut Board, placement: &str) -> Result<(), FenParseError> {
