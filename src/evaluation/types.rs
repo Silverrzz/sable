@@ -65,10 +65,7 @@ pub struct NnueOutput {
 
 impl NnueOutput {
     pub fn uncertainty_cp(self) -> u32 {
-        ((f64::from(self.uncertainty_log_variance) * 0.5).exp()
-            * f64::from(SHARD_UNCERTAINTY_SCALE))
-            .round()
-            .clamp(0.0, f64::from(WIN_SCORE)) as u32
+        uncertainty_cp_from_log_variance(self.uncertainty_log_variance)
     }
 
     pub fn wdl_permille(self) -> [u32; 3] {
@@ -83,6 +80,12 @@ impl NnueOutput {
         self.wdl.swap(0, 2);
         self
     }
+}
+
+pub(super) fn uncertainty_cp_from_log_variance(log_variance: f32) -> u32 {
+    ((f64::from(log_variance) * 0.5).exp() * f64::from(SHARD_UNCERTAINTY_SCALE))
+        .round()
+        .clamp(0.0, f64::from(WIN_SCORE)) as u32
 }
 
 #[derive(Clone, Debug)]

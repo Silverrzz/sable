@@ -329,6 +329,19 @@ impl<'a> SearchContext<'a> {
         evaluate_position(board, &self.eval.evaluator)
     }
 
+    pub(in crate::search) fn uncertainty_cp(&mut self, board: &Board) -> Option<i32> {
+        if !self.eval.stack.is_empty() {
+            self.materialize_eval_stack();
+        }
+        let model = self.eval.evaluator.active_nnue_model()?;
+        let uncertainty = if let Some(accumulators) = self.eval.stack.get(self.eval.ply) {
+            model.uncertainty_cp_with_accumulators(board, accumulators)
+        } else {
+            model.output(board).uncertainty_cp()
+        };
+        Some(uncertainty as i32)
+    }
+
     pub(in crate::search) fn refresh_static_eval_at_ply(
         &mut self,
         board: &Board,

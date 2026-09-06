@@ -1,6 +1,6 @@
 mod tt;
 
-use crate::{Board, Color, Move, chess::MoveGenState};
+use crate::{Board, Color, Move, Piece, chess::MoveGenState};
 
 use super::{
     pruning::{
@@ -137,11 +137,56 @@ pub(in crate::search) fn negamax(
         improving,
     };
 
+    let non_pawn_material = crate::chess::pieces(board, Piece::Knight)
+        | crate::chess::pieces(board, Piece::Bishop)
+        | crate::chess::pieces(board, Piece::Rook)
+        | crate::chess::pieces(board, Piece::Queen);
+    let use_search_uncertainty = [Color::White, Color::Black]
+        .into_iter()
+        .all(|side| !(crate::chess::colors(board, side) & non_pawn_material).is_empty());
+    let mut uncertainty_cp = None;
     if static_eval.can_prune
         && let Some(eval) = static_eval.corrected
     {
-        if let Some(score) = should_reverse_futility_prune(depth, eval, beta) {
-            return Some(terminal_outcome(score, false));
+        let uncertainty_scale = RFP_UNCERTAINTY_SCALE();
+        let uncertainty_cap = RFP_UNCERTAINTY_MAX_MARGIN();
+        let use_uncertainty = use_search_uncertainty
+            && uncertainty_scale > 0
+            && uncertainty_cap > 0
+            && depth >= RFP_UNCERTAINTY_MIN_DEPTH()
+            && depth <= RFP_UNCERTAINTY_MAX_DEPTH();
+        let base_margin = REVERSE_FUTILITY_BASE_MARGIN();
+        let minimum_base_margin = if use_uncertainty { 0 } else { base_margin };
+        if let Some(score) = should_reverse_futility_prune(depth, eval, beta, minimum_base_margin) {
+            let uncertainty_margin = if use_uncertainty
+                && score.saturating_sub(uncertainty_cap) < beta
+            {
+                let uncertainty = uncertainty_cp
+                    .get_or_insert_with(|| context.uncertainty_cp(board))
+                    .unwrap_or(0);
+                let uncertainty = crate::evaluation::scale_rule50_score(board, uncertainty).max(0);
+                let margin = (uncertainty.saturating_mul(uncertainty_scale) / 256)
+                    .min(uncertainty_cap);
+                let delta = margin - base_margin;
+                let weight = if delta < 0 {
+                    RFP_UNCERTAINTY_CONFIDENT_WEIGHT()
+                } else {
+                    RFP_UNCERTAINTY_UNCERTAIN_WEIGHT()
+                };
+                let delta = delta.signum()
+                    * (delta.abs() - RFP_UNCERTAINTY_DEADBAND()).max(0);
+                (base_margin + delta * weight / 256).clamp(0, uncertainty_cap)
+            } else {
+                0
+            };
+            if score.saturating_sub(uncertainty_margin) >= beta {
+                let score = if use_uncertainty {
+                    score.saturating_sub(base_margin.max(uncertainty_margin)).max(beta)
+                } else {
+                    score
+                };
+                return Some(terminal_outcome(score, false));
+            }
         }
         if should_try_razoring(depth, eval, alpha) {
             let razor = quiescence(
@@ -356,6 +401,8 @@ pub(in crate::search) fn negamax(
     let mut captures_tried = 0_u32;
     let mut found_move = false;
     let child_depth = depth - 1;
+    let mut uncertainty_adjustment = None;
+    let mut futility_uncertainty_adjustment = None;
     while let Some(ordered) = moves.next(board, context.ordering()) {
         if Some(ordered.mv) == excluded_move {
             continue;
@@ -392,6 +439,25 @@ pub(in crate::search) fn negamax(
             ordered,
             searched_moves,
             gives_check,
+            || {
+                if !use_search_uncertainty || excluded_move.is_some() {
+                    return 0;
+                }
+                *futility_uncertainty_adjustment.get_or_insert_with(|| {
+                    let Some(uncertainty) = *uncertainty_cp
+                        .get_or_insert_with(|| context.uncertainty_cp(board))
+                    else {
+                        return 0;
+                    };
+                    scaled_uncertainty_adjustment(
+                        uncertainty,
+                        FUTILITY_UNCERTAINTY_REFERENCE(),
+                        FUTILITY_UNCERTAINTY_DEADBAND(),
+                        FUTILITY_UNCERTAINTY_CONFIDENT_WEIGHT(),
+                        FUTILITY_UNCERTAINTY_WEIGHT(),
+                    )
+                })
+            },
         ) || see_quiet_prune(
             board,
             ordered,
@@ -455,6 +521,56 @@ pub(in crate::search) fn negamax(
             0
         };
 
+        let reduction = if needs_full_mate_search {
+            0
+        } else {
+            late_move_reduction(
+                depth,
+                searched_moves,
+                is_pv_node,
+                ordered.is_quiet,
+                in_check,
+                gives_check,
+                static_eval.improving,
+                || {
+                    let history =
+                        context.ordering().reduction_adjustment(board, ordered.mv, previous_move, ply);
+                    let uncertainty = if use_search_uncertainty
+                        && !is_pv_node
+                        && !in_check
+                        && !gives_check
+                        && static_eval.raw.is_some()
+                        && excluded_move.is_none()
+                        && depth >= LMR_UNCERTAINTY_MIN_DEPTH()
+                        && depth <= LMR_UNCERTAINTY_MAX_DEPTH()
+                        && searched_moves.saturating_add(1) >= LMR_UNCERTAINTY_MIN_MOVE()
+                    {
+                        *uncertainty_adjustment.get_or_insert_with(|| {
+                            let weight = LMR_UNCERTAINTY_WEIGHT();
+                            let confident_weight = LMR_UNCERTAINTY_CONFIDENT_WEIGHT();
+                            if weight == 0 && confident_weight == 0 {
+                                return 0;
+                            }
+                            let Some(uncertainty) = *uncertainty_cp
+                                .get_or_insert_with(|| context.uncertainty_cp(board))
+                            else {
+                                return 0;
+                            };
+                            scaled_uncertainty_adjustment(
+                                uncertainty,
+                                LMR_UNCERTAINTY_REFERENCE(),
+                                LMR_UNCERTAINTY_DEADBAND(),
+                                confident_weight,
+                                weight,
+                            )
+                        })
+                    } else {
+                        0
+                    };
+                    history + uncertainty
+                },
+            )
+        };
         let next_key = position_key(&next);
         context.transposition_table().prefetch(next_key);
         let next_repetition = context.push_position(&next, next_key);
@@ -472,22 +588,6 @@ pub(in crate::search) fn negamax(
             &[]
         };
         let full_depth = child_depth.saturating_add_signed(extension);
-        let reduction = if needs_full_mate_search {
-            0
-        } else {
-            late_move_reduction(
-                depth,
-                searched_moves,
-                is_pv_node,
-                ordered.is_quiet,
-                in_check,
-                gives_check,
-                static_eval.improving,
-                || {
-                    context.ordering().reduction_adjustment(board, ordered.mv, previous_move, ply)
-                },
-            )
-        };
         let scout_beta = alpha.saturating_neg();
         let scout_alpha = scout_beta.saturating_sub(1);
         let child = if reduction > 0 {
@@ -727,6 +827,19 @@ fn see_quiet_prune(
     is_see_prune_candidate(depth, is_pv_node, searched_moves, see)
 }
 
+fn scaled_uncertainty_adjustment(
+    uncertainty: i32,
+    reference: i32,
+    deadband: i32,
+    confident_weight: i32,
+    uncertain_weight: i32,
+) -> i32 {
+    let delta = uncertainty - reference;
+    let weight = if delta < 0 { confident_weight } else { uncertain_weight };
+    let delta = delta.signum() * (delta.abs() - deadband).max(0);
+    delta * weight / (uncertainty + reference)
+}
+
 fn should_static_prune_quiet(
     static_eval: StaticEvalState,
     depth: u32,
@@ -734,6 +847,7 @@ fn should_static_prune_quiet(
     ordered: ScoredMove,
     searched_moves: u32,
     gives_check: bool,
+    uncertainty_adjustment: impl FnOnce() -> i32,
 ) -> bool {
     if !static_eval.can_prune || !ordered.is_quiet || searched_moves == 0 || gives_check {
         return false;
@@ -741,8 +855,34 @@ fn should_static_prune_quiet(
     let Some(eval) = static_eval.corrected else {
         return false;
     };
-    should_futility_prune_quiet(depth, eval, alpha, ordered.score, static_eval.improving)
-        || should_prune_late_quiet(depth, searched_moves, ordered.score, static_eval.improving)
+    if should_prune_late_quiet(depth, searched_moves, ordered.score, static_eval.improving) {
+        return true;
+    }
+    let weight = FUTILITY_UNCERTAINTY_WEIGHT();
+    let confident_weight = FUTILITY_UNCERTAINTY_CONFIDENT_WEIGHT();
+    if (weight == 0 && confident_weight == 0)
+        || depth < FUTILITY_UNCERTAINTY_MIN_DEPTH()
+        || depth > FUTILITY_UNCERTAINTY_MAX_DEPTH()
+    {
+        return should_futility_prune_quiet(depth, eval, alpha, ordered.score, static_eval.improving);
+    }
+    if should_futility_prune_quiet(
+        depth, eval.saturating_add(weight), alpha, ordered.score, static_eval.improving,
+    ) {
+        return true;
+    }
+    if !should_futility_prune_quiet(
+        depth, eval.saturating_sub(confident_weight), alpha, ordered.score, static_eval.improving,
+    ) {
+        return false;
+    }
+    should_futility_prune_quiet(
+        depth,
+        eval.saturating_add(uncertainty_adjustment()),
+        alpha,
+        ordered.score,
+        static_eval.improving,
+    )
 }
 
 fn record_cutoff_and_failures(

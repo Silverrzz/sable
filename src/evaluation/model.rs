@@ -463,21 +463,41 @@ impl NnueModel {
         })
     }
 
+    pub(crate) fn uncertainty_cp_with_accumulators(
+        &self,
+        board: &Board,
+        accumulators: &NnueAccumulators,
+    ) -> u32 {
+        uncertainty_cp_from_log_variance(
+            self.uncertainty_log_variance_with_accumulators(board, accumulators),
+        )
+    }
+
+    fn uncertainty_log_variance_with_accumulators(
+        &self,
+        board: &Board,
+        accumulators: &NnueAccumulators,
+    ) -> f32 {
+        let log_variance =
+            self.evaluate_output_head_quantised(board, accumulators, SHARD_UNCERTAINTY_HEAD);
+        dequantise_output(log_variance, SHARD_QB)
+            .clamp(SHARD_MIN_LOG_VARIANCE, SHARD_MAX_LOG_VARIANCE)
+    }
+
     fn output_with_accumulators(
         &self,
         board: &Board,
         accumulators: &NnueAccumulators,
     ) -> NnueOutput {
-        let log_variance =
-            self.evaluate_output_head_quantised(board, accumulators, SHARD_UNCERTAINTY_HEAD);
+        let uncertainty_log_variance =
+            self.uncertainty_log_variance_with_accumulators(board, accumulators);
         let logits = [
             self.evaluate_output_head_quantised(board, accumulators, SHARD_WIN_HEAD),
             self.evaluate_output_head_quantised(board, accumulators, SHARD_DRAW_HEAD),
             self.evaluate_output_head_quantised(board, accumulators, SHARD_LOSS_HEAD),
         ];
         NnueOutput {
-            uncertainty_log_variance: dequantise_output(log_variance, SHARD_QB)
-                .clamp(SHARD_MIN_LOG_VARIANCE, SHARD_MAX_LOG_VARIANCE),
+            uncertainty_log_variance,
             wdl: softmax_outputs(logits),
         }
     }

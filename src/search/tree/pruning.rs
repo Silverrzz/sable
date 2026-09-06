@@ -178,8 +178,8 @@ pub(in crate::search) fn requires_full_mate_search(alpha: i32, beta: i32) -> boo
 }
 
 #[inline]
-pub(in crate::search) fn reverse_futility_margin(depth: u32) -> i32 {
-    REVERSE_FUTILITY_BASE_MARGIN()
+pub(in crate::search) fn reverse_futility_margin(depth: u32, base_margin: i32) -> i32 {
+    base_margin
         + REVERSE_FUTILITY_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32)
 }
 
@@ -209,11 +209,12 @@ pub(in crate::search) fn should_reverse_futility_prune(
     depth: u32,
     static_eval: i32,
     beta: i32,
+    base_margin: i32,
 ) -> Option<i32> {
     if depth > REVERSE_FUTILITY_MAX_DEPTH() {
         return None;
     }
-    let score = static_eval.saturating_sub(reverse_futility_margin(depth));
+    let score = static_eval.saturating_sub(reverse_futility_margin(depth, base_margin));
     (score >= beta).then_some(score)
 }
 
