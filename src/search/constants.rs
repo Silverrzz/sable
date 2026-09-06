@@ -106,13 +106,13 @@ macro_rules! define_tunable_parameters {
 }
 
 define_tunable_parameters!(
-    (RFP_UNCERTAINTY_SCALE, rfp_uncertainty_scale_parameter, i32, 64, 0, 192, 8.0),
-    (RFP_UNCERTAINTY_MAX_MARGIN, rfp_uncertainty_max_margin_parameter, i32, 64, 0, 256, 8.0),
+    (RFP_UNCERTAINTY_SCALE, rfp_uncertainty_scale_parameter, i32, 52, 0, 192, 8.0),
+    (RFP_UNCERTAINTY_MAX_MARGIN, rfp_uncertainty_max_margin_parameter, i32, 80, 0, 256, 8.0),
     (RFP_UNCERTAINTY_MIN_DEPTH, rfp_uncertainty_min_depth_parameter, u32, 2, 1, 3, 0.5),
     (RFP_UNCERTAINTY_MAX_DEPTH, rfp_uncertainty_max_depth_parameter, u32, 4, 3, 5, 0.5),
-    (RFP_UNCERTAINTY_CONFIDENT_WEIGHT, rfp_uncertainty_confident_weight_parameter, i32, 192, 0, 384, 16.0),
-    (RFP_UNCERTAINTY_UNCERTAIN_WEIGHT, rfp_uncertainty_uncertain_weight_parameter, i32, 192, 0, 384, 16.0),
-    (RFP_UNCERTAINTY_DEADBAND, rfp_uncertainty_deadband_parameter, i32, 4, 0, 64, 2.0),
+    (RFP_UNCERTAINTY_CONFIDENT_WEIGHT, rfp_uncertainty_confident_weight_parameter, i32, 168, 0, 384, 16.0),
+    (RFP_UNCERTAINTY_UNCERTAIN_WEIGHT, rfp_uncertainty_uncertain_weight_parameter, i32, 135, 0, 384, 16.0),
+    (RFP_UNCERTAINTY_DEADBAND, rfp_uncertainty_deadband_parameter, i32, 2, 0, 64, 2.0),
     (MAX_CORRECTION_HISTORY_SCORE, max_correction_history_score_parameter, i32, 521, 402, 670, 54.0),
     (CORRECTION_HISTORY_MINOR_WEIGHT, correction_history_minor_weight_parameter, i32, 224, 157, 261, 21.0),
     (CORRECTION_HISTORY_NON_PAWN_WEIGHT, correction_history_non_pawn_weight_parameter, i32, 363, 258, 430, 34.0),
@@ -135,13 +135,13 @@ define_tunable_parameters!(
     (DOUBLE_SINGULAR_EXTENSION_BASE_MARGIN, double_singular_extension_base_margin_parameter, i32, 0, 0, 256, 16.0),
     (TRIPLE_SINGULAR_EXTENSION_BASE_MARGIN, triple_singular_extension_base_margin_parameter, i32, 118, 90, 150, 12.0),
     (LMR_MIN_DEPTH, lmr_min_depth_parameter, u32, 3, 2, 8, 0.5),
-    (LMR_UNCERTAINTY_REFERENCE, lmr_uncertainty_reference_parameter, i32, 850, 200, 1600, 64.0),
-    (LMR_UNCERTAINTY_WEIGHT, lmr_uncertainty_weight_parameter, i32, 384, 0, 768, 32.0),
-    (LMR_UNCERTAINTY_CONFIDENT_WEIGHT, lmr_uncertainty_confident_weight_parameter, i32, 384, 0, 768, 32.0),
-    (LMR_UNCERTAINTY_DEADBAND, lmr_uncertainty_deadband_parameter, i32, 32, 0, 256, 8.0),
-    (LMR_UNCERTAINTY_MIN_DEPTH, lmr_uncertainty_min_depth_parameter, u32, 4, 2, 6, 0.5),
-    (LMR_UNCERTAINTY_MAX_DEPTH, lmr_uncertainty_max_depth_parameter, u32, 10, 6, 16, 1.0),
-    (LMR_UNCERTAINTY_MIN_MOVE, lmr_uncertainty_min_move_parameter, u32, 4, 2, 12, 1.0),
+    (LMR_UNCERTAINTY_REFERENCE, lmr_uncertainty_reference_parameter, i32, 939, 200, 1600, 64.0),
+    (LMR_UNCERTAINTY_WEIGHT, lmr_uncertainty_weight_parameter, i32, 269, 0, 768, 32.0),
+    (LMR_UNCERTAINTY_CONFIDENT_WEIGHT, lmr_uncertainty_confident_weight_parameter, i32, 269, 0, 768, 32.0),
+    (LMR_UNCERTAINTY_DEADBAND, lmr_uncertainty_deadband_parameter, i32, 70, 0, 256, 8.0),
+    (LMR_UNCERTAINTY_MIN_DEPTH, lmr_uncertainty_min_depth_parameter, u32, 3, 2, 6, 0.5),
+    (LMR_UNCERTAINTY_MAX_DEPTH, lmr_uncertainty_max_depth_parameter, u32, 9, 6, 16, 1.0),
+    (LMR_UNCERTAINTY_MIN_MOVE, lmr_uncertainty_min_move_parameter, u32, 3, 2, 12, 1.0),
     (LMR_BASE, lmr_base_parameter, i32, 1024, 0, 2048, 64.0),
     (LMR_DEPTH_MOVE_WEIGHT, lmr_depth_move_weight_parameter, i32, 256, 0, 512, 16.0),
     (LMR_HISTORY_WEIGHT, lmr_history_weight_parameter, i32, 1024, 0, 2048, 64.0),
@@ -169,10 +169,10 @@ define_tunable_parameters!(
     (RAZOR_BASE_MARGIN, razor_base_margin_parameter, i32, 256, 0, 500, 25.0),
     (RAZOR_MARGIN_PER_DEPTH, razor_margin_per_depth_parameter, i32, 72, 0, 300, 15.0),
     (FUTILITY_MAX_DEPTH, futility_max_depth_parameter, u32, 8, 1, 20, 1.0),
-    (FUTILITY_UNCERTAINTY_REFERENCE, futility_uncertainty_reference_parameter, i32, 400, 100, 1000, 32.0),
-    (FUTILITY_UNCERTAINTY_WEIGHT, futility_uncertainty_weight_parameter, i32, 24, 0, 96, 8.0),
-    (FUTILITY_UNCERTAINTY_CONFIDENT_WEIGHT, futility_uncertainty_confident_weight_parameter, i32, 32, 0, 96, 8.0),
-    (FUTILITY_UNCERTAINTY_DEADBAND, futility_uncertainty_deadband_parameter, i32, 16, 0, 128, 4.0),
+    (FUTILITY_UNCERTAINTY_REFERENCE, futility_uncertainty_reference_parameter, i32, 266, 100, 1000, 32.0),
+    (FUTILITY_UNCERTAINTY_WEIGHT, futility_uncertainty_weight_parameter, i32, 38, 0, 96, 8.0),
+    (FUTILITY_UNCERTAINTY_CONFIDENT_WEIGHT, futility_uncertainty_confident_weight_parameter, i32, 18, 0, 96, 8.0),
+    (FUTILITY_UNCERTAINTY_DEADBAND, futility_uncertainty_deadband_parameter, i32, 35, 0, 128, 4.0),
     (FUTILITY_UNCERTAINTY_MIN_DEPTH, futility_uncertainty_min_depth_parameter, u32, 2, 1, 4, 0.5),
     (FUTILITY_UNCERTAINTY_MAX_DEPTH, futility_uncertainty_max_depth_parameter, u32, 5, 4, 8, 0.5),
     (FUTILITY_BASE_MARGIN, futility_base_margin_parameter, i32, 10, 0, 400, 20.0),
@@ -251,6 +251,9 @@ fn find_spsa_parameter(name: &str) -> Option<&'static TunableParameter> {
 }
 
 pub fn spsa_parameters() -> Vec<SpsaParameter> {
+    if !crate::SPSA_UCI_OPTIONS_ENABLED {
+        return Vec::new();
+    }
     SPSA_PARAMETERS
         .iter()
         .map(|accessor| accessor().descriptor())
