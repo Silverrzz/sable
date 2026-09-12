@@ -234,14 +234,14 @@ fn workspace_default_weights(out_dir: &Path) -> PathBuf {
         return PathBuf::from(path);
     }
 
-    let source = out_dir.join("sable-dev-net-2.bin");
+    let source = out_dir.join("sable-dev-net-3.bin");
     if source.is_file() {
         validate_downloaded_weights(&source);
         return source;
     }
 
-    let url = "https://raw.githubusercontent.com/Silverrzz/sable-nets/main/nets/sable-dev-net-2.bin";
-    let temporary = out_dir.join("sable-dev-net-2.bin.part");
+    let url = "https://raw.githubusercontent.com/Silverrzz/sable-nets/main/nets/sable-dev-net-3.bin";
+    let temporary = out_dir.join("sable-dev-net-3.bin.part");
     let curl = if cfg!(windows) { "curl.exe" } else { "curl" };
     let status = Command::new(curl)
         .args([
@@ -270,12 +270,16 @@ fn validate_downloaded_weights(path: &Path) {
     let bytes = fs::read(path).unwrap_or_else(|error| {
         panic!("Failed to read downloaded network '{}': {error}", path.display())
     });
-    let tensor_bytes = (768 + 1) * 1024 * size_of::<i16>() + (2048 + 1) * size_of::<f32>();
-    assert!(
+    let valid = (1..=2).any(|king_buckets| {
+        let tensor_bytes = (768 * king_buckets + 1) * 1024 * size_of::<i16>()
+            + (2048 + 1) * size_of::<f32>();
         (tensor_bytes..=tensor_bytes + 63).contains(&bytes.len())
             && bytes[tensor_bytes..].iter().enumerate()
-                .all(|(index, &byte)| byte == b"bullet"[index % 6]),
-        "Downloaded network '{}' does not match the expected 768x1024 float32-score Bullet format",
+                .all(|(index, &byte)| byte == b"bullet"[index % 6])
+    });
+    assert!(
+        valid,
+        "Downloaded network '{}' does not match the expected 1024-wide float32-score Bullet format with one or two king buckets",
         path.display()
     );
 }
@@ -287,8 +291,8 @@ fn display_label(source: &Path) -> String {
         return label;
     }
 
-    if source.file_name().is_some_and(|name| name == "sable-dev-net-2.bin") {
-        return "sable-dev-net-2.bin".to_owned();
+    if source.file_name().is_some_and(|name| name == "sable-dev-net-3.bin") {
+        return "sable-dev-net-3.bin".to_owned();
     }
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

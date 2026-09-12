@@ -24,13 +24,15 @@ impl NnueModel {
     }
 
     fn from_bytes(path: &Path, bytes: &[u8]) -> Result<Self, EngineError> {
-        let Some(hidden_size) = bullet_hidden_size(bytes) else {
+        let Some(king_buckets) = bullet_king_buckets(bytes) else {
             return Err(invalid_eval_file(
                 path,
-                "expected a Bullet 768x1024 mirrored SCReLU network with a float32 score head",
+                "expected a Bullet 1024-wide mirrored SCReLU network with one or two king buckets and a float32 score head",
             ));
         };
-        let tensor_bytes = bullet_tensor_bytes(hidden_size)
+        let hidden_size = 1024;
+        let input_features = PIECE_SQUARE_FEATURES * king_buckets;
+        let tensor_bytes = bullet_tensor_bytes(hidden_size, king_buckets)
             .ok_or_else(|| invalid_eval_file(path, "Bullet tensor dimensions overflow"))?;
         let padding = &bytes[tensor_bytes..];
         if !padding
@@ -44,11 +46,11 @@ impl NnueModel {
             ));
         }
 
-        let first_layer_bytes = (SHARD_INPUT_FEATURES + 1) * hidden_size * size_of::<i16>();
+        let first_layer_bytes = (input_features + 1) * hidden_size * size_of::<i16>();
         let mut values = bytes[..first_layer_bytes]
             .chunks_exact(2)
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]));
-        let feature_weight_count = SHARD_INPUT_FEATURES * hidden_size;
+        let feature_weight_count = input_features * hidden_size;
         let mut feature_weights = Vec::with_capacity(feature_weight_count);
         for _ in 0..feature_weight_count {
             feature_weights.push(values.next().expect("Bullet feature weights are present"));
@@ -70,9 +72,10 @@ impl NnueModel {
             return Err(invalid_eval_file(path, "Bullet output parameters must be finite"));
         }
         debug_assert!(outputs.next().is_none());
-        validate_i16_accumulator_range(path, &bias, &feature_weights, hidden_size)?;
+        validate_i16_accumulator_range(path, &bias, &feature_weights, hidden_size, king_buckets)?;
 
         Ok(Self {
+            king_buckets,
             feature_weights: feature_weights.into_boxed_slice(),
             bias: bias.into_boxed_slice(),
             output_weights: output_weights.into_boxed_slice(),
@@ -202,6 +205,7 @@ impl NnueModel {
             for piece in ALL_PIECES {
                 for square in crate::chess::colored_pieces(board, color, piece) {
                     let feature = feature_index_for_perspective(
+                        self.king_buckets,
                         perspective,
                         king_square,
                         color,
@@ -304,7 +308,7 @@ impl NnueModel {
             let square = bits.trailing_zeros() as usize;
             bits &= bits - 1;
             let feature =
-                feature_index_for_perspective(perspective, king_square, color, piece, square);
+                feature_index_for_perspective(self.king_buckets, perspective, king_square, color, piece, square);
             apply_feature_delta(values, self.feature_weights(), feature, sign);
         }
     }
@@ -413,6 +417,7 @@ impl NnueModel {
         perspective: Color,
     ) -> bool {
         let Some(updates) = collect_move_feature_updates(
+            self.king_buckets,
             before,
             mv,
             side,
@@ -547,7 +552,7 @@ impl NnueModel {
         piece: Piece,
         square: usize,
     ) {
-        let feature = feature_index_for_perspective(perspective, king_square, color, piece, square);
+        let feature = feature_index_for_perspective(self.king_buckets, perspective, king_square, color, piece, square);
         apply_feature_delta(values, self.feature_weights(), feature, -1);
     }
 
@@ -575,15 +580,17 @@ fn piece_bitboard_index(color: Color, piece: Piece) -> usize {
     color as usize * 6 + piece as usize
 }
 
-fn bullet_hidden_size(bytes: &[u8]) -> Option<usize> {
-    let hidden_size = 1024;
-    let tensor_bytes = bullet_tensor_bytes(hidden_size)?;
-    let padding_bytes = bytes.len().checked_sub(tensor_bytes)?;
-    (padding_bytes <= SHARD_FILE_PADDING_BYTES).then_some(hidden_size)
+fn bullet_king_buckets(bytes: &[u8]) -> Option<usize> {
+    (1..=SHARD_KING_BUCKETS).find(|&king_buckets| {
+        bullet_tensor_bytes(1024, king_buckets)
+            .and_then(|tensor_bytes| bytes.len().checked_sub(tensor_bytes))
+            .is_some_and(|padding_bytes| padding_bytes <= SHARD_FILE_PADDING_BYTES)
+    })
 }
 
-fn bullet_tensor_bytes(hidden_size: usize) -> Option<usize> {
-    let first_layer = SHARD_INPUT_FEATURES.checked_add(1)?
+fn bullet_tensor_bytes(hidden_size: usize, king_buckets: usize) -> Option<usize> {
+    let first_layer = PIECE_SQUARE_FEATURES.checked_mul(king_buckets)?
+        .checked_add(1)?
         .checked_mul(hidden_size)?
         .checked_mul(size_of::<i16>())?;
     let output_layer = hidden_size.checked_mul(2)?

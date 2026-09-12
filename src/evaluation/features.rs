@@ -9,9 +9,10 @@ pub(super) fn validate_i16_accumulator_range(
     bias: &[i16],
     feature_weights: &[i16],
     hidden_size: usize,
+    king_buckets: usize,
 ) -> Result<(), EngineError> {
     if bias.len() != hidden_size
-        || SHARD_INPUT_FEATURES
+        || (PIECE_SQUARE_FEATURES * king_buckets)
             .checked_mul(hidden_size)
             .is_none_or(|expected| feature_weights.len() != expected)
     {
@@ -23,7 +24,7 @@ pub(super) fn validate_i16_accumulator_range(
 
     for neuron in 0..hidden_size {
         let bias_abs = i64::from(i32::from(bias[neuron]).abs());
-        for king_bucket in 0..SHARD_KING_BUCKETS {
+        for king_bucket in 0..king_buckets {
             let mut top = [0_i32; 32];
             let bucket_start = king_bucket * PIECE_SQUARE_FEATURES;
             for piece_feature in 0..PIECE_SQUARE_FEATURES {
@@ -150,6 +151,7 @@ pub(super) fn apply_feature_delta_batch(
 }
 
 pub(super) fn collect_move_feature_updates(
+    king_buckets: usize,
     before: &Board,
     mv: Move,
     side: Color,
@@ -164,6 +166,7 @@ pub(super) fn collect_move_feature_updates(
     let king_square = oriented_king_square(before, perspective)?;
     let mut updates = FeatureUpdateList::new();
     updates.push(feature_update(
+        king_buckets,
         king_square,
         perspective,
         side,
@@ -174,6 +177,7 @@ pub(super) fn collect_move_feature_updates(
 
     if let Some((captured_piece, captured_square)) = captured {
         updates.push(feature_update(
+            king_buckets,
             king_square,
             perspective,
             !side,
@@ -184,6 +188,7 @@ pub(super) fn collect_move_feature_updates(
     }
 
     updates.push(feature_update(
+        king_buckets,
         king_square,
         perspective,
         side,
@@ -196,6 +201,7 @@ pub(super) fn collect_move_feature_updates(
 
 #[inline(always)]
 pub(super) fn feature_update(
+    king_buckets: usize,
     king_square: usize,
     perspective: Color,
     piece_color: Color,
@@ -205,6 +211,7 @@ pub(super) fn feature_update(
 ) -> FeatureUpdate {
     FeatureUpdate {
         feature: feature_index_for_perspective(
+            king_buckets,
             perspective,
             king_square,
             piece_color,
@@ -229,6 +236,7 @@ pub(super) fn oriented_king_square(board: &Board, perspective: Color) -> Option<
 
 #[inline(always)]
 pub(super) fn feature_index_for_perspective(
+    king_buckets: usize,
     perspective: Color,
     king_square: usize,
     piece_color: Color,
@@ -247,7 +255,8 @@ pub(super) fn feature_index_for_perspective(
     };
     let color_offset = if piece_color == perspective { 0 } else { 384 };
     let piece_square_feature = color_offset + piece_plane_offset(piece) + mirrored_square;
-    king_bucket_index(king_square) * PIECE_SQUARE_FEATURES + piece_square_feature
+    let bucket = if king_buckets == 1 { 0 } else { king_bucket_index(king_square) };
+    bucket * PIECE_SQUARE_FEATURES + piece_square_feature
 }
 
 #[inline(always)]
