@@ -27,7 +27,7 @@ impl NnueModel {
         let Some(hidden_size) = bullet_hidden_size(bytes) else {
             return Err(invalid_eval_file(
                 path,
-                "expected a Bullet 768x1024 mirrored SCReLU network with a float32 score head",
+                "expected a Bullet 3072x1024 mirrored SCReLU network with four king buckets and a float32 score head",
             ));
         };
         let tensor_bytes = bullet_tensor_bytes(hidden_size)
