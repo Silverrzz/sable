@@ -182,23 +182,24 @@ pub(super) unsafe fn screlu_dot_f32(accumulator: &[i16], weights: &[f32], qa: i1
     unsafe {
         let zero = _mm512_setzero_ps();
         let limit = _mm512_set1_ps(f32::from(qa));
-        let mut sum = _mm512_setzero_ps();
+        let mut sum = _mm256_setzero_ps();
         let mut idx = 0;
         while idx + 16 <= accumulator.len() {
             let values = _mm512_cvtepi32_ps(_mm512_cvtepi16_epi32(_mm256_loadu_si256(accumulator.as_ptr().add(idx) as *const __m256i)));
             let clamped = _mm512_min_ps(_mm512_max_ps(values, zero), limit);
             let weight = _mm512_loadu_ps(weights.as_ptr().add(idx));
-            sum = _mm512_add_ps(sum, _mm512_mul_ps(_mm512_mul_ps(clamped, clamped), weight));
+            let products = _mm512_mul_ps(_mm512_mul_ps(clamped, clamped), weight);
+            sum = _mm256_add_ps(sum, _mm512_castps512_ps256(products));
+            sum = _mm256_add_ps(sum, _mm512_extractf32x8_ps::<1>(products));
             idx += 16;
         }
-        let mut lanes = [0.0_f32; 16];
-        _mm512_storeu_ps(lanes.as_mut_ptr(), sum);
-        let mut result = lanes.into_iter().sum::<f32>();
+        let mut lanes = [0.0_f32; 8];
+        _mm256_storeu_ps(lanes.as_mut_ptr(), sum);
         while idx < accumulator.len() {
             let clamped = f32::from(accumulator[idx].clamp(0, qa));
-            result += clamped * clamped * weights[idx];
+            lanes[idx % 8] += clamped * clamped * weights[idx];
             idx += 1;
         }
-        result / (f32::from(qa) * f32::from(qa))
+        lanes.into_iter().sum::<f32>() / (f32::from(qa) * f32::from(qa))
     }
 }

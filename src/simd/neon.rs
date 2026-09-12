@@ -42,21 +42,28 @@ pub(super) unsafe fn screlu_dot_f32(accumulator: &[i16], weights: &[f32], qa: i1
     unsafe {
         let zero = vdupq_n_f32(0.0);
         let limit = vdupq_n_f32(f32::from(qa));
-        let mut sum = vdupq_n_f32(0.0);
+        let mut low_sum = vdupq_n_f32(0.0);
+        let mut high_sum = vdupq_n_f32(0.0);
         let mut idx = 0;
-        while idx + 4 <= accumulator.len() {
+        while idx + 8 <= accumulator.len() {
             let values = vcvtq_f32_s32(vmovl_s16(vld1_s16(accumulator.as_ptr().add(idx))));
             let clamped = vminq_f32(vmaxq_f32(values, zero), limit);
             let weight = vld1q_f32(weights.as_ptr().add(idx));
-            sum = vaddq_f32(sum, vmulq_f32(vmulq_f32(clamped, clamped), weight));
-            idx += 4;
+            low_sum = vaddq_f32(low_sum, vmulq_f32(vmulq_f32(clamped, clamped), weight));
+            let values = vcvtq_f32_s32(vmovl_s16(vld1_s16(accumulator.as_ptr().add(idx + 4))));
+            let clamped = vminq_f32(vmaxq_f32(values, zero), limit);
+            let weight = vld1q_f32(weights.as_ptr().add(idx + 4));
+            high_sum = vaddq_f32(high_sum, vmulq_f32(vmulq_f32(clamped, clamped), weight));
+            idx += 8;
         }
-        let mut result = vaddvq_f32(sum);
+        let mut lanes = [0.0_f32; 8];
+        vst1q_f32(lanes.as_mut_ptr(), low_sum);
+        vst1q_f32(lanes.as_mut_ptr().add(4), high_sum);
         while idx < accumulator.len() {
             let clamped = f32::from(accumulator[idx].clamp(0, qa));
-            result += clamped * clamped * weights[idx];
+            lanes[idx % 8] += clamped * clamped * weights[idx];
             idx += 1;
         }
-        result / (f32::from(qa) * f32::from(qa))
+        lanes.into_iter().sum::<f32>() / (f32::from(qa) * f32::from(qa))
     }
 }
