@@ -192,12 +192,11 @@ pub(super) unsafe fn screlu_dot_f32(accumulator: &[i16], weights: &[f32], qa: i1
         }
         let mut lanes = [0.0_f32; 8];
         _mm256_storeu_ps(lanes.as_mut_ptr(), sum);
-        let mut result = lanes.into_iter().sum::<f32>();
         while idx < accumulator.len() {
             let clamped = f32::from(accumulator[idx].clamp(0, qa));
-            result += clamped * clamped * weights[idx];
+            lanes[idx % 8] += clamped * clamped * weights[idx];
             idx += 1;
         }
-        result / (f32::from(qa) * f32::from(qa))
+        lanes.into_iter().sum::<f32>() / (f32::from(qa) * f32::from(qa))
     }
 }
