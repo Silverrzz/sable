@@ -178,188 +178,27 @@ pub(super) unsafe fn copy_feature_delta_triplet(
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx512bw,avx512dq,avx2")]
-pub(super) unsafe fn screlu_dot_i16_dual(
-    left_accumulator: &[i16],
-    left_weights: &[i16],
-    right_accumulator: &[i16],
-    right_weights: &[i16],
-    qa: i16,
-    narrow_weights: bool,
-) -> i64 {
+pub(super) unsafe fn screlu_dot_f32(accumulator: &[i16], weights: &[f32], qa: i16) -> f32 {
     unsafe {
-        if qa <= 255 && narrow_weights {
-            return screlu_dot_i16_narrow_dual(
-                left_accumulator,
-                left_weights,
-                right_accumulator,
-                right_weights,
-                qa,
-            );
+        let zero = _mm512_setzero_ps();
+        let limit = _mm512_set1_ps(f32::from(qa));
+        let mut sum = _mm512_setzero_ps();
+        let mut idx = 0;
+        while idx + 16 <= accumulator.len() {
+            let values = _mm512_cvtepi32_ps(_mm512_cvtepi16_epi32(_mm256_loadu_si256(accumulator.as_ptr().add(idx) as *const __m256i)));
+            let clamped = _mm512_min_ps(_mm512_max_ps(values, zero), limit);
+            let weight = _mm512_loadu_ps(weights.as_ptr().add(idx));
+            sum = _mm512_add_ps(sum, _mm512_mul_ps(_mm512_mul_ps(clamped, clamped), weight));
+            idx += 16;
         }
-        if qa <= 255 {
-            return screlu_dot_i16_u8(left_accumulator, left_weights, qa)
-                + screlu_dot_i16_u8(right_accumulator, right_weights, qa);
-        }
-        screlu_dot_i16_wide(left_accumulator, left_weights, qa)
-            + screlu_dot_i16_wide(right_accumulator, right_weights, qa)
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx2")]
-unsafe fn screlu_dot_i16_narrow_dual(
-    left_accumulator: &[i16],
-    left_weights: &[i16],
-    right_accumulator: &[i16],
-    right_weights: &[i16],
-    qa: i16,
-) -> i64 {
-    unsafe {
-        let zero = _mm512_setzero_si512();
-        let qa_vec = _mm512_set1_epi16(qa);
-        let mut sum = _mm512_setzero_si512();
-        let mut tail = 0_i64;
-
-        let mut idx = 0_usize;
-        while idx + 32 <= left_accumulator.len() {
-            let acc = _mm512_loadu_si512(left_accumulator.as_ptr().add(idx) as *const __m512i);
-            let clamped = _mm512_min_epi16(_mm512_max_epi16(acc, zero), qa_vec);
-            let weights = _mm512_loadu_si512(left_weights.as_ptr().add(idx) as *const __m512i);
-            let weighted = _mm512_mullo_epi16(clamped, weights);
-            sum = _mm512_add_epi32(sum, _mm512_madd_epi16(weighted, clamped));
-            idx += 32;
-        }
-        while idx < left_accumulator.len() {
-            let value = i64::from(*left_accumulator.get_unchecked(idx)).clamp(0, i64::from(qa));
-            tail += value * value * i64::from(*left_weights.get_unchecked(idx));
+        let mut lanes = [0.0_f32; 16];
+        _mm512_storeu_ps(lanes.as_mut_ptr(), sum);
+        let mut result = lanes.into_iter().sum::<f32>();
+        while idx < accumulator.len() {
+            let clamped = f32::from(accumulator[idx].clamp(0, qa));
+            result += clamped * clamped * weights[idx];
             idx += 1;
         }
-
-        idx = 0;
-        while idx + 32 <= right_accumulator.len() {
-            let acc = _mm512_loadu_si512(right_accumulator.as_ptr().add(idx) as *const __m512i);
-            let clamped = _mm512_min_epi16(_mm512_max_epi16(acc, zero), qa_vec);
-            let weights = _mm512_loadu_si512(right_weights.as_ptr().add(idx) as *const __m512i);
-            let weighted = _mm512_mullo_epi16(clamped, weights);
-            sum = _mm512_add_epi32(sum, _mm512_madd_epi16(weighted, clamped));
-            idx += 32;
-        }
-        while idx < right_accumulator.len() {
-            let value = i64::from(*right_accumulator.get_unchecked(idx)).clamp(0, i64::from(qa));
-            tail += value * value * i64::from(*right_weights.get_unchecked(idx));
-            idx += 1;
-        }
-
-        let low = _mm512_cvtepi32_epi64(_mm512_castsi512_si256(sum));
-        let high = _mm512_cvtepi32_epi64(_mm512_extracti64x4_epi64::<1>(sum));
-        tail + _mm512_reduce_add_epi64(low) + _mm512_reduce_add_epi64(high)
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx2")]
-unsafe fn screlu_dot_i16_u8(accumulator: &[i16], weights: &[i16], qa: i16) -> i64 {
-    unsafe {
-        let len = accumulator.len();
-        let mut idx = 0_usize;
-        let acc_ptr = accumulator.as_ptr();
-        let weight_ptr = weights.as_ptr();
-        let zero = _mm512_setzero_si512();
-        let qa_vec = _mm512_set1_epi16(qa);
-        let correction_threshold = _mm512_set1_epi16(181);
-        let ones = _mm512_set1_epi16(1);
-        let mut sum_lo = _mm512_setzero_si512();
-        let mut sum_hi = _mm512_setzero_si512();
-
-        while idx + 32 <= len {
-            let acc = _mm512_loadu_si512(acc_ptr.add(idx) as *const __m512i);
-            let clamped = _mm512_min_epi16(_mm512_max_epi16(acc, zero), qa_vec);
-            let w = _mm512_loadu_si512(weight_ptr.add(idx) as *const __m512i);
-            let square = _mm512_mullo_epi16(clamped, clamped);
-            let base_pairs = _mm512_madd_epi16(square, w);
-            let correction_mask = _mm512_cmpgt_epi16_mask(clamped, correction_threshold);
-            let correction_weights = _mm512_maskz_mov_epi16(correction_mask, w);
-            let correction_pairs = _mm512_madd_epi16(correction_weights, ones);
-
-            let base_pairs_lo = _mm512_castsi512_si256(base_pairs);
-            let base_pairs_hi = _mm512_extracti64x4_epi64::<1>(base_pairs);
-            let correction_pairs_lo = _mm512_castsi512_si256(correction_pairs);
-            let correction_pairs_hi = _mm512_extracti64x4_epi64::<1>(correction_pairs);
-            let base_lo = _mm512_cvtepi32_epi64(base_pairs_lo);
-            let base_hi = _mm512_cvtepi32_epi64(base_pairs_hi);
-            let correction_lo =
-                _mm512_slli_epi64::<16>(_mm512_cvtepi32_epi64(correction_pairs_lo));
-            let correction_hi =
-                _mm512_slli_epi64::<16>(_mm512_cvtepi32_epi64(correction_pairs_hi));
-            sum_lo = _mm512_add_epi64(sum_lo, _mm512_add_epi64(base_lo, correction_lo));
-            sum_hi = _mm512_add_epi64(sum_hi, _mm512_add_epi64(base_hi, correction_hi));
-
-            idx += 32;
-        }
-
-        let mut result = _mm512_reduce_add_epi64(sum_lo) + _mm512_reduce_add_epi64(sum_hi);
-        let qa = i64::from(qa);
-        while idx < len {
-            let clamped = i64::from(*acc_ptr.add(idx)).clamp(0, qa);
-            result += clamped * clamped * i64::from(*weight_ptr.add(idx));
-            idx += 1;
-        }
-        result
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx2")]
-unsafe fn screlu_dot_i16_wide(accumulator: &[i16], weights: &[i16], qa: i16) -> i64 {
-    unsafe {
-        let len = accumulator.len();
-        let mut idx = 0_usize;
-        let acc_ptr = accumulator.as_ptr();
-        let weight_ptr = weights.as_ptr();
-        let zero = _mm512_setzero_si512();
-        let qa_vec = _mm512_set1_epi16(qa);
-        let mut sum_lo = _mm512_setzero_si512();
-        let mut sum_hi = _mm512_setzero_si512();
-
-        while idx + 32 <= len {
-            let acc = _mm512_loadu_si512(acc_ptr.add(idx) as *const __m512i);
-            let clamped = _mm512_min_epi16(_mm512_max_epi16(acc, zero), qa_vec);
-            let w = _mm512_loadu_si512(weight_ptr.add(idx) as *const __m512i);
-
-            let v0 = _mm512_cvtepi16_epi32(_mm512_castsi512_si256(clamped));
-            let w0 = _mm512_cvtepi16_epi32(_mm512_castsi512_si256(w));
-            let q0 = _mm512_mullo_epi32(_mm512_mullo_epi32(v0, w0), v0);
-            sum_lo = _mm512_add_epi64(
-                sum_lo,
-                _mm512_cvtepi32_epi64(_mm512_castsi512_si256(q0)),
-            );
-            sum_hi = _mm512_add_epi64(
-                sum_hi,
-                _mm512_cvtepi32_epi64(_mm512_extracti64x4_epi64::<1>(q0)),
-            );
-
-            let v1 = _mm512_cvtepi16_epi32(_mm512_extracti64x4_epi64::<1>(clamped));
-            let w1 = _mm512_cvtepi16_epi32(_mm512_extracti64x4_epi64::<1>(w));
-            let q1 = _mm512_mullo_epi32(_mm512_mullo_epi32(v1, w1), v1);
-            sum_lo = _mm512_add_epi64(
-                sum_lo,
-                _mm512_cvtepi32_epi64(_mm512_castsi512_si256(q1)),
-            );
-            sum_hi = _mm512_add_epi64(
-                sum_hi,
-                _mm512_cvtepi32_epi64(_mm512_extracti64x4_epi64::<1>(q1)),
-            );
-
-            idx += 32;
-        }
-
-        let mut result = _mm512_reduce_add_epi64(sum_lo) + _mm512_reduce_add_epi64(sum_hi);
-        let qa = i64::from(qa);
-        while idx < len {
-            let clamped = i64::from(*acc_ptr.add(idx)).clamp(0, qa);
-            result += clamped * clamped * i64::from(*weight_ptr.add(idx));
-            idx += 1;
-        }
-        result
+        result / (f32::from(qa) * f32::from(qa))
     }
 }

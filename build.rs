@@ -14,7 +14,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SABLE_EVAL_LABEL");
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let source = workspace_default_weights();
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR should be set by Cargo"));
+    let source = workspace_default_weights(&out_dir);
     println!(
         "cargo:rerun-if-changed={}",
         source
@@ -37,29 +38,7 @@ fn main() {
         println!("cargo:rustc-env=SABLE_GIT_COMMIT={git_commit}");
     }
 
-    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR should be set by Cargo"));
     generate_attack_tables(&out_dir);
-
-    let has_weights = source.exists();
-
-    if !has_weights {
-        let embedded_path = out_dir.join("embedded-default-eval-empty.bin");
-        fs::write(&embedded_path, []).unwrap_or_else(|error| {
-            panic!(
-                "Failed to write empty embedded eval placeholder '{}': {error}",
-                embedded_path.display()
-            )
-        });
-        println!("cargo:rerun-if-changed={}", source.display());
-        println!("cargo:rustc-env=SABLE_ENGINE_HAS_EMBEDDED_EVAL=0");
-        println!(
-            "cargo:rustc-env=SABLE_ENGINE_EMBEDDED_EVAL_PATH={}",
-            embedded_path.display()
-        );
-        println!("cargo:rustc-env=SABLE_ENGINE_EMBEDDED_EVAL_LABEL=none");
-        println!("cargo:rustc-env=SABLE_ENGINE_EMBEDDED_EVAL_HASH=none");
-        return;
-    }
 
     let bytes = fs::read(&source).unwrap_or_else(|error| {
         panic!(
@@ -248,25 +227,57 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
     hash
 }
 
-fn workspace_default_weights() -> PathBuf {
+fn workspace_default_weights(out_dir: &Path) -> PathBuf {
     if let Ok(path) = env::var("SABLE_EVAL_FILE")
         && !path.trim().is_empty()
     {
         return PathBuf::from(path);
     }
 
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let repo_default = manifest_dir.join("data").join("quantised.bin");
-    if repo_default.exists() {
-        return repo_default;
+    let source = out_dir.join("sable-dev-net-1.bin");
+    if source.is_file() {
+        validate_downloaded_weights(&source);
+        return source;
     }
 
-    let workspace_default = manifest_dir.join("..").join("data").join("quantised.bin");
-    if workspace_default.exists() {
-        return workspace_default;
+    let url = "https://raw.githubusercontent.com/Silverrzz/sable-nets/main/nets/sable-dev-net-1.bin";
+    let temporary = out_dir.join("sable-dev-net-1.bin.part");
+    let curl = if cfg!(windows) { "curl.exe" } else { "curl" };
+    let status = Command::new(curl)
+        .args([
+            "--fail", "--location", "--silent", "--show-error",
+            "--connect-timeout", "15", "--max-time", "120",
+            "--retry", "2", "--output",
+        ])
+        .arg(&temporary)
+        .arg(url)
+        .status()
+        .unwrap_or_else(|error| {
+            panic!("Failed to run {curl} to download {url}: {error}. Install curl or set SABLE_EVAL_FILE to a local network");
+        });
+    if !status.success() {
+        let _ = fs::remove_file(&temporary);
+        panic!("Failed to download {url}: {status}. Set SABLE_EVAL_FILE to a local network for offline builds");
     }
+    validate_downloaded_weights(&temporary);
+    fs::rename(&temporary, &source).unwrap_or_else(|error| {
+        panic!("Failed to cache downloaded network '{}': {error}", source.display())
+    });
+    source
+}
 
-    repo_default
+fn validate_downloaded_weights(path: &Path) {
+    let bytes = fs::read(path).unwrap_or_else(|error| {
+        panic!("Failed to read downloaded network '{}': {error}", path.display())
+    });
+    let tensor_bytes = (768 + 1) * 512 * size_of::<i16>() + (1024 + 1) * size_of::<f32>();
+    assert!(
+        (tensor_bytes..=tensor_bytes + 63).contains(&bytes.len())
+            && bytes[tensor_bytes..].iter().enumerate()
+                .all(|(index, &byte)| byte == b"bullet"[index % 6]),
+        "Downloaded network '{}' does not match the expected 768x512 float32-score Bullet format",
+        path.display()
+    );
 }
 
 fn display_label(source: &Path) -> String {
@@ -274,6 +285,10 @@ fn display_label(source: &Path) -> String {
         && !label.trim().is_empty()
     {
         return label;
+    }
+
+    if source.file_name().is_some_and(|name| name == "sable-dev-net-1.bin") {
+        return "sable-dev-net-1.bin".to_owned();
     }
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

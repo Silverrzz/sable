@@ -177,189 +177,27 @@ pub(super) unsafe fn copy_feature_delta_triplet(
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
-pub(super) unsafe fn screlu_dot_i16_dual(
-    left_accumulator: &[i16],
-    left_weights: &[i16],
-    right_accumulator: &[i16],
-    right_weights: &[i16],
-    qa: i16,
-    narrow_weights: bool,
-) -> i64 {
+pub(super) unsafe fn screlu_dot_f32(accumulator: &[i16], weights: &[f32], qa: i16) -> f32 {
     unsafe {
-        if qa <= 255 && narrow_weights {
-            return screlu_dot_i16_narrow_dual(
-                left_accumulator,
-                left_weights,
-                right_accumulator,
-                right_weights,
-                qa,
-            );
+        let zero = _mm256_setzero_ps();
+        let limit = _mm256_set1_ps(f32::from(qa));
+        let mut sum = _mm256_setzero_ps();
+        let mut idx = 0;
+        while idx + 8 <= accumulator.len() {
+            let values = _mm256_cvtepi32_ps(_mm256_cvtepi16_epi32(_mm_loadu_si128(accumulator.as_ptr().add(idx) as *const __m128i)));
+            let clamped = _mm256_min_ps(_mm256_max_ps(values, zero), limit);
+            let weight = _mm256_loadu_ps(weights.as_ptr().add(idx));
+            sum = _mm256_add_ps(sum, _mm256_mul_ps(_mm256_mul_ps(clamped, clamped), weight));
+            idx += 8;
         }
-        if qa <= 255 {
-            return screlu_dot_i16_u8(left_accumulator, left_weights, qa)
-                + screlu_dot_i16_u8(right_accumulator, right_weights, qa);
-        }
-        screlu_dot_i16_wide(left_accumulator, left_weights, qa)
-            + screlu_dot_i16_wide(right_accumulator, right_weights, qa)
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-unsafe fn screlu_dot_i16_narrow_dual(
-    left_accumulator: &[i16],
-    left_weights: &[i16],
-    right_accumulator: &[i16],
-    right_weights: &[i16],
-    qa: i16,
-) -> i64 {
-    unsafe {
-        let zero = _mm256_setzero_si256();
-        let qa_vec = _mm256_set1_epi16(qa);
-        let mut left_sum = _mm256_setzero_si256();
-        let mut right_sum = _mm256_setzero_si256();
-        let mut tail = 0_i64;
-
-        let mut idx = 0_usize;
-        while idx + 16 <= left_accumulator.len() {
-            let left_acc =
-                _mm256_loadu_si256(left_accumulator.as_ptr().add(idx) as *const __m256i);
-            let left_clamped = _mm256_min_epi16(_mm256_max_epi16(left_acc, zero), qa_vec);
-            let left_weight =
-                _mm256_loadu_si256(left_weights.as_ptr().add(idx) as *const __m256i);
-            let left_weighted = _mm256_mullo_epi16(left_clamped, left_weight);
-            left_sum = _mm256_add_epi32(
-                left_sum,
-                _mm256_madd_epi16(left_weighted, left_clamped),
-            );
-
-            let right_acc =
-                _mm256_loadu_si256(right_accumulator.as_ptr().add(idx) as *const __m256i);
-            let right_clamped = _mm256_min_epi16(_mm256_max_epi16(right_acc, zero), qa_vec);
-            let right_weight =
-                _mm256_loadu_si256(right_weights.as_ptr().add(idx) as *const __m256i);
-            let right_weighted = _mm256_mullo_epi16(right_clamped, right_weight);
-            right_sum = _mm256_add_epi32(
-                right_sum,
-                _mm256_madd_epi16(right_weighted, right_clamped),
-            );
-            idx += 16;
-        }
-        while idx < right_accumulator.len() {
-            let left =
-                i64::from(*left_accumulator.get_unchecked(idx)).clamp(0, i64::from(qa));
-            let right =
-                i64::from(*right_accumulator.get_unchecked(idx)).clamp(0, i64::from(qa));
-            tail += left * left * i64::from(*left_weights.get_unchecked(idx));
-            tail += right * right * i64::from(*right_weights.get_unchecked(idx));
+        let mut lanes = [0.0_f32; 8];
+        _mm256_storeu_ps(lanes.as_mut_ptr(), sum);
+        let mut result = lanes.into_iter().sum::<f32>();
+        while idx < accumulator.len() {
+            let clamped = f32::from(accumulator[idx].clamp(0, qa));
+            result += clamped * clamped * weights[idx];
             idx += 1;
         }
-
-        let sum = _mm256_add_epi32(left_sum, right_sum);
-        let low = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(sum));
-        let high = _mm256_cvtepi32_epi64(_mm256_extracti128_si256(sum, 1));
-        tail + horizontal_sum_i64(_mm256_add_epi64(low, high))
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-unsafe fn screlu_dot_i16_u8(accumulator: &[i16], weights: &[i16], qa: i16) -> i64 {
-    unsafe {
-        let len = accumulator.len();
-        let mut idx = 0_usize;
-        let acc_ptr = accumulator.as_ptr();
-        let weight_ptr = weights.as_ptr();
-        let zero = _mm256_setzero_si256();
-        let qa_vec = _mm256_set1_epi16(qa);
-        let correction_threshold = _mm256_set1_epi16(181);
-        let ones = _mm256_set1_epi16(1);
-        let mut sum = _mm256_setzero_si256();
-
-        while idx + 16 <= len {
-            let acc = _mm256_loadu_si256(acc_ptr.add(idx) as *const __m256i);
-            let clamped = _mm256_min_epi16(_mm256_max_epi16(acc, zero), qa_vec);
-            let w = _mm256_loadu_si256(weight_ptr.add(idx) as *const __m256i);
-            let square = _mm256_mullo_epi16(clamped, clamped);
-            let base_pairs = _mm256_madd_epi16(square, w);
-            let correction_mask = _mm256_cmpgt_epi16(clamped, correction_threshold);
-            let correction_weights = _mm256_and_si256(w, correction_mask);
-            let correction_pairs = _mm256_madd_epi16(correction_weights, ones);
-
-            let base_lo = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(base_pairs));
-            let base_hi = _mm256_cvtepi32_epi64(_mm256_extracti128_si256(base_pairs, 1));
-            let correction_lo = _mm256_slli_epi64::<16>(_mm256_cvtepi32_epi64(
-                _mm256_castsi256_si128(correction_pairs),
-            ));
-            let correction_hi = _mm256_slli_epi64::<16>(_mm256_cvtepi32_epi64(
-                _mm256_extracti128_si256(correction_pairs, 1),
-            ));
-            sum = _mm256_add_epi64(sum, _mm256_add_epi64(base_lo, correction_lo));
-            sum = _mm256_add_epi64(sum, _mm256_add_epi64(base_hi, correction_hi));
-
-            idx += 16;
-        }
-
-        let mut result = horizontal_sum_i64(sum);
-        let qa = i64::from(qa);
-        while idx < len {
-            let clamped = i64::from(*acc_ptr.add(idx)).clamp(0, qa);
-            result += clamped * clamped * i64::from(*weight_ptr.add(idx));
-            idx += 1;
-        }
-        result
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-unsafe fn screlu_dot_i16_wide(accumulator: &[i16], weights: &[i16], qa: i16) -> i64 {
-    unsafe {
-        let len = accumulator.len();
-        let mut idx = 0_usize;
-        let acc_ptr = accumulator.as_ptr();
-        let weight_ptr = weights.as_ptr();
-        let zero = _mm256_setzero_si256();
-        let qa_vec = _mm256_set1_epi16(qa);
-        let mut sum = _mm256_setzero_si256();
-
-        while idx + 16 <= len {
-            let acc = _mm256_loadu_si256(acc_ptr.add(idx) as *const __m256i);
-            let clamped = _mm256_min_epi16(_mm256_max_epi16(acc, zero), qa_vec);
-            let w = _mm256_loadu_si256(weight_ptr.add(idx) as *const __m256i);
-
-            let v_lo = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(clamped));
-            let w_lo = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(w));
-            let q_lo = _mm256_mullo_epi32(_mm256_mullo_epi32(v_lo, w_lo), v_lo);
-            sum = _mm256_add_epi64(sum, _mm256_cvtepi32_epi64(_mm256_castsi256_si128(q_lo)));
-            sum = _mm256_add_epi64(sum, _mm256_cvtepi32_epi64(_mm256_extracti128_si256(q_lo, 1)));
-
-            let v_hi = _mm256_cvtepi16_epi32(_mm256_extracti128_si256(clamped, 1));
-            let w_hi = _mm256_cvtepi16_epi32(_mm256_extracti128_si256(w, 1));
-            let q_hi = _mm256_mullo_epi32(_mm256_mullo_epi32(v_hi, w_hi), v_hi);
-            sum = _mm256_add_epi64(sum, _mm256_cvtepi32_epi64(_mm256_castsi256_si128(q_hi)));
-            sum = _mm256_add_epi64(sum, _mm256_cvtepi32_epi64(_mm256_extracti128_si256(q_hi, 1)));
-
-            idx += 16;
-        }
-
-        let mut result = horizontal_sum_i64(sum);
-        let qa = i64::from(qa);
-        while idx < len {
-            let clamped = i64::from(*acc_ptr.add(idx)).clamp(0, qa);
-            result += clamped * clamped * i64::from(*weight_ptr.add(idx));
-            idx += 1;
-        }
-        result
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-unsafe fn horizontal_sum_i64(value: __m256i) -> i64 {
-    unsafe {
-        let mut lanes = [0_i64; 4];
-        _mm256_storeu_si256(lanes.as_mut_ptr() as *mut __m256i, value);
-        lanes.into_iter().sum()
+        result / (f32::from(qa) * f32::from(qa))
     }
 }

@@ -31,24 +31,11 @@ pub(super) fn apply_feature_deltas(
     }
 }
 
-pub(super) fn screlu_dot_i16(accumulator: &[i16], weights: &[i16], qa: i16) -> i64 {
-    let qa = i64::from(qa);
-    let mut output = 0_i64;
-    for (&acc, &weight) in accumulator.iter().zip(weights.iter()) {
-        let clamped = i64::from(acc).clamp(0, qa);
-        output += clamped * clamped * i64::from(weight);
+pub(super) fn screlu_dot_f32(accumulator: &[i16], weights: &[f32], qa: i16) -> f32 {
+    let mut sums = [0.0_f32; 8];
+    for (index, (&acc, &weight)) in accumulator.iter().zip(weights.iter()).enumerate() {
+        let clamped = f32::from(acc.clamp(0, qa));
+        sums[index % 8] += clamped * clamped * weight;
     }
-    output
+    sums.into_iter().sum::<f32>() / (f32::from(qa) * f32::from(qa))
 }
-
-pub(super) fn screlu_dot_i16_dual(
-    left_accumulator: &[i16],
-    left_weights: &[i16],
-    right_accumulator: &[i16],
-    right_weights: &[i16],
-    qa: i16,
-) -> i64 {
-    screlu_dot_i16(left_accumulator, left_weights, qa)
-        + screlu_dot_i16(right_accumulator, right_weights, qa)
-}
-

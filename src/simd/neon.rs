@@ -38,40 +38,25 @@ pub(super) unsafe fn apply_feature_delta(accumulator: &mut [i16], weights: &[i16
 
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
-pub(super) unsafe fn screlu_dot_i16(accumulator: &[i16], weights: &[i16], qa: i16) -> i64 {
+pub(super) unsafe fn screlu_dot_f32(accumulator: &[i16], weights: &[f32], qa: i16) -> f32 {
     unsafe {
-        let len = accumulator.len();
-        let mut idx = 0_usize;
-        let acc_ptr = accumulator.as_ptr();
-        let weight_ptr = weights.as_ptr();
-        let zero = vdupq_n_s16(0);
-        let qa_vec = vdupq_n_s16(qa);
-        let mut sum = vdupq_n_s64(0);
-
-        while idx + 8 <= len {
-            let acc = vld1q_s16(acc_ptr.add(idx));
-            let clamped = vminq_s16(vmaxq_s16(acc, zero), qa_vec);
-            let w = vld1q_s16(weight_ptr.add(idx));
-
-            let p_lo = vmull_s16(vget_low_s16(clamped), vget_low_s16(w));
-            let q_lo = vmulq_s32(p_lo, vmovl_s16(vget_low_s16(clamped)));
-            sum = vpadalq_s32(sum, q_lo);
-
-            let p_hi = vmull_high_s16(clamped, w);
-            let q_hi = vmulq_s32(p_hi, vmovl_high_s16(clamped));
-            sum = vpadalq_s32(sum, q_hi);
-
-            idx += 8;
+        let zero = vdupq_n_f32(0.0);
+        let limit = vdupq_n_f32(f32::from(qa));
+        let mut sum = vdupq_n_f32(0.0);
+        let mut idx = 0;
+        while idx + 4 <= accumulator.len() {
+            let values = vcvtq_f32_s32(vmovl_s16(vld1_s16(accumulator.as_ptr().add(idx))));
+            let clamped = vminq_f32(vmaxq_f32(values, zero), limit);
+            let weight = vld1q_f32(weights.as_ptr().add(idx));
+            sum = vaddq_f32(sum, vmulq_f32(vmulq_f32(clamped, clamped), weight));
+            idx += 4;
         }
-
-        let mut result = vaddvq_s64(sum);
-        let qa = i64::from(qa);
-        while idx < len {
-            let clamped = i64::from(*acc_ptr.add(idx)).clamp(0, qa);
-            result += clamped * clamped * i64::from(*weight_ptr.add(idx));
+        let mut result = vaddvq_f32(sum);
+        while idx < accumulator.len() {
+            let clamped = f32::from(accumulator[idx].clamp(0, qa));
+            result += clamped * clamped * weights[idx];
             idx += 1;
         }
-        result
+        result / (f32::from(qa) * f32::from(qa))
     }
 }
-

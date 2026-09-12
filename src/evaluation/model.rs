@@ -27,7 +27,7 @@ impl NnueModel {
         let Some(hidden_size) = bullet_hidden_size(bytes) else {
             return Err(invalid_eval_file(
                 path,
-                "expected a default Bullet quantised network",
+                "expected a Bullet 768x512 mirrored SCReLU network with a float32 score head",
             ));
         };
         let tensor_bytes = bullet_tensor_bytes(hidden_size)
@@ -44,7 +44,8 @@ impl NnueModel {
             ));
         }
 
-        let mut values = bytes[..tensor_bytes]
+        let first_layer_bytes = (SHARD_INPUT_FEATURES + 1) * hidden_size * size_of::<i16>();
+        let mut values = bytes[..first_layer_bytes]
             .chunks_exact(2)
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]));
         let feature_weight_count = SHARD_INPUT_FEATURES * hidden_size;
@@ -58,28 +59,23 @@ impl NnueModel {
             *value = values.next().expect("Bullet accumulator bias is present");
         }
 
-        let output_weight_count = hidden_size * 2 * SHARD_OUTPUT_HEADS;
-        let mut output_weights = Vec::with_capacity(output_weight_count);
-        for _ in 0..output_weight_count {
-            output_weights.push(values.next().expect("Bullet output weights are present"));
-        }
-
-        let mut output_bias = [0; SHARD_OUTPUT_HEADS];
-        for value in &mut output_bias {
-            *value = i32::from(values.next().expect("Bullet output biases are present"));
-        }
         debug_assert!(values.next().is_none());
-
-        let narrow_output_weights = output_weights
-            .iter()
-            .all(|&weight| i32::from(weight).abs() * i32::from(SHARD_QA) <= i32::from(i16::MAX));
+        let mut outputs = bytes[first_layer_bytes..tensor_bytes]
+            .chunks_exact(4)
+            .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()));
+        let output_weight_count = hidden_size * 2 * SHARD_OUTPUT_HEADS;
+        let output_weights: Vec<f32> = outputs.by_ref().take(output_weight_count).collect();
+        let output_bias = std::array::from_fn(|_| outputs.next().unwrap());
+        if !output_weights.iter().chain(output_bias.iter()).all(|value| value.is_finite()) {
+            return Err(invalid_eval_file(path, "Bullet output parameters must be finite"));
+        }
+        debug_assert!(outputs.next().is_none());
         validate_i16_accumulator_range(path, &bias, &feature_weights, hidden_size)?;
 
         Ok(Self {
             feature_weights: feature_weights.into_boxed_slice(),
             bias: bias.into_boxed_slice(),
             output_weights: output_weights.into_boxed_slice(),
-            narrow_output_weights,
             output_bias,
         })
     }
@@ -443,71 +439,30 @@ impl NnueModel {
         board: &Board,
         accumulators: &NnueAccumulators,
     ) -> i32 {
-        let output = self.evaluate_output_head_quantised(board, accumulators, output_bucket(board));
-        quantised_output_to_cp(output)
+        (self.evaluate_score(board, accumulators) * SHARD_OUTPUT_SCALE as f32) as i32
     }
 
-    pub fn output(&self, board: &Board) -> NnueOutput {
-        let accumulators = self
-            .initial_accumulators(board)
-            .expect("valid shard NNUE model should produce accumulators");
-        self.output_with_accumulators(board, &accumulators)
+    pub fn output(&self, _board: &Board) -> Option<NnueOutput> {
+        None
     }
 
     pub fn output_bucket_values(&self, board: &Board) -> [i32; SHARD_OUTPUT_BUCKETS] {
-        let accumulators = self
-            .initial_accumulators(board)
-            .expect("valid shard NNUE model should produce accumulators");
-        std::array::from_fn(|head| {
-            quantised_output_to_cp(self.evaluate_output_head_quantised(board, &accumulators, head))
-        })
+        [self.evaluate(board)]
     }
 
-    fn output_with_accumulators(
-        &self,
-        board: &Board,
-        accumulators: &NnueAccumulators,
-    ) -> NnueOutput {
-        let log_variance =
-            self.evaluate_output_head_quantised(board, accumulators, SHARD_UNCERTAINTY_HEAD);
-        let logits = [
-            self.evaluate_output_head_quantised(board, accumulators, SHARD_WIN_HEAD),
-            self.evaluate_output_head_quantised(board, accumulators, SHARD_DRAW_HEAD),
-            self.evaluate_output_head_quantised(board, accumulators, SHARD_LOSS_HEAD),
-        ];
-        NnueOutput {
-            uncertainty_log_variance: dequantise_output(log_variance, SHARD_QB)
-                .clamp(SHARD_MIN_LOG_VARIANCE, SHARD_MAX_LOG_VARIANCE),
-            wdl: softmax_outputs(logits),
-        }
-    }
-
-    fn evaluate_output_head_quantised(
-        &self,
-        board: &Board,
-        accumulators: &NnueAccumulators,
-        head: usize,
-    ) -> i64 {
+    fn evaluate_score(&self, board: &Board, accumulators: &NnueAccumulators) -> f32 {
         let (stm, ntm) = match crate::chess::side_to_move(board) {
             Color::White => (&accumulators.white, &accumulators.black),
             Color::Black => (&accumulators.black, &accumulators.white),
         };
         let hidden_size = self.hidden_size();
-        let outputs_per_head = hidden_size * 2;
-        let start = head * outputs_per_head;
-        let weights = &self.output_weights[start..start + outputs_per_head];
-        let mut output = crate::simd::screlu_dot_i16_dual(
+        crate::simd::screlu_dot_f32_dual(
             stm,
-            &weights[..hidden_size],
+            &self.output_weights[..hidden_size],
             ntm,
-            &weights[hidden_size..],
+            &self.output_weights[hidden_size..],
             SHARD_QA,
-            self.narrow_output_weights,
-        );
-        let qa = i64::from(SHARD_QA);
-        output /= qa;
-        output += i64::from(self.output_bias[head]);
-        output
+        ) + self.output_bias[0]
     }
 
     pub fn evaluate_for_side_to_move(&self, board: &Board) -> i32 {
@@ -620,56 +575,22 @@ fn piece_bitboard_index(color: Color, piece: Piece) -> usize {
     color as usize * 6 + piece as usize
 }
 
-fn quantised_output_to_cp(mut output: i64) -> i32 {
-    output *= i64::from(SHARD_OUTPUT_SCALE);
-    output /= i64::from(SHARD_QA) * i64::from(SHARD_QB);
-    output.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
-}
-
-fn output_bucket(board: &Board) -> usize {
-    let piece_count = crate::chess::colors(board, Color::White).len()
-        + crate::chess::colors(board, Color::Black).len();
-    ((piece_count.saturating_sub(2) / 4) as usize).min(SHARD_OUTPUT_BUCKETS - 1)
-}
-
-fn dequantise_output(output: i64, qb: i16) -> f32 {
-    output as f32 / f32::from(SHARD_QA) / f32::from(qb)
-}
-
-fn softmax_outputs(outputs: [i64; 3]) -> [f32; 3] {
-    let logits = outputs.map(|output| dequantise_output(output, SHARD_QB));
-    let max = logits.into_iter().fold(f32::NEG_INFINITY, f32::max);
-    let exponents = logits.map(|value| (value - max).exp());
-    let sum = exponents.into_iter().sum::<f32>();
-    exponents.map(|value| value / sum)
-}
-
 fn bullet_hidden_size(bytes: &[u8]) -> Option<usize> {
-    let fixed_bytes = SHARD_OUTPUT_HEADS.checked_mul(size_of::<i16>())?;
-    let bytes_per_hidden = SHARD_INPUT_FEATURES
-        .checked_add(1)?
-        .checked_add(SHARD_OUTPUT_HEADS.checked_mul(2)?)?
-        .checked_mul(size_of::<i16>())?;
-    let available = bytes.len().checked_sub(fixed_bytes)?;
-    let hidden_size = available / bytes_per_hidden;
-    if hidden_size == 0 {
-        return None;
-    }
+    let hidden_size = 512;
     let tensor_bytes = bullet_tensor_bytes(hidden_size)?;
     let padding_bytes = bytes.len().checked_sub(tensor_bytes)?;
     (padding_bytes <= SHARD_FILE_PADDING_BYTES).then_some(hidden_size)
 }
 
 fn bullet_tensor_bytes(hidden_size: usize) -> Option<usize> {
-    let feature_weights = SHARD_INPUT_FEATURES.checked_mul(hidden_size)?;
-    let output_weights = hidden_size
-        .checked_mul(2)?
-        .checked_mul(SHARD_OUTPUT_HEADS)?;
-    feature_weights
-        .checked_add(hidden_size)?
-        .checked_add(output_weights)?
-        .checked_add(SHARD_OUTPUT_HEADS)?
-        .checked_mul(size_of::<i16>())
+    let first_layer = SHARD_INPUT_FEATURES.checked_add(1)?
+        .checked_mul(hidden_size)?
+        .checked_mul(size_of::<i16>())?;
+    let output_layer = hidden_size.checked_mul(2)?
+        .checked_add(1)?
+        .checked_mul(SHARD_OUTPUT_HEADS)?
+        .checked_mul(size_of::<f32>())?;
+    first_layer.checked_add(output_layer)
 }
 
 fn invalid_eval_file(path: &Path, message: &str) -> EngineError {
