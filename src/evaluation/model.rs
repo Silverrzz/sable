@@ -27,7 +27,7 @@ impl NnueModel {
         let Some(hidden_size) = bullet_hidden_size(bytes) else {
             return Err(invalid_eval_file(
                 path,
-                "expected a Bullet 768x512 mirrored SCReLU network with a float32 score head",
+                "expected a Bullet 768x1024 mirrored SCReLU network with a float32 score head",
             ));
         };
         let tensor_bytes = bullet_tensor_bytes(hidden_size)
@@ -576,7 +576,7 @@ fn piece_bitboard_index(color: Color, piece: Piece) -> usize {
 }
 
 fn bullet_hidden_size(bytes: &[u8]) -> Option<usize> {
-    let hidden_size = 512;
+    let hidden_size = 1024;
     let tensor_bytes = bullet_tensor_bytes(hidden_size)?;
     let padding_bytes = bytes.len().checked_sub(tensor_bytes)?;
     (padding_bytes <= SHARD_FILE_PADDING_BYTES).then_some(hidden_size)
