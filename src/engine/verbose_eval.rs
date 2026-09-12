@@ -44,7 +44,7 @@ pub(super) fn build_verbose_eval(
     let nnue_output = evaluator
         .active_nnue_model()
         .filter(|_| static_eval.source == StaticEvalSource::Nnue)
-        .map(|model| model.output(board));
+        .and_then(|model| model.output(board));
     let piece_contributions = nnue_piece_contributions(board, evaluator, static_eval.source);
 
     VerboseEval {

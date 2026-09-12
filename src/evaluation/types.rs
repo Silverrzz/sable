@@ -12,28 +12,18 @@ pub(super) const QUEEN_VALUE: i32 = 900;
 
 pub(super) const PIECE_SQUARE_FEATURES: usize = 768;
 pub(super) const KING_SQUARES: usize = 64;
-pub(super) const SHARD_KING_BUCKETS: usize = 16;
-pub const SHARD_OUTPUT_BUCKETS: usize = 8;
-pub(super) const SHARD_OUTPUT_HEADS: usize = 12;
-pub(super) const SHARD_UNCERTAINTY_HEAD: usize = 8;
-pub(super) const SHARD_WIN_HEAD: usize = 9;
-pub(super) const SHARD_DRAW_HEAD: usize = 10;
-pub(super) const SHARD_LOSS_HEAD: usize = 11;
+pub(super) const SHARD_KING_BUCKETS: usize = 1;
+pub const SHARD_OUTPUT_BUCKETS: usize = 1;
+pub(super) const SHARD_OUTPUT_HEADS: usize = 1;
 pub(super) const SHARD_INPUT_FEATURES: usize = PIECE_SQUARE_FEATURES * SHARD_KING_BUCKETS;
 pub(super) const SHARD_FILE_PADDING_BYTES: usize = 63;
 pub(super) const SHARD_QA: i16 = 255;
-pub(super) const SHARD_QB: i16 = 64;
 pub(super) const SHARD_OUTPUT_SCALE: i32 = 400;
 pub(super) const SHARD_UNCERTAINTY_SCALE: i32 = 100;
-pub(super) const SHARD_MIN_LOG_VARIANCE: f32 = -12.0;
-pub(super) const SHARD_MAX_LOG_VARIANCE: f32 = 8.0;
 pub(super) const MAX_MOVE_FEATURE_UPDATES: usize = 3;
 pub(super) const FINNY_TABLE_ENTRIES: usize = KING_SQUARES * 2;
 pub(super) const FINNY_PIECE_BITBOARDS: usize = 12;
-pub(super) const SHARD_BUCKET_LAYOUT: [usize; 32] = [
-    0, 1, 2, 3, 0, 1, 2, 3, 4, 5, 6, 7, 4, 5, 6, 7, 8, 9, 10, 11, 8, 9, 10,
-    11, 12, 13, 14, 15, 12, 13, 14, 15,
-];
+pub(super) const SHARD_BUCKET_LAYOUT: [usize; 32] = [0; 32];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NnueArchitectureId {
@@ -52,9 +42,8 @@ impl NnueArchitectureId {
 pub struct NnueModel {
     pub(super) feature_weights: Box<[i16]>,
     pub(super) bias: Box<[i16]>,
-    pub(super) output_weights: Box<[i16]>,
-    pub(super) narrow_output_weights: bool,
-    pub(super) output_bias: [i32; SHARD_OUTPUT_HEADS],
+    pub(super) output_weights: Box<[f32]>,
+    pub(super) output_bias: [f32; SHARD_OUTPUT_HEADS],
 }
 
 #[derive(Clone, Copy, Debug)]

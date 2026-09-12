@@ -380,9 +380,9 @@ impl Engine {
             } else {
                 [0, 0, 1000]
             })),
-            GameStatus::Ongoing => self.evaluator.active_nnue_model().map(|model| {
-                let output = model.output(&board);
-                PvLeafOutput::Nnue(if flip { output.flipped() } else { output })
+            GameStatus::Ongoing => self.evaluator.active_nnue_model().and_then(|model| {
+                let output = model.output(&board)?;
+                Some(PvLeafOutput::Nnue(if flip { output.flipped() } else { output }))
             }),
         }
     }
