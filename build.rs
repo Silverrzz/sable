@@ -234,14 +234,14 @@ fn workspace_default_weights(out_dir: &Path) -> PathBuf {
         return PathBuf::from(path);
     }
 
-    let source = out_dir.join("sable-dev-net-2.bin");
+    let source = out_dir.join("sable-dev-net-11.1.bin");
     if source.is_file() {
         validate_downloaded_weights(&source);
         return source;
     }
 
-    let url = "https://raw.githubusercontent.com/Silverrzz/sable-nets/main/nets/sable-dev-net-2.bin";
-    let temporary = out_dir.join("sable-dev-net-2.bin.part");
+    let url = "https://raw.githubusercontent.com/Silverrzz/sable-nets/main/nets/sable-dev-net-11.1.bin";
+    let temporary = out_dir.join("sable-dev-net-11.1.bin.part");
     let curl = if cfg!(windows) { "curl.exe" } else { "curl" };
     let status = Command::new(curl)
         .args([
@@ -287,8 +287,8 @@ fn display_label(source: &Path) -> String {
         return label;
     }
 
-    if source.file_name().is_some_and(|name| name == "sable-dev-net-2.bin") {
-        return "sable-dev-net-2.bin".to_owned();
+    if source.file_name().is_some_and(|name| name == "sable-dev-net-11.1.bin") {
+        return "sable-dev-net-11.1.bin".to_owned();
     }
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
