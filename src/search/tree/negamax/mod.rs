@@ -139,7 +139,7 @@ pub(in crate::search) fn negamax(
     if static_eval.can_prune
         && let Some(eval) = static_eval.corrected
     {
-        if let Some(score) = should_reverse_futility_prune(depth, eval, beta) {
+        if let Some(score) = should_reverse_futility_prune(depth, eval, beta, static_eval.improving) {
             return Some(terminal_outcome(score, false));
         }
         if should_try_razoring(depth, eval, alpha) {
@@ -473,6 +473,8 @@ pub(in crate::search) fn negamax(
                 in_check,
                 gives_check,
                 static_eval.improving,
+                static_eval.corrected.zip(static_eval.raw)
+                    .map_or(0, |(corrected, raw)| corrected.saturating_sub(raw)),
                 || {
                     context.ordering().reduction_adjustment(board, ordered.mv, move_context, ply)
                 },

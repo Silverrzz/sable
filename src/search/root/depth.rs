@@ -83,6 +83,10 @@ pub(in crate::search) fn search_root_iteration(
             if alpha == i32::MIN + 1 {
                 return Some(result);
             }
+            let beta_weight = i64::from(ASPIRATION_FAIL_LOW_BETA_WEIGHT());
+            beta = ((i64::from(alpha) * beta_weight
+                + i64::from(beta) * (i64::from(LMR_SCALE) - beta_weight))
+                / i64::from(LMR_SCALE)) as i32;
             window = (window.saturating_mul(2)).min(ASPIRATION_MAX_WINDOW);
             alpha = score.saturating_sub(window).max(i32::MIN + 1);
             continue;
@@ -151,6 +155,7 @@ pub(in crate::search) fn search_root_child(
             !crate::chess::checkers(board).is_empty(),
             !crate::chess::checkers(&next).is_empty(),
             true,
+            context.corrected_static_eval(board, 0, MoveContext::default()),
             || context.ordering().reduction_adjustment(board, ordered.mv, MoveContext::default(), 0),
         );
         let mut scout = negamax(

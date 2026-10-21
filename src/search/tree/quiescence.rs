@@ -16,7 +16,7 @@ use crate::search::{
         context::SearchContext,
         move_context::MoveContext,
         position_key::{PositionKey, position_key},
-        transposition::{Bound, TranspositionEntry, rule50_safe_tt_score, score_from_tt},
+        transposition::{Bound, TranspositionEntry, is_mate_score, rule50_safe_tt_score, score_from_tt},
     },
 };
 
@@ -93,18 +93,25 @@ pub(in crate::search) fn quiescence(
         let stand_pat = context.corrected_static_eval(board, raw_eval, move_context);
         context.record_static_eval_at_ply(ply, stand_pat);
         if stand_pat >= beta {
+            let score = if !is_mate_score(stand_pat) && !is_mate_score(beta) {
+                let beta_weight = i64::from(QSEARCH_STAND_PAT_BETA_WEIGHT());
+                ((i64::from(stand_pat) * (i64::from(LMR_SCALE) - beta_weight)
+                    + i64::from(beta) * beta_weight) / i64::from(LMR_SCALE)) as i32
+            } else {
+                stand_pat
+            };
             qsearch_store(
                 context,
                 use_tt,
                 key,
-                stand_pat,
+                score,
                 alpha_start,
                 beta,
                 None,
                 Some(raw_eval),
                 ply,
             );
-            return Some(terminal_outcome(stand_pat, false));
+            return Some(terminal_outcome(score, false));
         }
         alpha = alpha.max(stand_pat);
         Some(stand_pat)

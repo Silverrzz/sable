@@ -38,6 +38,7 @@ pub(in crate::search) fn late_move_reduction(
     in_check: bool,
     gives_check: bool,
     improving: bool,
+    correction: i32,
     history_adjustment: impl FnOnce() -> i32,
 ) -> u32 {
     let minimum_searched_moves = if is_pv_node { 3 } else { 1 };
@@ -64,6 +65,10 @@ pub(in crate::search) fn late_move_reduction(
         reduction -= SPARSE_ENDGAME_QUIET_CHECK_LMR_PROTECTION() as i32 * LMR_SCALE;
     }
 
+    let correction_adjustment = (i64::from(correction).abs()
+        * i64::from(LMR_CORRECTION_WEIGHT())
+        / i64::from(LMR_SCALE)) as i32;
+    reduction -= correction_adjustment;
     reduction -= history_adjustment();
     let reduction = ((reduction.max(0) + LMR_SCALE / 2) / LMR_SCALE) as u32;
     reduction.min(depth.saturating_sub(1))
@@ -178,9 +183,10 @@ pub(in crate::search) fn requires_full_mate_search(alpha: i32, beta: i32) -> boo
 }
 
 #[inline]
-pub(in crate::search) fn reverse_futility_margin(depth: u32) -> i32 {
-    REVERSE_FUTILITY_BASE_MARGIN()
-        + REVERSE_FUTILITY_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32)
+pub(in crate::search) fn reverse_futility_margin(depth: u32, improving: bool) -> i32 {
+    let margin = REVERSE_FUTILITY_BASE_MARGIN()
+        + REVERSE_FUTILITY_MARGIN_PER_DEPTH().saturating_mul(depth.min(32) as i32);
+    margin.saturating_sub(if improving { REVERSE_FUTILITY_IMPROVING_MARGIN() } else { 0 }).max(0)
 }
 
 #[inline]
@@ -209,11 +215,12 @@ pub(in crate::search) fn should_reverse_futility_prune(
     depth: u32,
     static_eval: i32,
     beta: i32,
+    improving: bool,
 ) -> Option<i32> {
     if depth > REVERSE_FUTILITY_MAX_DEPTH() {
         return None;
     }
-    let score = static_eval.saturating_sub(reverse_futility_margin(depth));
+    let score = static_eval.saturating_sub(reverse_futility_margin(depth, improving));
     (score >= beta).then_some(score)
 }
 
@@ -230,9 +237,16 @@ pub(in crate::search) fn should_futility_prune_quiet(
     quiet_score: i32,
     improving: bool,
 ) -> bool {
-    depth <= FUTILITY_MAX_DEPTH()
-        && quiet_score < COUNTER_MOVE_SCORE
-        && static_eval.saturating_add(futility_margin(depth, improving)) <= alpha
+    if depth > FUTILITY_MAX_DEPTH() || quiet_score >= COUNTER_MOVE_SCORE {
+        return false;
+    }
+    let limit = i64::from(FUTILITY_HISTORY_MAX_MARGIN());
+    let history_margin = (i64::from(quiet_score) * i64::from(FUTILITY_HISTORY_WEIGHT())
+        / i64::from(LMR_SCALE)).clamp(-limit, limit) as i32;
+    static_eval
+        .saturating_add(futility_margin(depth, improving))
+        .saturating_add(history_margin)
+        <= alpha
 }
 
 #[inline]
