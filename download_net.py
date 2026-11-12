@@ -5,7 +5,7 @@ import hashlib
 import os
 
 def main():
-    name = "goliath-sb670"
+    name = "goliath.nnue"
     hash = "b04afc7560d0e147c4a311efddf1a4a490e78d83edb3dc28ad2a73c50215abe6"
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nets", "goliath.nnue")
 
