@@ -4,7 +4,7 @@ use std::{
     time::Instant,
 };
 
-use crate::{Board, Move, evaluation::Evaluator};
+use crate::{Board, Move};
 
 use super::super::{
     state::{
@@ -33,7 +33,6 @@ pub(in crate::search) fn run_lazy_smp_search<F>(
     transposition_table: TranspositionTable,
     search_state: PersistentSearchState,
     threads: u32,
-    evaluator: Evaluator,
     stop_flag: Option<&AtomicBool>,
     ponder_flag: Option<&AtomicBool>,
     started: Instant,
@@ -54,7 +53,6 @@ where
         let mut worker_handles = Vec::with_capacity(worker_count.saturating_sub(1));
         for worker_id in 1..worker_count {
             let transposition_table = transposition_table.clone();
-            let evaluator = evaluator.clone();
             let search_state = search_state.clone();
             let mut budget = budget.clone();
             budget.soft_time_ms = None;
@@ -71,7 +69,6 @@ where
                         budget,
                         transposition_table,
                         search_state,
-                        evaluator,
                         started,
                         worker_id,
                         multi_pv: 1,
@@ -96,7 +93,6 @@ where
                 budget,
                 transposition_table: transposition_table.clone(),
                 search_state: main_search_state,
-                evaluator,
                 started,
                 worker_id: 0,
                 multi_pv: 1,

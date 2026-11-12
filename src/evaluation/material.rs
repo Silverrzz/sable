@@ -1,7 +1,11 @@
 
 use crate::{Board, Color, Piece};
 
-use super::types::*;
+const PAWN_VALUE: i32 = 100;
+const KNIGHT_VALUE: i32 = 320;
+const BISHOP_VALUE: i32 = 330;
+const ROOK_VALUE: i32 = 500;
+const QUEEN_VALUE: i32 = 900;
 
 pub(crate) fn material_score_for_white(board: &Board) -> i32 {
     material_balance(board)

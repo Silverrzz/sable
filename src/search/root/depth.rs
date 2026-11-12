@@ -127,7 +127,7 @@ pub(in crate::search) fn search_root_child(
     context.transposition_table().prefetch(next_key);
     let next_repetition = context.push_position(&next, next_key);
     context.push_eval_state(
-        &next,
+        board,
         ordered.mv,
         ordered.moving_piece,
         ordered.captured_piece,

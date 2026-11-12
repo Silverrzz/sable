@@ -8,10 +8,7 @@ pub struct EngineOptions {
     pub multi_pv: u32,
     pub use_soft_nodes: bool,
     pub uci_chess960: bool,
-    pub uci_show_wdl: bool,
-    pub uci_show_uncertainty: bool,
     pub move_overhead_ms: u64,
-    pub eval_file: Option<String>,
 }
 
 impl Default for EngineOptions {
@@ -23,10 +20,7 @@ impl Default for EngineOptions {
             multi_pv: 1,
             use_soft_nodes: false,
             uci_chess960: false,
-            uci_show_wdl: false,
-            uci_show_uncertainty: false,
             move_overhead_ms: 100,
-            eval_file: None,
         }
     }
 }
@@ -46,15 +40,8 @@ pub(crate) fn apply_engine_option(
         EngineOption::MultiPv => options.multi_pv = parse_u32_option(name, value, 1, 256)?,
         EngineOption::UseSoftNodes => options.use_soft_nodes = parse_bool_option(name, value)?,
         EngineOption::UciChess960 => options.uci_chess960 = parse_bool_option(name, value)?,
-        EngineOption::UciShowWdl => options.uci_show_wdl = parse_bool_option(name, value)?,
-        EngineOption::UciShowUncertainty => {
-            options.uci_show_uncertainty = parse_bool_option(name, value)?;
-        }
         EngineOption::MoveOverhead => {
             options.move_overhead_ms = u64::from(parse_u32_option(name, value, 0, 10_000)?);
-        }
-        EngineOption::EvalFile => {
-            options.eval_file = Some(required_option_value(name, value)?.to_owned());
         }
     }
     Ok(())
@@ -68,10 +55,7 @@ enum EngineOption {
     MultiPv,
     UseSoftNodes,
     UciChess960,
-    UciShowWdl,
-    UciShowUncertainty,
     MoveOverhead,
-    EvalFile,
 }
 
 impl EngineOption {
@@ -83,10 +67,7 @@ impl EngineOption {
             "multipv" => Ok(Self::MultiPv),
             "usesoftnodes" => Ok(Self::UseSoftNodes),
             "uci_chess960" => Ok(Self::UciChess960),
-            "uci_showwdl" => Ok(Self::UciShowWdl),
-            "uci_showuncertainty" => Ok(Self::UciShowUncertainty),
             "moveoverhead" => Ok(Self::MoveOverhead),
-            "evalfile" => Ok(Self::EvalFile),
             _ => Err(EngineError::InvalidOption(name.to_owned())),
         }
     }

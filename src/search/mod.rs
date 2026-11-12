@@ -1,4 +1,5 @@
 mod constants;
+pub(crate) use constants::MAX_ORDERING_PLY;
 mod moves;
 mod root;
 mod state;
