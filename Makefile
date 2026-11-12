@@ -1,41 +1,24 @@
-ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
-
-EXE ?= $(ROOT)/sable
 CARGO ?= cargo
-CC ?= cc
-EVALFILE ?=
-MANIFEST := $(ROOT)/Cargo.toml
-TARGET_DIR ?= $(ROOT)/target
-unexport CC
-unexport CXX
+TARGET_DIR ?= target
+unexport CC CXX
 
 ifeq ($(OS),Windows_NT)
-BIN_SUFFIX := .exe
-MSYS_PATHS := $(filter /%,$(TARGET_DIR) $(EXE))
-ifneq ($(strip $(MSYSTEM) $(MSYS_PATHS)),)
-COPY = cp -f "$(1)" "$(2)"
+EXE ?= sable.exe
+PYTHON ?= py -3
 else
-COPY = powershell.exe -NoProfile -Command "Copy-Item -LiteralPath '$(1)' -Destination '$(2)' -Force"
-endif
-else
-BIN_SUFFIX :=
-COPY = cp -f "$(1)" "$(2)"
+EXE ?= sable
+PYTHON ?= python3
 endif
 
-BUILT_EXE := $(TARGET_DIR)/release/sable-engine$(BIN_SUFFIX)
+.PHONY: native all build clean
 
-CARGO_ENV :=
-ifneq ($(strip $(EVALFILE)),)
-CARGO_ENV += SABLE_EVAL_FILE="$(EVALFILE)"
+native:
+ifeq ($(strip $(SABLE_EVAL_FILE)$(EVALFILE)),)
+	$(PYTHON) ./download_net.py
 endif
+	$(CARGO) rustc --release --bin sable-engine --target-dir "$(TARGET_DIR)" -- --emit link="$(EXE)"
 
-.PHONY: all build clean
-
-all: build
-
-build:
-	$(CARGO_ENV) $(CARGO) build --release --manifest-path "$(MANIFEST)" --target-dir "$(TARGET_DIR)"
-	$(call COPY,$(BUILT_EXE),$(EXE))
+all build: native
 
 clean:
-	$(CARGO) clean --manifest-path "$(MANIFEST)" --target-dir "$(TARGET_DIR)"
+	$(CARGO) clean --target-dir "$(TARGET_DIR)"

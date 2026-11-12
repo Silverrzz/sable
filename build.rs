@@ -11,17 +11,17 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SABLE_RELEASE_ID");
     println!("cargo:rerun-if-env-changed=SABLE_GIT_COMMIT");
     println!("cargo:rerun-if-env-changed=SABLE_EVAL_FILE");
+    println!("cargo:rerun-if-env-changed=EVALFILE");
     println!("cargo:rerun-if-env-changed=SABLE_EVAL_LABEL");
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let source = workspace_default_weights();
-    println!(
-        "cargo:rerun-if-changed={}",
-        source
-            .strip_prefix(&manifest_dir)
-            .unwrap_or(&source)
-            .display()
-    );
+    let source = ["SABLE_EVAL_FILE", "EVALFILE"]
+        .into_iter()
+        .filter_map(env::var_os)
+        .find(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| manifest_dir.join("nets/goliath.nnue"));
+    println!("cargo:rerun-if-changed={}", source.display());
 
     if let Ok(release_id) = env::var("SABLE_RELEASE_ID")
         && !release_id.trim().is_empty()
@@ -40,47 +40,20 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR should be set by Cargo"));
     generate_attack_tables(&out_dir);
 
-    let has_weights = source.exists();
-
-    if !has_weights {
-        let embedded_path = out_dir.join("embedded-default-eval-empty.bin");
-        fs::write(&embedded_path, []).unwrap_or_else(|error| {
-            panic!(
-                "Failed to write empty embedded eval placeholder '{}': {error}",
-                embedded_path.display()
-            )
-        });
-        println!("cargo:rerun-if-changed={}", source.display());
-        println!("cargo:rustc-env=SABLE_ENGINE_HAS_EMBEDDED_EVAL=0");
-        println!(
-            "cargo:rustc-env=SABLE_ENGINE_EMBEDDED_EVAL_PATH={}",
-            embedded_path.display()
-        );
-        println!("cargo:rustc-env=SABLE_ENGINE_EMBEDDED_EVAL_LABEL=none");
-        println!("cargo:rustc-env=SABLE_ENGINE_EMBEDDED_EVAL_HASH=none");
-        return;
-    }
-
     let bytes = fs::read(&source).unwrap_or_else(|error| {
         panic!(
-            "Failed to read embedded eval from '{}': {error}",
+            "Could not read network '{}': {error}. Run make or set SABLE_EVAL_FILE to a Goliath checkpoint.",
             source.display()
         )
     });
-    let embedded_hash = fnv1a64(&bytes);
-    let embedded_path = out_dir.join(format!("embedded-default-eval-{embedded_hash:016x}.bin"));
-    fs::write(&embedded_path, bytes).unwrap_or_else(|error| {
-        panic!(
-            "Failed to write embedded eval from '{}' to '{}': {error}",
-            source.display(),
-            embedded_path.display()
-        )
-    });
-    println!("cargo:rustc-env=SABLE_ENGINE_HAS_EMBEDDED_EVAL=1");
-    println!(
-        "cargo:rustc-env=SABLE_ENGINE_EMBEDDED_EVAL_PATH={}",
-        embedded_path.display()
+    assert_eq!(
+        bytes.len(),
+        2_424_960,
+        "Expected a packed 779-input Goliath network in '{}'",
+        source.display()
     );
+    let embedded_hash = fnv1a64(&bytes);
+    fs::write(out_dir.join("goliath.nnue"), bytes).expect("Could not embed Goliath network");
     println!(
         "cargo:rustc-env=SABLE_ENGINE_EMBEDDED_EVAL_LABEL={}",
         display_label(&source)
@@ -246,27 +219,6 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
         hash = hash.wrapping_mul(0x100000001b3);
     }
     hash
-}
-
-fn workspace_default_weights() -> PathBuf {
-    if let Ok(path) = env::var("SABLE_EVAL_FILE")
-        && !path.trim().is_empty()
-    {
-        return PathBuf::from(path);
-    }
-
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let repo_default = manifest_dir.join("data").join("quantised.bin");
-    if repo_default.exists() {
-        return repo_default;
-    }
-
-    let workspace_default = manifest_dir.join("..").join("data").join("quantised.bin");
-    if workspace_default.exists() {
-        return workspace_default;
-    }
-
-    repo_default
 }
 
 fn display_label(source: &Path) -> String {

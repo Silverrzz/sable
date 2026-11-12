@@ -4,6 +4,9 @@ version = "3.0.50"
 edition = "2024"
 build = "build.rs"
 
+[features]
+use-bmi2 = []
+
 [dependencies]
 anyhow = "1"
 arrayvec = "0.7"

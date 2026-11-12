@@ -1,9 +1,7 @@
 use crate::{
     Board, Color, Piece,
-    evaluation::{
-        Evaluator, NnueOutput, PieceContribution, SHARD_OUTPUT_BUCKETS,
-        material_score_for_white,
-    },
+    evaluation::{PieceContribution, material_score_for_white},
+    nnue::Accumulator,
     pieces::ALL_PIECES,
     search::{StaticEval, StaticEvalSource},
 };
@@ -21,31 +19,23 @@ pub struct VerboseEval {
     pub black_king_square: u8,
     pub material_score_white_cp: i32,
     pub nnue_score_white_cp: Option<i32>,
-    pub nnue_output_bucket_values_white_cp: Option<[i32; SHARD_OUTPUT_BUCKETS]>,
-    pub nnue_output: Option<NnueOutput>,
     pub final_score_stm_cp: i32,
     pub side_to_move: Color,
     pub source: StaticEvalSource,
     pub piece_contributions: Vec<PieceContribution>,
 }
 
-pub(super) fn build_verbose_eval(
-    board: &Board,
-    evaluator: &Evaluator,
-    static_eval: StaticEval,
-) -> VerboseEval {
+pub(super) fn build_verbose_eval(board: &Board, static_eval: StaticEval) -> VerboseEval {
     let squares = piece_map(board);
     let white_king_square = king_square(board, Color::White, 4);
     let black_king_square = king_square(board, Color::Black, 60);
     let material_score_white_cp = material_score_for_white(board);
     let nnue_score_white_cp = nnue_score_for_white(board, static_eval);
-    let nnue_output_bucket_values_white_cp =
-        nnue_output_bucket_values_for_white(board, evaluator, static_eval.source);
-    let nnue_output = evaluator
-        .active_nnue_model()
-        .filter(|_| static_eval.source == StaticEvalSource::Nnue)
-        .map(|model| model.output(board));
-    let piece_contributions = nnue_piece_contributions(board, evaluator, static_eval.source);
+    let piece_contributions = if static_eval.source == StaticEvalSource::Nnue {
+        Accumulator::piece_contributions(board, static_eval.score_cp)
+    } else {
+        Vec::new()
+    };
 
     VerboseEval {
         squares,
@@ -53,8 +43,6 @@ pub(super) fn build_verbose_eval(
         black_king_square,
         material_score_white_cp,
         nnue_score_white_cp,
-        nnue_output_bucket_values_white_cp,
-        nnue_output,
         final_score_stm_cp: static_eval.score_cp,
         side_to_move: crate::chess::side_to_move(board),
         source: static_eval.source,
@@ -89,32 +77,5 @@ fn nnue_score_for_white(board: &Board, static_eval: StaticEval) -> Option<i32> {
     Some(match crate::chess::side_to_move(board) {
         Color::White => static_eval.score_cp,
         Color::Black => -static_eval.score_cp,
-    })
-}
-
-fn nnue_piece_contributions(
-    board: &Board,
-    evaluator: &Evaluator,
-    source: StaticEvalSource,
-) -> Vec<PieceContribution> {
-    evaluator
-        .active_nnue_model()
-        .filter(|_| source == StaticEvalSource::Nnue)
-        .map(|ev| ev.piece_contributions_white(board))
-        .unwrap_or_default()
-}
-
-fn nnue_output_bucket_values_for_white(
-    board: &Board,
-    evaluator: &Evaluator,
-    source: StaticEvalSource,
-) -> Option<[i32; SHARD_OUTPUT_BUCKETS]> {
-    let values = evaluator
-        .active_nnue_model()
-        .filter(|_| source == StaticEvalSource::Nnue)?
-        .output_bucket_values(board);
-    Some(match crate::chess::side_to_move(board) {
-        Color::White => values,
-        Color::Black => values.map(|value| -value),
     })
 }

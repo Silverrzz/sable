@@ -171,7 +171,6 @@ pub(in crate::search) fn negamax(
         let null_depth = depth.saturating_sub(1 + reduction);
         let null_alpha = beta.saturating_neg();
         let null_beta = null_alpha.saturating_add(1);
-        context.push_null_eval_state(&null_board);
         let null_result = negamax(
             &null_board,
             repetition,
@@ -185,7 +184,6 @@ pub(in crate::search) fn negamax(
             false,
             None,
         );
-        context.pop_null_eval_state();
         let null_result = null_result?;
         if -null_result.score >= beta {
             let verified = if should_verify_null_move(depth, sparse_endgame, zugzwang_prone) {
@@ -261,7 +259,7 @@ pub(in crate::search) fn negamax(
             context.transposition_table().prefetch(next_key);
             let next_repetition = context.push_position(&next, next_key);
             context.push_eval_state(
-                &next,
+                board,
                 ordered.mv,
                 ordered.moving_piece,
                 ordered.captured_piece,
@@ -450,7 +448,7 @@ pub(in crate::search) fn negamax(
         context.transposition_table().prefetch(next_key);
         let next_repetition = context.push_position(&next, next_key);
         context.push_eval_state(
-            &next,
+            board,
             ordered.mv,
             ordered.moving_piece,
             ordered.captured_piece,

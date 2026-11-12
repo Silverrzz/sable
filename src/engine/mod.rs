@@ -9,10 +9,8 @@ pub use verbose_eval::{VerboseEval, VerboseEvalSquare};
 use crate::{
     Board, Color, EngineError, EngineOptions, GameStatus, Move,
     chess::{board_from_fen, generate_moves},
-    evaluation::{
-        DRAW_SCORE, Evaluator, LOSS_SCORE, NnueArchitectureId, NnueModel, NnueOutput,
-        is_board_drawn,
-    },
+    evaluation::{DRAW_SCORE, LOSS_SCORE, NnueArchitectureId, is_board_drawn},
+    nnue::Accumulator,
     options::apply_engine_option,
     perft::perft,
     protocol::uci::{format_uci_move_for_board, mate_score_to_uci, parse_legal_move_for_board},
@@ -27,21 +25,13 @@ use shared_state::SharedSearchState;
 use time_budget::compute_search_budget;
 use verbose_eval::build_verbose_eval;
 
-#[derive(Clone, Copy, Debug)]
-pub enum PvLeafOutput {
-    Nnue(NnueOutput),
-    Terminal([u32; 3]),
-}
-
 #[derive(Clone, Debug)]
 pub struct Engine {
     board: Board,
     game_history: Vec<PositionKey>,
     options: EngineOptions,
-    evaluator: Evaluator,
     transposition_table: TranspositionTable,
     search_state: Arc<SharedSearchState>,
-    startup_warnings: Vec<String>,
 }
 
 fn terminal_static_eval(score_cp: i32) -> StaticEval {
@@ -57,30 +47,15 @@ impl Default for Engine {
         let board = Board::default();
         let key = position_key(&board);
         let game_history = vec![key];
-        let mut options = EngineOptions::default();
-        let mut startup_warnings = Vec::new();
-        let nnue = match NnueModel::shared_embedded_default() {
-            Some(Ok(model)) => {
-                options.eval_file = Some("embedded".to_owned());
-                Some(model)
-            }
-            Some(Err(error)) => {
-                startup_warnings.push(format!("embedded eval model failed to load: {error}"));
-                None
-            }
-            None => None,
-        };
-        let evaluator = Evaluator::new(nnue);
+        let options = EngineOptions::default();
         let transposition_table = TranspositionTable::new(options.hash_mb);
         let search_state = Arc::new(SharedSearchState::default());
         Self {
             board,
             game_history,
             options,
-            evaluator,
             transposition_table,
             search_state,
-            startup_warnings,
         }
     }
 }
@@ -103,15 +78,11 @@ impl Engine {
     }
 
     pub fn active_nnue_architecture_id(&self) -> Option<NnueArchitectureId> {
-        self.evaluator
-            .active_nnue_model()
-            .map(|model| model.architecture_id())
+        Some(NnueArchitectureId::Goliath)
     }
 
     pub fn loaded_nnue_architecture_id(&self) -> Option<NnueArchitectureId> {
-        self.evaluator
-            .loaded_nnue_model()
-            .map(|model| model.architecture_id())
+        self.active_nnue_architecture_id()
     }
 
     pub fn set_option(&mut self, name: &str, value: Option<&str>) -> Result<(), EngineError> {
@@ -120,38 +91,10 @@ impl Engine {
         if normalized == "clearhash" {
             self.clear_hash();
             return Ok(());
-        } else if normalized == "evalfile" {
-            self.set_eval_file_option(name, value)?;
         }
         apply_engine_option(&mut self.options, name, value)?;
-        if should_reset_transposition_table(&normalized, self.options.hash_mb, previous_hash_mb) {
+        if normalized == "hash" && self.options.hash_mb != previous_hash_mb {
             self.transposition_table = TranspositionTable::new(self.options.hash_mb);
-        }
-        Ok(())
-    }
-
-    fn set_eval_file_option(&mut self, name: &str, value: Option<&str>) -> Result<(), EngineError> {
-        let Some(path) = value else {
-            return Err(EngineError::InvalidOptionValue {
-                option: name.to_owned(),
-                value: "<missing>".to_owned(),
-            });
-        };
-        if path.eq_ignore_ascii_case("embedded") || path.starts_with("embedded:") {
-            let model = match NnueModel::shared_embedded_default() {
-                Some(Ok(model)) => model,
-                Some(Err(error)) => return Err(error),
-                None => {
-                    return Err(EngineError::InvalidEvalFile {
-                        path: path.to_owned(),
-                        message: "no embedded eval model was compiled in".to_owned(),
-                    });
-                }
-            };
-            self.evaluator.set_nnue_model(model);
-        } else {
-            let model = NnueModel::load_from_file(path)?;
-            self.evaluator.set_nnue_model(Arc::new(model));
         }
         Ok(())
     }
@@ -227,7 +170,6 @@ impl Engine {
     where
         F: FnMut(&SearchInfo),
     {
-        self.require_eval_model()?;
         let request = self.search_request_with_option_defaults(request);
         let candidate_moves = select_candidate_moves(
             &self.board,
@@ -250,7 +192,6 @@ impl Engine {
             search_state,
             self.options.threads,
             self.options.multi_pv,
-            self.evaluator.clone(),
             stop_flag,
             ponder_flag,
             observer,
@@ -338,65 +279,11 @@ impl Engine {
         formatted
     }
 
-    pub fn eval_file_option_value(&self) -> Option<&str> {
-        self.options.eval_file.as_deref()
-    }
-
-    pub fn show_wdl_option_value(&self) -> bool {
-        self.options.uci_show_wdl
-    }
-
-    pub fn show_uncertainty_option_value(&self) -> bool {
-        self.options.uci_show_uncertainty
-    }
-
-    pub fn startup_warnings(&self) -> &[String] {
-        &self.startup_warnings
-    }
-
-    pub fn pv_leaf_output(&self, pv: &[Move]) -> Option<PvLeafOutput> {
-        let root_side = crate::chess::side_to_move(&self.board);
-        let mut board = self.board.clone();
-        let mut history = self.game_history.clone();
-        for &mv in pv {
-            if crate::chess::status(&board) != GameStatus::Ongoing
-                || !crate::chess::is_legal(&board, mv)
-            {
-                break;
-            }
-            crate::chess::play_unchecked(&mut board, mv);
-            history.push(position_key(&board));
-        }
-
-        let leaf_side = crate::chess::side_to_move(&board);
-        let flip = leaf_side != root_side;
-        if is_claimable_repetition_draw(&board, &history) || is_board_drawn(&board) {
-            return Some(PvLeafOutput::Terminal([0, 1000, 0]));
-        }
-        match crate::chess::status(&board) {
-            GameStatus::Drawn => Some(PvLeafOutput::Terminal([0, 1000, 0])),
-            GameStatus::Won => Some(PvLeafOutput::Terminal(if flip {
-                [1000, 0, 0]
-            } else {
-                [0, 0, 1000]
-            })),
-            GameStatus::Ongoing => self.evaluator.active_nnue_model().map(|model| {
-                let output = model.output(&board);
-                PvLeafOutput::Nnue(if flip { output.flipped() } else { output })
-            }),
-        }
-    }
-
     pub fn verbose_eval(&self) -> Result<VerboseEval, EngineError> {
-        Ok(build_verbose_eval(
-            &self.board,
-            &self.evaluator,
-            self.static_eval()?,
-        ))
+        Ok(build_verbose_eval(&self.board, self.static_eval()?))
     }
 
     pub fn static_eval(&self) -> Result<StaticEval, EngineError> {
-        self.require_eval_model()?;
         if is_claimable_repetition_draw(&self.board, &self.game_history)
             || is_board_drawn(&self.board)
         {
@@ -408,32 +295,12 @@ impl Engine {
             GameStatus::Ongoing => {}
         }
 
-        let score_cp = self.evaluator.evaluate_for_side_to_move(&self.board);
+        let score_cp = Accumulator::from_board(&self.board).eval(&self.board);
         Ok(StaticEval {
             score_cp,
             score_mate: mate_score_to_uci(score_cp),
             source: StaticEvalSource::Nnue,
         })
-    }
-
-    fn require_eval_model(&self) -> Result<(), EngineError> {
-        if self.evaluator.has_nnue_model() {
-            Ok(())
-        } else {
-            Err(EngineError::MissingEvalFile)
-        }
-    }
-}
-
-fn should_reset_transposition_table(
-    normalized_option: &str,
-    hash_mb: u32,
-    previous_hash_mb: u32,
-) -> bool {
-    match normalized_option {
-        "hash" => hash_mb != previous_hash_mb,
-        "evalfile" => true,
-        _ => false,
     }
 }
 

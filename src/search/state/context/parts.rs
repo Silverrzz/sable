@@ -3,12 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{
-    Board,
-    evaluation::{Evaluator, NnueAccumulators, NnueFinnyTable},
-};
-
-use super::{EvalPending, SearchContext};
+use super::SearchContext;
 use crate::search::{
     constants::MAX_ORDERING_PLY,
     constants::STOP_CHECK_NODE_INTERVAL,
@@ -39,16 +34,6 @@ pub(super) struct SearchControls<'a> {
     pub(super) lazy_stop_flag: Option<&'a AtomicBool>,
     pub(super) ponder_flag: Option<&'a AtomicBool>,
     pub(super) was_pondering: bool,
-}
-
-pub(super) struct EvalStackState {
-    pub(super) evaluator: Evaluator,
-    pub(super) stack: Vec<NnueAccumulators>,
-    pub(super) ply: usize,
-    pub(super) boards: Vec<Board>,
-    pub(super) pending: Vec<EvalPending>,
-    pub(super) materialized: usize,
-    pub(super) finny: Option<NnueFinnyTable>,
 }
 
 pub(super) struct RepetitionState {

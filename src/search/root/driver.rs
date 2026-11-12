@@ -3,7 +3,7 @@ use std::{
     time::Instant,
 };
 
-use crate::{Board, Move, evaluation::Evaluator};
+use crate::{Board, Move};
 
 use super::super::{
     state::{
@@ -34,7 +34,6 @@ pub(crate) fn dispatch_search<F>(
     search_state: PersistentSearchState,
     threads: u32,
     multi_pv: u32,
-    evaluator: Evaluator,
     stop_flag: Option<&AtomicBool>,
     ponder_flag: Option<&AtomicBool>,
     observer: F,
@@ -58,7 +57,6 @@ where
             transposition_table,
             search_state,
             search_threads,
-            evaluator,
             stop_flag,
             ponder_flag,
             started,
@@ -76,7 +74,6 @@ where
             budget,
             transposition_table,
             search_state,
-            evaluator,
             started,
             worker_id: 0,
             multi_pv,
@@ -104,7 +101,6 @@ pub(in crate::search) struct RootSearchJob<'a> {
     pub(in crate::search) budget: SearchBudget,
     pub(in crate::search) transposition_table: TranspositionTable,
     pub(in crate::search) search_state: PersistentSearchState,
-    pub(in crate::search) evaluator: Evaluator,
     pub(in crate::search) started: Instant,
     pub(in crate::search) worker_id: usize,
     pub(in crate::search) multi_pv: u32,
@@ -130,7 +126,6 @@ where
         budget,
         transposition_table,
         search_state,
-        evaluator,
         started,
         worker_id,
         multi_pv,
@@ -146,7 +141,6 @@ where
         hard_time_ms: budget.hard_time_ms,
         node_limit: request.limits.hard_nodes.or(request.limits.nodes),
         soft_node_limit: request.limits.soft_nodes,
-        evaluator,
         stop_flag,
         ponder_flag,
         game_history,

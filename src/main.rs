@@ -293,7 +293,7 @@ fn run_bench_once() -> Result<BenchResult> {
         .active_nnue_architecture_id()
         .map(|id| id.as_str())
         .unwrap_or("none");
-    let eval_file = engine.eval_file_option_value().unwrap_or("none").to_owned();
+    let eval_file = embedded_eval_label().unwrap_or("embedded").to_owned();
 
     let mut total_nodes = 0_u64;
     let mut total_search_ms = 0_u64;
@@ -430,7 +430,7 @@ fn run_bmt5k() -> Result<()> {
     };
 
     let result = engine.search_with_observer(&request, None, |info| {
-        println!("{}", uci::format_uci_info(&engine, info, false));
+        println!("{}", uci::format_uci_info(&engine, info));
     })?;
 
     match result.best_move {

@@ -3,10 +3,7 @@ use std::{
     time::Instant,
 };
 
-use crate::{
-    Board, Move,
-    evaluation::{Evaluator, evaluate_position, scale_rule50_score},
-};
+use crate::{Board, Move, Piece, nnue::Nnue};
 
 use super::{
     correction_history::CorrectionHistory,
@@ -19,14 +16,14 @@ use crate::search::{constants::*, moves::move_ordering::MoveOrdering};
 mod parts;
 
 use parts::{
-    EvalStackState, NodeCounters, RepetitionState, SearchClock, SearchControls, SearchHeuristics,
+    NodeCounters, RepetitionState, SearchClock, SearchControls, SearchHeuristics,
 };
 
 pub(in crate::search) struct SearchContext<'a> {
     clock: SearchClock,
     counters: NodeCounters<'a>,
     controls: SearchControls<'a>,
-    eval: EvalStackState,
+    nnue: Nnue,
     repetition: RepetitionState,
     heuristics: SearchHeuristics,
 }
@@ -37,23 +34,11 @@ pub(in crate::search) struct SearchContextConfig<'a> {
     pub(in crate::search) hard_time_ms: Option<u64>,
     pub(in crate::search) node_limit: Option<u64>,
     pub(in crate::search) soft_node_limit: Option<u64>,
-    pub(in crate::search) evaluator: Evaluator,
     pub(in crate::search) stop_flag: Option<&'a AtomicBool>,
     pub(in crate::search) ponder_flag: Option<&'a AtomicBool>,
     pub(in crate::search) game_history: &'a [PositionKey],
     pub(in crate::search) transposition_table: TranspositionTable,
     pub(in crate::search) search_state: PersistentSearchState,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum EvalPending {
-    Root,
-    Move {
-        mv: Move,
-        moving_piece: crate::Piece,
-        captured_piece: Option<crate::Piece>,
-    },
-    NullMove,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -78,7 +63,6 @@ impl<'a> SearchContext<'a> {
             hard_time_ms,
             node_limit,
             soft_node_limit,
-            evaluator,
             stop_flag,
             ponder_flag,
             game_history,
@@ -94,42 +78,6 @@ impl<'a> SearchContext<'a> {
         let history_without_current = game_history.len().saturating_sub(1);
         let mut repetition_table = Vec::with_capacity(game_history.len() + MAX_ORDERING_PLY);
         repetition_table.extend_from_slice(&game_history[..history_without_current]);
-        let eval_state = evaluator
-            .active_nnue_model()
-            .and_then(|nnue| nnue.initial_accumulators(root_board));
-        let mut eval_stack = Vec::with_capacity(MAX_ORDERING_PLY + 1);
-        if let Some(accumulators) = eval_state {
-            eval_stack.push(accumulators);
-            while eval_stack.len() < MAX_ORDERING_PLY + 1 {
-                let accumulator = crate::evaluation::NnueAccumulators::empty_like(&eval_stack[0]);
-                eval_stack.push(accumulator);
-            }
-        }
-        let mut eval_boards = Vec::with_capacity(MAX_ORDERING_PLY + 1);
-        eval_boards.push(root_board.clone());
-        let mut eval_pending = Vec::with_capacity(MAX_ORDERING_PLY + 1);
-        eval_pending.push(EvalPending::Root);
-        if !eval_stack.is_empty() {
-            while eval_boards.len() < MAX_ORDERING_PLY + 1 {
-                eval_boards.push(root_board.clone());
-                eval_pending.push(EvalPending::Root);
-            }
-        }
-        let mut eval_finny = evaluator
-            .active_nnue_model()
-            .and_then(|nnue| nnue.new_finny_table());
-        let seeded_finny = if let (Some(model), Some(accumulators), Some(table)) = (
-            evaluator.active_nnue_model(),
-            eval_stack.first(),
-            eval_finny.as_mut(),
-        ) {
-            model.seed_finny_table(table, root_board, accumulators)
-        } else {
-            eval_finny.is_none()
-        };
-        if !seeded_finny {
-            eval_finny = None;
-        }
         let was_pondering = ponder_flag
             .map(|flag| flag.load(Ordering::Relaxed))
             .unwrap_or(false);
@@ -158,15 +106,7 @@ impl<'a> SearchContext<'a> {
                 ponder_flag,
                 was_pondering,
             },
-            eval: EvalStackState {
-                evaluator,
-                stack: eval_stack,
-                ply: 0,
-                boards: eval_boards,
-                pending: eval_pending,
-                materialized: 0,
-                finny: eval_finny,
-            },
+            nnue: Nnue::new(root_board),
             repetition: RepetitionState {
                 game_history,
                 path_keys: repetition_table,
@@ -211,123 +151,23 @@ impl<'a> SearchContext<'a> {
         debug_assert_eq!(popped, Some(key));
     }
 
-    fn push_eval_frame(&mut self, after: &Board, pending: EvalPending) {
-        if self.eval.stack.is_empty() {
-            return;
-        }
-        let next_ply = self.eval.ply + 1;
-        debug_assert!(next_ply <= self.eval.boards.len());
-        if next_ply == self.eval.boards.len() {
-            self.eval.boards.push(after.clone());
-            self.eval.pending.push(pending);
-        } else {
-            self.eval.boards[next_ply].clone_from(after);
-            self.eval.pending[next_ply] = pending;
-        }
-        self.eval.ply = next_ply;
-    }
-
     pub(in crate::search) fn push_eval_state(
         &mut self,
-        after: &Board,
+        board: &Board,
         mv: Move,
-        moving_piece: crate::Piece,
-        captured_piece: Option<crate::Piece>,
+        moving_piece: Piece,
+        captured_piece: Option<Piece>,
     ) {
-        self.push_eval_frame(
-            after,
-            EvalPending::Move {
-                mv,
-                moving_piece,
-                captured_piece,
-            },
-        );
+        self.nnue.make_move(board, mv, moving_piece, captured_piece);
     }
 
     pub(in crate::search) fn pop_eval_state(&mut self) {
-        if self.eval.stack.is_empty() {
-            return;
-        };
-        debug_assert!(self.eval.ply > 0);
-        self.eval.ply = self.eval.ply.saturating_sub(1);
-        self.eval.materialized = self.eval.materialized.min(self.eval.ply);
-    }
-
-    pub(in crate::search) fn push_null_eval_state(&mut self, after: &Board) {
-        self.push_eval_frame(after, EvalPending::NullMove);
-    }
-
-    pub(in crate::search) fn pop_null_eval_state(&mut self) {
-        if self.eval.stack.is_empty() {
-            return;
-        };
-        debug_assert!(self.eval.ply > 0);
-        self.eval.ply = self.eval.ply.saturating_sub(1);
-        self.eval.materialized = self.eval.materialized.min(self.eval.ply);
-    }
-
-    /// brings current eval ply up to date
-    fn materialize_eval_stack(&mut self) {
-        while self.eval.materialized < self.eval.ply {
-            let ply = self.eval.materialized + 1;
-            if ply == self.eval.stack.len() {
-                let empty =
-                    crate::evaluation::NnueAccumulators::empty_like(&self.eval.stack[ply - 1]);
-                self.eval.stack.push(empty);
-            }
-            let Some(model) = self.eval.evaluator.active_nnue_model() else {
-                return;
-            };
-            let before = &self.eval.boards[ply - 1];
-            let after = &self.eval.boards[ply];
-            let (previous, next) = self.eval.stack.split_at_mut(ply);
-            let source = &previous[ply - 1];
-            let target = &mut next[0];
-            let updated = match self.eval.pending[ply] {
-                EvalPending::Move {
-                    mv,
-                    moving_piece,
-                    captured_piece,
-                } => model.update_accumulators_after_move(
-                    source,
-                    target,
-                    before,
-                    after,
-                    mv,
-                    moving_piece,
-                    captured_piece,
-                    self.eval.finny.as_mut(),
-                ),
-                EvalPending::NullMove => {
-                    target.clone_from(source);
-                    model.apply_null_move_delta(target, before)
-                }
-                EvalPending::Root => {
-                    target.clone_from(source);
-                    true
-                }
-            };
-            if !updated {
-                model.refresh_accumulators_into_with_finny(target, after, self.eval.finny.as_mut());
-            }
-            self.eval.materialized = ply;
-        }
+        self.nnue.unmake_move();
     }
 
     pub(in crate::search) fn evaluate(&mut self, board: &Board) -> i32 {
-        if !self.eval.stack.is_empty() {
-            self.materialize_eval_stack();
-        }
-        if let (Some(model), Some(accumulators)) = (
-            self.eval.evaluator.active_nnue_model(),
-            self.eval.stack.get(self.eval.ply),
-        ) {
-            return scale_rule50_score(
-                board,
-                model.evaluate_for_side_to_move_with_accumulators(board, accumulators),
-            );
-        }
-        evaluate_position(board, &self.eval.evaluator)
+        self.nnue.update(board);
+        self.nnue.eval(board)
     }
 
     pub(in crate::search) fn refresh_static_eval_at_ply(

@@ -170,15 +170,6 @@ fn write_setoption_success(
     name: String,
     value: Option<String>,
 ) -> Result<()> {
-    let normalized_name = name.to_ascii_lowercase().replace(' ', "");
-    if normalized_name == "evalfile" {
-        writeln!(
-            stdout,
-            "info string eval file loaded: {}",
-            value.clone().unwrap_or_default()
-        )?;
-        stdout.flush()?;
-    }
     if debug_enabled {
         writeln!(
             stdout,
